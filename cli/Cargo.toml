@@ -52,10 +52,13 @@ walkdir = "2.5"
 # (LockFileEx) and Unix (flock). Audit fix L4 (v0.3.0).
 fs2 = "0.4"
 # Cross-platform PID liveness check used by `build_lock::contention_error`
-# (B-018). When a stale `.lock` stamp PID is reported, we annotate the
-# error with `(stale stamp from PID N — race anyway)` so users don't
-# chase a zombie. Workspace-pinned at 0.32; already in Cargo.lock via
-# `mneme-supervisor`, so this row adds no extra crate to the build.
+# sysinfo — used by two features:
+# (B-018) `build_lock::contention_error` annotates dead-PID stamps with
+#   `(stale stamp from PID N — race anyway)` so users don't chase a zombie.
+# (`mneme abort`) cross-platform PID liveness check on the PID stored
+#   inside `~/.mneme/projects/<id>/.lock` for graceful build cancellation.
+# Workspace-pinned at 0.32; already in Cargo.lock via `mneme-supervisor`,
+# so this row adds no extra crate to the build.
 sysinfo = { workspace = true }
 # ripgrep's gitignore parser — powers `.mnemeignore` + `.gitignore`
 # support in `mneme build` (P16). Supports nested ignore files and the
@@ -99,12 +102,6 @@ chrono = { workspace = true }
 # and a time-ordered uuid for `ledger_entries.id`.
 blake3 = { workspace = true }
 uuid = { workspace = true }
-# `mneme abort` (graceful build cancellation) — needs cross-platform
-# liveness check on the PID stored inside `~/.mneme/projects/<id>/.lock`.
-# We can't shell out to `tasklist`/`ps` without losing portability and
-# parsability; sysinfo is already used in the supervisor (manager.rs)
-# for the same job, so reusing it keeps the workspace consistent.
-sysinfo = { workspace = true }
 # SEC-2: secrets_redact module scrubs AWS / OpenAI / Anthropic / Slack /
 # GitHub credential shapes from prompts before they hit history.db.
 # Using the workspace-pinned regex version keeps every crate on the
