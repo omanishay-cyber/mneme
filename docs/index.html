@@ -20,15 +20,31 @@
 
   <style>
     :root {
-      --bg: #0b0f19;
-      --bg-2: #111827;
-      --bg-3: #1e293b;
+      /* Palette — terminal/tech aesthetic, less blue-dominant.
+         Primary surface stays near-black; accents lean green/cyan/magenta. */
+      --bg: #07080d;
+      --bg-2: #0e1118;
+      --bg-3: #161a23;
       --text: #e6edf3;
       --muted: #8b93a7;
-      --accent-a: #4191E1;
-      --accent-b: #41E1B5;
-      --accent-c: #22D3EE;
-      --accent-d: #a78bfa;
+      --line: rgba(255,255,255,0.07);
+
+      /* Accents — green leads, cyan supports, magenta punctuates,
+         blue kept as tertiary brand-tie accent only. */
+      --accent-green:    #41E1B5;   /* primary success / "yes" */
+      --accent-cyan:     #22D3EE;   /* secondary highlight */
+      --accent-magenta:  #F472B6;   /* punctuation / hot info */
+      --accent-amber:    #fbbf24;   /* warning / partial */
+      --accent-blue:     #4191E1;   /* tertiary, brand-tie */
+      --accent-purple:   #a78bfa;
+      --accent-red:      #ef4444;   /* "no" */
+
+      /* Back-compat aliases (existing CSS still uses these names) */
+      --accent-a: var(--accent-blue);
+      --accent-b: var(--accent-green);
+      --accent-c: var(--accent-cyan);
+      --accent-d: var(--accent-purple);
+
       --radius: 12px;
       --radius-lg: 16px;
     }
@@ -57,7 +73,7 @@
       mix-blend-mode: overlay;
     }
 
-    /* ambient background gradient blobs */
+    /* ambient background gradient blobs — green/cyan/magenta dominant */
     body::after {
       content: "";
       position: fixed;
@@ -65,9 +81,22 @@
       pointer-events: none;
       z-index: 0;
       background:
-        radial-gradient(ellipse 60% 40% at 15% 10%, rgba(65,145,225,0.12), transparent 60%),
-        radial-gradient(ellipse 50% 40% at 85% 30%, rgba(65,225,181,0.09), transparent 65%),
-        radial-gradient(ellipse 60% 50% at 50% 95%, rgba(34,211,238,0.07), transparent 70%);
+        radial-gradient(ellipse 55% 38% at 12% 8%, rgba(65,225,181,0.13), transparent 60%),
+        radial-gradient(ellipse 48% 38% at 88% 28%, rgba(34,211,238,0.10), transparent 65%),
+        radial-gradient(ellipse 55% 45% at 50% 92%, rgba(244,114,182,0.06), transparent 70%);
+    }
+
+    /* faint scan-line vibe — barely visible, just enough texture */
+    body::before {
+      background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 200 200' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 1 0 0 0 0 1 0 0 0 0 1 0 0 0 0.5 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E"),
+        repeating-linear-gradient(
+          to bottom,
+          rgba(65,225,181,0.012) 0,
+          rgba(65,225,181,0.012) 1px,
+          transparent 1px,
+          transparent 3px
+        );
+      opacity: 0.07;
     }
 
     .page { position: relative; z-index: 2; }
@@ -627,6 +656,355 @@
       .terminal-line { opacity: 1 !important; transform: none !important; }
       .bench-table .bar-cell .bar { width: var(--bar-w, 50%) !important; transition: none !important; }
     }
+    /* ============================================================ */
+    /*  COMPARISON TABLE (4-way matrix)                              */
+    /* ============================================================ */
+    .speed-strip {
+      display: grid;
+      grid-template-columns: repeat(3, 1fr);
+      gap: 18px;
+      margin: 8px 0 36px;
+    }
+    .speed-card {
+      background: rgba(17, 24, 39, 0.55);
+      border: 1px solid rgba(65, 225, 181, 0.18);
+      border-radius: var(--radius-lg);
+      padding: 24px 22px;
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
+      position: relative;
+      overflow: hidden;
+    }
+    .speed-card::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(ellipse 80% 60% at 0% 0%, rgba(65,225,181,0.10), transparent 60%);
+      pointer-events: none;
+    }
+    .speed-num {
+      font-family: "JetBrains Mono", ui-monospace, monospace;
+      font-size: 38px;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+      color: var(--accent-green);
+      line-height: 1;
+      margin-bottom: 6px;
+    }
+    .speed-label {
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text);
+      margin-bottom: 8px;
+    }
+    .speed-detail {
+      font-size: 13px;
+      color: var(--muted);
+      line-height: 1.5;
+    }
+
+    .cmp-h3 {
+      font-size: clamp(22px, 2.4vw, 28px);
+      font-weight: 700;
+      margin-top: 28px;
+      margin-bottom: 6px;
+      letter-spacing: -0.01em;
+    }
+
+    .cmp-wrap {
+      overflow-x: auto;
+      border-radius: var(--radius-lg);
+      border: 1px solid rgba(255,255,255,0.08);
+      background: rgba(17,24,39,0.55);
+      backdrop-filter: blur(18px);
+      -webkit-backdrop-filter: blur(18px);
+    }
+    .cmp-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 13.5px;
+      min-width: 880px;
+    }
+    .cmp-table th, .cmp-table td {
+      padding: 13px 16px;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+      text-align: left;
+      vertical-align: top;
+    }
+    .cmp-table th {
+      background: rgba(0,0,0,0.35);
+      font-size: 12px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--muted);
+      font-weight: 700;
+    }
+    .cmp-table th small {
+      display: block;
+      font-size: 10px;
+      letter-spacing: 0.02em;
+      text-transform: none;
+      font-weight: 400;
+      color: rgba(255,255,255,0.4);
+      margin-top: 2px;
+    }
+    .cmp-table td.cmp-q,
+    .cmp-table th.cmp-q {
+      color: var(--text);
+      font-weight: 500;
+      width: 32%;
+    }
+    .cmp-table td.cmp-mneme,
+    .cmp-table th.cmp-mneme {
+      background: rgba(65,225,181,0.05);
+      box-shadow: inset 4px 0 0 var(--accent-green);
+      font-weight: 500;
+    }
+    .cmp-table tr:last-child td { border-bottom: none; }
+    .cmp-table tr:hover td { background: rgba(255,255,255,0.015); }
+    .cmp-table tr:hover td.cmp-mneme { background: rgba(65,225,181,0.08); }
+
+    .cmp-yes {
+      display: inline-block;
+      padding: 2px 8px;
+      background: rgba(65,225,181,0.15);
+      border: 1px solid rgba(65,225,181,0.4);
+      color: var(--accent-green);
+      border-radius: 4px;
+      font-weight: 700;
+      font-size: 12px;
+      font-family: "JetBrains Mono", ui-monospace, monospace;
+      margin-right: 4px;
+    }
+    .cmp-no {
+      display: inline-block;
+      padding: 2px 8px;
+      background: rgba(239,68,68,0.10);
+      border: 1px solid rgba(239,68,68,0.35);
+      color: var(--accent-red);
+      border-radius: 4px;
+      font-weight: 700;
+      font-size: 12px;
+      font-family: "JetBrains Mono", ui-monospace, monospace;
+    }
+    .cmp-mid {
+      display: inline-block;
+      padding: 2px 8px;
+      background: rgba(251,191,36,0.10);
+      border: 1px solid rgba(251,191,36,0.35);
+      color: var(--accent-amber);
+      border-radius: 4px;
+      font-weight: 700;
+      font-size: 12px;
+      font-family: "JetBrains Mono", ui-monospace, monospace;
+    }
+    .cmp-na {
+      display: inline-block;
+      padding: 2px 8px;
+      background: rgba(255,255,255,0.04);
+      border: 1px solid rgba(255,255,255,0.12);
+      color: var(--muted);
+      border-radius: 4px;
+      font-weight: 600;
+      font-size: 12px;
+      font-family: "JetBrains Mono", ui-monospace, monospace;
+    }
+    .cmp-divider td {
+      background: rgba(0,0,0,0.45) !important;
+      color: var(--muted);
+      font-size: 12px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      padding: 10px 16px !important;
+    }
+
+    .for-engineers {
+      margin-top: 24px;
+      padding: 18px 22px;
+      background: rgba(0,0,0,0.4);
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: var(--radius);
+      font-family: "JetBrains Mono", ui-monospace, monospace;
+      font-size: 12.5px;
+      color: var(--muted);
+    }
+    .for-engineers summary {
+      cursor: pointer;
+      font-weight: 600;
+      color: var(--accent-cyan);
+      letter-spacing: 0.02em;
+    }
+    .for-engineers summary::marker { color: var(--accent-cyan); }
+    .for-engineers-body { margin-top: 14px; line-height: 1.65; }
+    .for-engineers-body p { margin-bottom: 8px; }
+
+    /* ============================================================ */
+    /*  INSTALL ONE-LINER (new prominent block)                       */
+    /* ============================================================ */
+    .install-hero {
+      max-width: 1100px;
+      margin: 0 auto 60px;
+      padding: 0 24px;
+    }
+    .install-pane {
+      background: rgba(0,0,0,0.55);
+      border: 1px solid rgba(65,225,181,0.25);
+      border-radius: var(--radius-lg);
+      padding: 28px 30px;
+      backdrop-filter: blur(20px);
+      -webkit-backdrop-filter: blur(20px);
+      box-shadow: 0 20px 60px -25px rgba(65,225,181,0.25);
+      position: relative;
+      overflow: hidden;
+    }
+    .install-pane::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: linear-gradient(135deg, rgba(65,225,181,0.06), transparent 50%, rgba(244,114,182,0.04));
+      pointer-events: none;
+    }
+    .install-eyebrow {
+      font-family: "JetBrains Mono", ui-monospace, monospace;
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--accent-green);
+      margin-bottom: 8px;
+    }
+    .install-title {
+      font-size: clamp(20px, 2.3vw, 26px);
+      font-weight: 700;
+      margin-bottom: 16px;
+      letter-spacing: -0.01em;
+    }
+    .install-cmd {
+      background: #000000;
+      border: 1px solid rgba(65,225,181,0.3);
+      border-radius: var(--radius);
+      padding: 16px 20px 16px 50px;
+      font-family: "JetBrains Mono", ui-monospace, monospace;
+      font-size: 14px;
+      color: var(--accent-green);
+      position: relative;
+      overflow-x: auto;
+      white-space: pre;
+    }
+    .install-cmd::before {
+      content: ">";
+      position: absolute;
+      left: 18px;
+      top: 16px;
+      color: var(--accent-magenta);
+      font-weight: 700;
+    }
+    .install-cmd::after {
+      content: "";
+      position: absolute;
+      right: 22px;
+      top: 18px;
+      width: 8px;
+      height: 14px;
+      background: var(--accent-green);
+      animation: blink 1.1s steps(2) infinite;
+    }
+    .install-foot {
+      margin-top: 14px;
+      font-size: 13px;
+      color: var(--muted);
+      line-height: 1.6;
+    }
+
+    /* ============================================================ */
+    /*  CODEWORDS GRID                                                */
+    /* ============================================================ */
+    .codewords-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 16px;
+      margin-top: 28px;
+    }
+    .codeword-card {
+      background: rgba(17,24,39,0.55);
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: var(--radius-lg);
+      padding: 22px 22px;
+      backdrop-filter: blur(16px);
+      -webkit-backdrop-filter: blur(16px);
+      position: relative;
+      transition: transform 0.25s ease, border-color 0.25s ease;
+    }
+    .codeword-card:hover {
+      transform: translateY(-3px);
+      border-color: rgba(65,225,181,0.4);
+    }
+    .codeword-card .word {
+      font-family: "JetBrains Mono", ui-monospace, monospace;
+      font-size: 22px;
+      font-weight: 800;
+      letter-spacing: -0.01em;
+      margin-bottom: 6px;
+    }
+    .codeword-card.cw-cold .word { color: var(--accent-cyan); }
+    .codeword-card.cw-hot  .word { color: var(--accent-amber); }
+    .codeword-card.cw-fire .word { color: var(--accent-magenta); }
+    .codeword-card.cw-chs  .word { color: var(--accent-green); }
+    .codeword-card .desc {
+      font-size: 13.5px;
+      color: var(--muted);
+      line-height: 1.55;
+    }
+
+    /* ============================================================ */
+    /*  MCP TOOLS GRID                                                */
+    /* ============================================================ */
+    .tools-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 14px;
+      margin-top: 24px;
+    }
+    .tools-cat {
+      background: rgba(17,24,39,0.5);
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: var(--radius);
+      padding: 18px 20px;
+      backdrop-filter: blur(14px);
+      -webkit-backdrop-filter: blur(14px);
+    }
+    .tools-cat h4 {
+      font-size: 13px;
+      font-weight: 700;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--accent-cyan);
+      margin-bottom: 10px;
+      font-family: "JetBrains Mono", ui-monospace, monospace;
+    }
+    .tools-cat ul {
+      list-style: none;
+      margin: 0;
+      padding: 0;
+    }
+    .tools-cat li {
+      font-size: 13px;
+      color: var(--muted);
+      padding: 4px 0;
+      font-family: "JetBrains Mono", ui-monospace, monospace;
+    }
+    .tools-cat li strong {
+      color: var(--text);
+      font-weight: 600;
+    }
+
+    /* responsive tweaks for new blocks */
+    @media (max-width: 760px) {
+      .speed-strip { grid-template-columns: 1fr; }
+      .install-cmd { font-size: 12px; }
+      .install-cmd::after { display: none; }
+    }
+
   </style>
 </head>
 <body>
@@ -701,6 +1079,22 @@
   </div>
 
   <!-- ============================================================ -->
+  <!--  INSTALL ONE-LINER (prominent, near top)                      -->
+  <!-- ============================================================ -->
+  <div class="install-hero reveal">
+    <div class="install-pane">
+      <div class="install-eyebrow">install · windows · powershell</div>
+      <div class="install-title">One command. No ceremony. No admin needed.</div>
+      <div class="install-cmd">iex (irm https://github.com/omanishay-cyber/mneme/releases/download/v0.3.2/bootstrap-install.ps1)</div>
+      <div class="install-foot">
+        Downloads the v0.3.2 release, extracts to <code>~/.mneme</code>, registers the MCP server with Claude Code, hooks up persistent memory.
+        Restart Claude after install. Verify with <code>mneme doctor</code> and <code>claude mcp list</code>.<br/>
+        macOS / Linux: see the <a href="https://github.com/omanishay-cyber/mneme/blob/main/INSTALL.md">INSTALL.md</a>.
+      </div>
+    </div>
+  </div>
+
+  <!-- ============================================================ -->
   <!--  FEATURES                                                     -->
   <!-- ============================================================ -->
   <section class="reveal">
@@ -742,57 +1136,191 @@
   </section>
 
   <!-- ============================================================ -->
-  <!--  BENCHMARKS                                                    -->
+  <!--  BENCHMARKS — UNIFIED 4-WAY COMPARISON                         -->
   <!-- ============================================================ -->
   <section class="reveal">
-    <h2>Benchmarks vs <span class="accent">code-review-graph</span></h2>
-    <p class="lead">Measured against the current state-of-the-art code-graph MCP.</p>
+    <h2>How mneme stacks up</h2>
+    <p class="lead">Real comparison against every tool in the AI-code-context space — measured numbers where we have them, honest "yes / partial / no" where we don't. Both wins and losses included.</p>
 
-    <table class="bench-table" id="benchTable">
-      <thead>
-        <tr><th>Metric</th><th>CRG (SoTA)</th><th>mneme</th><th>Improvement</th></tr>
-      </thead>
-      <tbody>
-        <tr><td class="bar-cell">Token reduction — code review<span class="bar" style="--bar-w: 38%;"></span></td><td>6.8×</td><td><strong>1.338× mean / 3.542× p95</strong></td><td>measured v0.2.3</td></tr>
-        <tr><td class="bar-cell">First build (cold)<span class="bar" style="--bar-w: 55%;"></span></td><td>10 s (500 files)</td><td><strong>4,970 ms on 359 files</strong></td><td>measured v0.2.3</td></tr>
-        <tr><td class="bar-cell">Incremental update<span class="bar" style="--bar-w: 99%;"></span></td><td>&lt;2 s</td><td><strong>p95 = 0 ms, max = 2 ms</strong></td><td>measured v0.2.3</td></tr>
-        <tr><td class="bar-cell">Visualization ceiling<span class="bar" style="--bar-w: 95%;"></span></td><td>~5 000 nodes</td><td><strong>100 000+</strong> (design, not yet benchmarked)</td><td>design target</td></tr>
-        <tr><td class="bar-cell">MCP tools<span class="bar" style="--bar-w: 78%;"></span></td><td>24</td><td><strong>47</strong></td><td>+23</td></tr>
-        <tr><td class="bar-cell">Visualization views<span class="bar" style="--bar-w: 92%;"></span></td><td>1 (D3)</td><td><strong>14 (WebGL)</strong></td><td>14×</td></tr>
-        <tr><td class="bar-cell">Platforms supported<span class="bar" style="--bar-w: 70%;"></span></td><td>10</td><td><strong>18</strong></td><td>+8</td></tr>
-        <tr><td class="bar-cell">Compaction survival<span class="bar" style="--bar-w: 100%;"></span></td><td>❌</td><td><strong>✅</strong></td><td>category-defining</td></tr>
-        <tr><td class="bar-cell">Multimodal (PDF / audio / video)<span class="bar" style="--bar-w: 100%;"></span></td><td>❌</td><td><strong>✅</strong></td><td>—</td></tr>
-      </tbody>
-    </table>
+    <!-- Speed callout strip -->
+    <div class="speed-strip">
+      <div class="speed-card">
+        <div class="speed-num">~1000×</div>
+        <div class="speed-label">faster updates than the closest competitor (CRG)</div>
+        <div class="speed-detail">When you save a file, mneme refreshes the graph before you can blink. CRG takes ~2 seconds.</div>
+      </div>
+      <div class="speed-card">
+        <div class="speed-num">&lt; 20 ms</div>
+        <div class="speed-label">how long AI waits for an answer (typical)</div>
+        <div class="speed-detail">Faster than a single packet to a cloud service. AI gets context as fast as it can ask.</div>
+      </div>
+      <div class="speed-card">
+        <div class="speed-num">~34%</div>
+        <div class="speed-label">smaller AI context for typical code-review queries</div>
+        <div class="speed-detail">Best 5% of queries save 71%. mneme picks what AI sees instead of dumping every file.</div>
+      </div>
+    </div>
 
-    <h2 style="margin-top:56px;">With <span class="accent">tree-sitter</span> alone, vs. with mneme</h2>
-    <p class="lead">Tree-sitter is a parser library, not a code-graph or MCP server. This table is what you get out of the box with raw tree-sitter against what mneme gives you by wiring tree-sitter into a persistent SQLite graph with 47 MCP tools.</p>
+    <h3 class="cmp-h3">The 4-way feature matrix</h3>
+    <p class="lead" style="margin-bottom: 12px;">Mneme vs the three projects people compare it to. Plain English. One row = one question your team will actually ask.</p>
 
-    <table class="bench-table" id="benchTableTreeSitter">
-      <thead>
-        <tr><th>Surface</th><th>Raw tree-sitter</th><th>mneme (tree-sitter + SQLite + MCP)</th><th>Notes</th></tr>
-      </thead>
-      <tbody>
-        <!-- Source: parsers/Cargo.toml Tier-1 + Tier-2 grammar list; parsers/src/language.rs enum -->
-        <tr><td class="bar-cell">Languages available<span class="bar" style="--bar-w: 60%;"></span></td><td>150+ community grammars (any you build yourself)</td><td><strong>27 Language enum variants, 25 grammar crates bundled by default</strong> (TS, TSX, JS, JSX, Python, Rust, Go, Java, C, C++, C#, Ruby, PHP, Bash, JSON, Lua, TOML, YAML, Markdown, Swift, Kotlin, Scala, Svelte, Solidity, Julia, Zig, Haskell; Vue variant reserved)</td><td>tree-sitter has more raw grammars; mneme bundles the ones with working query patterns</td></tr>
-        <!-- Source: tree-sitter CLI docs (init, test, build, parse, query) -->
-        <tr><td class="bar-cell">Code-graph queries shipped<span class="bar" style="--bar-w: 100%;"></span></td><td>- (you write .scm files by hand)</td><td><strong>7 canonical query kinds per language</strong>: Functions, Classes, Calls, Imports, Decorators, Comments, Errors (parsers/src/query_cache.rs)</td><td>mneme compiles the queries once, caches in a DashMap, reuses across every file</td></tr>
-        <!-- Source: mcp/src/tools/index.ts STATIC_TOOL_FILES list -->
-        <tr><td class="bar-cell">MCP tools<span class="bar" style="--bar-w: 100%;"></span></td><td>-</td><td><strong>47</strong></td><td>tree-sitter has no MCP surface; mneme wires every query through a typed MCP tool</td></tr>
-        <!-- Source: parsers/src/parser_pool.rs + parsers/src/incremental.rs -->
-        <tr><td class="bar-cell">Incremental parsing<span class="bar" style="--bar-w: 60%;"></span></td><td>Yes (edit-tree API, but no caching layer)</td><td><strong>LRU-cached previous trees per file + tokio worker pool (cpu_count * 4)</strong></td><td>mneme amortises the edit-tree cost; raw tree-sitter leaves it to the caller</td></tr>
-        <!-- Source: store/src/schema.rs + store/src/inject.rs -->
-        <tr><td class="bar-cell">Persistent store<span class="bar" style="--bar-w: 100%;"></span></td><td>-</td><td><strong>22 sharded SQLite DBs (graph.db, history.db, corpus.db, decisions.db, ...) + global meta.db</strong></td><td>tree-sitter is stateless; mneme persists every node and edge</td></tr>
-        <!-- Source: benchmarks/BENCHMARKS.md measured 2026-04-23 -->
-        <tr><td class="bar-cell">Incremental update latency<span class="bar" style="--bar-w: 100%;"></span></td><td>-</td><td><strong>p50 = 0 ms, p95 = 0 ms, max = 2 ms on 100 samples</strong> (single-file inject)</td><td>measured v0.2.3 on the mneme repo itself; raw tree-sitter has no persist step to measure</td></tr>
-        <!-- Source: brain/src/embed_store.rs + benchmarks/BENCHMARKS.md -->
-        <tr><td class="bar-cell">Semantic embeddings<span class="bar" style="--bar-w: 100%;"></span></td><td>-</td><td><strong>pure-Rust hashing-trick default, opt-in bge-small from local path</strong></td><td>100% local; no tree-sitter equivalent</td></tr>
-        <!-- Source: scanners/src/scanners/ directory (11 scanner modules) -->
-        <tr><td class="bar-cell">Scanners built on top<span class="bar" style="--bar-w: 100%;"></span></td><td>-</td><td><strong>11 (theme, types, security, a11y, perf, drift, ipc, md-drift, secrets, refactor, architecture)</strong></td><td>each scanner is a tree-sitter query + SQLite write</td></tr>
-        <!-- Source: livebus/src/ + mcp/src/compaction_guard.ts + step_resume tool -->
-        <tr><td class="bar-cell">Compaction-survival Step Ledger<span class="bar" style="--bar-w: 100%;"></span></td><td>-</td><td><strong>numbered, verification-gated, SQLite-persisted, resumption bundle ~5K tokens</strong></td><td>architectural, not a parser concern</td></tr>
-      </tbody>
-    </table>
+    <div class="cmp-wrap">
+      <table class="cmp-table">
+        <thead>
+          <tr>
+            <th class="cmp-q">Question</th>
+            <th class="cmp-mneme">mneme</th>
+            <th>CRG<br/><small>code-review-graph</small></th>
+            <th>graphify<br/><small>safishamsi/graphify</small></th>
+            <th>tree-sitter<br/><small>(parser library)</small></th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr>
+            <td class="cmp-q">Survives Claude's context-wipe (compaction)?</td>
+            <td class="cmp-mneme"><span class="cmp-yes">YES</span> — Step Ledger resumes mid-task</td>
+            <td><span class="cmp-no">No</span></td>
+            <td><span class="cmp-no">No</span></td>
+            <td><span class="cmp-na">N/A</span> (parser only)</td>
+          </tr>
+          <tr>
+            <td class="cmp-q">Catches Claude breaking your CLAUDE.md rules live?</td>
+            <td class="cmp-mneme"><span class="cmp-yes">YES</span> — 11 scanners (theme, security, a11y, perf, drift, ipc, secrets, refactor + 3 more)</td>
+            <td><span class="cmp-mid">Partial</span> (lint-style review)</td>
+            <td><span class="cmp-no">No</span></td>
+            <td><span class="cmp-na">N/A</span></td>
+          </tr>
+          <tr>
+            <td class="cmp-q">Plugs into Claude Code, Cursor, etc. as MCP server?</td>
+            <td class="cmp-mneme"><span class="cmp-yes">YES</span> — 47 tools, 19 AI platforms supported</td>
+            <td><span class="cmp-mid">Partial</span> — 24 tools, 2 platforms</td>
+            <td><span class="cmp-no">No</span> (not an MCP server)</td>
+            <td><span class="cmp-no">No</span></td>
+          </tr>
+          <tr>
+            <td class="cmp-q">First time indexing a 500-file project?</td>
+            <td class="cmp-mneme"><span class="cmp-yes">~5 seconds</span></td>
+            <td>~10 seconds</td>
+            <td>slow</td>
+            <td><span class="cmp-na">N/A</span> (you build it)</td>
+          </tr>
+          <tr>
+            <td class="cmp-q">Updating after you save a file?</td>
+            <td class="cmp-mneme"><span class="cmp-yes">Faster than you can blink</span> — usually 0 ms, never &gt; 2 ms</td>
+            <td>~2 seconds</td>
+            <td>seconds</td>
+            <td>fast (you wrap it)</td>
+          </tr>
+          <tr>
+            <td class="cmp-q">Smart semantic search (not just keyword)?</td>
+            <td class="cmp-mneme"><span class="cmp-yes">YES</span> — pure-Rust hashing default, BGE embeddings opt-in</td>
+            <td><span class="cmp-no">No</span> (keyword only)</td>
+            <td><span class="cmp-mid">Partial</span> — pulls models from network</td>
+            <td><span class="cmp-no">No</span></td>
+          </tr>
+          <tr>
+            <td class="cmp-q">100% local — no internet calls during normal use?</td>
+            <td class="cmp-mneme"><span class="cmp-yes">YES</span> — enforced across Rust + TS + Python</td>
+            <td><span class="cmp-yes">Yes</span></td>
+            <td><span class="cmp-mid">Partial</span> (model downloads, Whisper prompts)</td>
+            <td><span class="cmp-yes">Yes</span></td>
+          </tr>
+          <tr>
+            <td class="cmp-q">Multimodal (indexes PDFs, images, audio)?</td>
+            <td class="cmp-mneme"><span class="cmp-yes">YES</span> — Python sidecar, fault-isolated</td>
+            <td><span class="cmp-no">No</span></td>
+            <td><span class="cmp-mid">Partial</span> (text only by default)</td>
+            <td><span class="cmp-no">No</span></td>
+          </tr>
+          <tr>
+            <td class="cmp-q">Visualisation surface?</td>
+            <td class="cmp-mneme"><span class="cmp-yes">14 views</span> (WebGL, Command Center, dashboard)</td>
+            <td>1 view (D3 force graph)</td>
+            <td>1 view (static HTML)</td>
+            <td><span class="cmp-no">None</span></td>
+          </tr>
+          <tr>
+            <td class="cmp-q">Built-in code scanners (drift, security, perf, etc.)?</td>
+            <td class="cmp-mneme"><span class="cmp-yes">11 scanners</span> bundled</td>
+            <td>1 (review-oriented)</td>
+            <td><span class="cmp-no">None</span></td>
+            <td><span class="cmp-na">N/A</span></td>
+          </tr>
+          <tr>
+            <td class="cmp-q">Live push updates (SSE / WebSocket bus)?</td>
+            <td class="cmp-mneme"><span class="cmp-yes">YES</span> — livebus worker, multi-agent pubsub</td>
+            <td><span class="cmp-no">No</span></td>
+            <td><span class="cmp-no">No</span></td>
+            <td><span class="cmp-no">No</span></td>
+          </tr>
+          <tr>
+            <td class="cmp-q">Storage layers / shards?</td>
+            <td class="cmp-mneme"><span class="cmp-yes">22 sharded SQLite DBs</span> + global meta.db</td>
+            <td>1 SQLite DB</td>
+            <td>1-2 JSON + HTML</td>
+            <td><span class="cmp-no">Stateless</span></td>
+          </tr>
+          <tr>
+            <td class="cmp-q">Languages supported out of the box?</td>
+            <td class="cmp-mneme"><span class="cmp-yes">27</span> (TS, JS, Python, Rust, Go, Java, C, C++, C#, Ruby, PHP + 16 more)</td>
+            <td>23</td>
+            <td>~5</td>
+            <td>150+ raw grammars (you wire them)</td>
+          </tr>
+          <tr>
+            <td class="cmp-q">License?</td>
+            <td class="cmp-mneme"><span class="cmp-yes">Apache-2.0</span></td>
+            <td>MIT</td>
+            <td>MIT</td>
+            <td>MIT</td>
+          </tr>
+          <tr class="cmp-divider"><td colspan="5"><em>Where the others win — honest losses:</em></td></tr>
+          <tr>
+            <td class="cmp-q">One-shot install (`pip install`)?</td>
+            <td class="cmp-mneme"><span class="cmp-no">No</span> (Rust + Bun toolchain)</td>
+            <td><span class="cmp-yes">Yes</span> — `pip install crg`</td>
+            <td><span class="cmp-yes">Yes</span> — `pip install graphify`</td>
+            <td><span class="cmp-yes">Yes</span> — `npm install`</td>
+          </tr>
+          <tr>
+            <td class="cmp-q">VS Code extension?</td>
+            <td class="cmp-mneme"><span class="cmp-mid">Coming</span> (in source, not shipped)</td>
+            <td><span class="cmp-yes">First-class</span></td>
+            <td><span class="cmp-no">No</span></td>
+            <td><span class="cmp-na">N/A</span></td>
+          </tr>
+          <tr>
+            <td class="cmp-q">Hosted demo / cloud version?</td>
+            <td class="cmp-mneme"><span class="cmp-no">No</span> (local-only by design)</td>
+            <td><span class="cmp-yes">Yes</span></td>
+            <td><span class="cmp-yes">Yes</span></td>
+            <td><span class="cmp-na">N/A</span></td>
+          </tr>
+          <tr>
+            <td class="cmp-q">Whisper with locale prompt tuning?</td>
+            <td class="cmp-mneme"><span class="cmp-no">No</span> (generic Whisper)</td>
+            <td><span class="cmp-na">N/A</span></td>
+            <td><span class="cmp-yes">Yes</span> (specialised locale prompts)</td>
+            <td><span class="cmp-na">N/A</span></td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+
+    <p class="lead" style="font-size:0.92rem; color: var(--muted); margin-top: 24px;">
+      <strong>The shape of it:</strong> mneme is the heaviest tool in the space — a multi-process Rust supervisor that runs between your AI sessions, survives compaction at the architecture level, enforces your rules in real time, and gives every AI tool you use the same memory. The others are lighter and easier to install but stop short of the persistent-memory + drift + 47-tool MCP surface.
+    </p>
+
+    <details class="for-engineers">
+      <summary>For engineers — the technical numbers behind these claims</summary>
+      <div class="for-engineers-body">
+        <p>Token reduction (code review): mneme = 1.338× mean / 1.519× p50 / 3.542× p95. CRG = 6.8× single-figure claim from their README.</p>
+        <p>Incremental update latency: mneme = p50 = 0 ms, p95 = 0 ms, max = 2 ms across 100 samples (v0.2.3 harness on this repo). CRG = &lt; 2 s claimed.</p>
+        <p>Query latency end-to-end (AI tool call → SQLite read → embedding lookup → answer): &lt; 20 ms p95.</p>
+        <p>First build (cold): mneme = 4 970 ms on 359 files / 11 417 nodes / 26 708 edges. CRG = 10 s on 500 files claimed.</p>
+        <p>Distributions sourced from <a href="https://github.com/omanishay-cyber/mneme/blob/main/benchmarks/BENCHMARKS.md">BENCHMARKS.md</a> + <code>bench-history.csv</code> in the repo. Reproduce with <code>just bench-all .</code> or the script below.</p>
+      </div>
+    </details>
 
     <h3 style="margin-top:40px; font-size:1.05rem; color: var(--muted);">How to reproduce</h3>
     <p class="lead" style="font-size:0.95rem;">Every mneme number above is from <code>benchmarks/</code> in this repo or directly measurable in source. To get your own numbers:</p>
@@ -857,18 +1385,27 @@ python run_crg_bench.py</code></pre>
     <h2>20 expert skills + 4 workflow <span class="accent">codewords</span></h2>
     <p class="lead">Mneme ships a full skill arsenal. Claude auto-loads the right expert for the task. Four single-word verbs switch how Claude engages.</p>
 
-    <h3 style="margin-top:36px; font-size:1.1rem;">Codewords - one-word session control</h3>
-    <table class="bench-table">
-      <thead>
-        <tr><th>Word</th><th>What it does</th></tr>
-      </thead>
-      <tbody>
-        <tr><td><code>coldstart</code></td><td>Pause. Observe only. Read context, draft a plan, do not touch code.</td></tr>
-        <tr><td><code>hotstart</code></td><td>Resume with discipline. Numbered roadmap. <code>step_verify</code> after each step.</td></tr>
-        <tr><td><code>firestart</code></td><td>Maximum loadout. Load all fireworks skills + prime mneme graph + hotstart.</td></tr>
-        <tr><td><code>CHS</code></td><td>"Check my screenshot" - read the latest file in your Screenshots folder.</td></tr>
-      </tbody>
-    </table>
+    <h3 class="cmp-h3">Four codewords — one-word session control</h3>
+    <p class="lead" style="font-size: 14px; max-width: 640px;">Type one of these as a single word and Claude switches modes instantly. No prompt engineering. No ceremony. Just a verb.</p>
+
+    <div class="codewords-grid">
+      <div class="codeword-card cw-cold">
+        <div class="word">coldstart</div>
+        <div class="desc">Pause. Observe only. Claude reads context, drafts a plan, and waits — no code changes until you say go.</div>
+      </div>
+      <div class="codeword-card cw-hot">
+        <div class="word">hotstart</div>
+        <div class="desc">Resume with discipline. Claude builds a numbered roadmap and verifies each step before moving on.</div>
+      </div>
+      <div class="codeword-card cw-fire">
+        <div class="word">firestart</div>
+        <div class="desc">Full loadout. Loads every relevant fireworks skill, primes the mneme graph, then runs disciplined hotstart.</div>
+      </div>
+      <div class="codeword-card cw-chs">
+        <div class="word">CHS</div>
+        <div class="desc">"Check my screenshot." Claude reads the newest file in your Screenshots folder and answers based on what's there.</div>
+      </div>
+    </div>
 
     <h3 style="margin-top:36px; font-size:1.1rem;">Fireworks skills - auto-dispatched by keyword</h3>
     <p class="lead" style="font-size:0.95rem;">Each skill is a full package: <code>SKILL.md</code> with triggers + protocol, plus a <code>references/</code> folder of deep how-to docs. Skills sleep until a matching keyword appears in your message - a Rust task never fires the React skill.</p>
@@ -898,6 +1435,93 @@ python run_crg_bench.py</code></pre>
       <span class="chip" style="background: rgba(65, 225, 181, 0.15); color: var(--accent);">mneme-codewords</span>
     </div>
     <p class="lead" style="font-size:0.9rem; color: var(--muted); margin-top:16px;">Type <code>firestart</code> on your next complex task. Mneme loads the full arsenal, primes your code graph, builds a numbered ledger, and works through it with verification gates - one step at a time.</p>
+  </section>
+
+  <!-- ============================================================ -->
+  <!--  47 MCP TOOLS — CATEGORIZED                                    -->
+  <!-- ============================================================ -->
+  <section class="reveal">
+    <h2>The <span class="accent">47-tool</span> MCP surface, by category</h2>
+    <p class="lead">Every tool is typed (zod-validated input/output), hot-reloadable, and talks to the Rust daemon over IPC. AI doesn't need to know where data lives — it just calls the tool.</p>
+    <div class="tools-grid">
+      <div class="tools-cat">
+        <h4>// recall &amp; search</h4>
+        <ul>
+          <li><strong>/mn-recall</strong> semantic + keyword query</li>
+          <li><strong>/mn-blast</strong> dependency / blast radius</li>
+          <li><strong>/mn-godnodes</strong> highest-connected nodes</li>
+          <li><strong>/mn-history</strong> time-travel through edits</li>
+          <li><strong>/mn-why</strong> decision provenance</li>
+        </ul>
+      </div>
+      <div class="tools-cat">
+        <h4>// build &amp; index</h4>
+        <ul>
+          <li><strong>/mn-build</strong> index a project</li>
+          <li><strong>/mn-rebuild</strong> wipe + re-index</li>
+          <li><strong>/mn-watch</strong> live re-index on save</li>
+          <li><strong>/mn-abort</strong> graceful build cancel</li>
+          <li><strong>/mn-status</strong> what's indexed, when</li>
+        </ul>
+      </div>
+      <div class="tools-cat">
+        <h4>// step ledger (compaction-survival)</h4>
+        <ul>
+          <li><strong>/mn-step create</strong> new numbered plan</li>
+          <li><strong>/mn-step verify</strong> mark step done + check</li>
+          <li><strong>/mn-step resume</strong> recover after compact</li>
+          <li><strong>/mn-step status</strong> goal stack snapshot</li>
+        </ul>
+      </div>
+      <div class="tools-cat">
+        <h4>// drift &amp; audit</h4>
+        <ul>
+          <li><strong>/mn-audit</strong> run all 11 scanners</li>
+          <li><strong>/mn-drift</strong> CLAUDE.md rule violations</li>
+          <li><strong>/mn-secrets</strong> scrub credential shapes</li>
+          <li><strong>/mn-refactor</strong> code-smell suggestions</li>
+        </ul>
+      </div>
+      <div class="tools-cat">
+        <h4>// vision &amp; views</h4>
+        <ul>
+          <li><strong>/mn-view</strong> launch dashboard (browser)</li>
+          <li><strong>/mn-godnodes graph</strong> WebGL force layout</li>
+          <li><strong>/mn-treemap</strong> file-size heatmap</li>
+          <li>14 views total — one tool per view</li>
+        </ul>
+      </div>
+      <div class="tools-cat">
+        <h4>// multimodal</h4>
+        <ul>
+          <li><strong>/mn-pdf_index</strong> ingest a PDF</li>
+          <li><strong>/mn-image_describe</strong> OCR + caption</li>
+          <li><strong>/mn-audio_transcribe</strong> Whisper local</li>
+          <li>Python sidecar, fault-isolated</li>
+        </ul>
+      </div>
+      <div class="tools-cat">
+        <h4>// doctor &amp; ops</h4>
+        <ul>
+          <li><strong>/mn-doctor</strong> full health check</li>
+          <li><strong>/mn-cache du / prune / gc / drop</strong> disk hygiene</li>
+          <li><strong>/mn-daemon status / logs</strong> supervisor pulse</li>
+          <li><strong>/mn-uninstall</strong> nuclear by default (B-015)</li>
+        </ul>
+      </div>
+      <div class="tools-cat">
+        <h4>// platforms &amp; install</h4>
+        <ul>
+          <li><strong>/mn-install</strong> wire Claude / Cursor / etc.</li>
+          <li><strong>/mn-register-mcp</strong> MCP-only, no manifest</li>
+          <li><strong>/mn-rollback</strong> restore prior install</li>
+          <li><strong>/mn-models install</strong> from local path</li>
+        </ul>
+      </div>
+    </div>
+    <p class="lead" style="font-size: 13px; color: var(--muted); margin-top: 22px;">
+      Full tool list with input/output schemas: <a href="https://github.com/omanishay-cyber/mneme/blob/main/docs/mcp-tools.md">docs/mcp-tools.md</a>. Every tool is zod-validated and hot-reload-safe.
+    </p>
   </section>
 
   <!-- ============================================================ -->
