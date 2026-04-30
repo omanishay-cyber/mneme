@@ -27,6 +27,37 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::sync::mpsc;
 use tracing::{debug, error, info};
 
+// AI-DNA pace tunables (feedback_mneme_ai_dna_pace.md Principle B).
+//
+// Both can be overridden at runtime via the `MNEME_PARSE_RESULT_CHANNEL_CAP`
+// and `MNEME_PARSE_WORKER_JOB_CHANNEL_CAP` env vars so future tuning doesn't
+// require a recompile. Resource policy
+// (`docs/design/2026-04-23-resource-policy-addendum.md`): "no artificial caps
+// on RAM, CPU, or disk", so a default 4×-bumped value is fine — the channel
+// memory is `cap * sizeof(message)` which is bytes-per-thousand for these
+// small enums.
+const RESULT_CHANNEL_DEFAULT: usize = 4096;
+const WORKER_JOB_CHANNEL_DEFAULT: usize = 256;
+
+fn env_usize(key: &str, default: usize) -> usize {
+    std::env::var(key)
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .filter(|n| *n > 0)
+        .unwrap_or(default)
+}
+
+fn result_channel_cap() -> usize {
+    env_usize("MNEME_PARSE_RESULT_CHANNEL_CAP", RESULT_CHANNEL_DEFAULT)
+}
+
+fn worker_job_channel_cap() -> usize {
+    env_usize(
+        "MNEME_PARSE_WORKER_JOB_CHANNEL_CAP",
+        WORKER_JOB_CHANNEL_DEFAULT,
+    )
+}
+
 #[tokio::main(flavor = "multi_thread")]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     init_tracing();
@@ -52,12 +83,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let worker_count = (num_cpus::get() * 4).max(4);
     info!(workers = worker_count, "spawning parser workers");
 
+    // AI-DNA pace: result fan-in channel sized for `worker_count * burst-rate`.
+    // When AI edits 10 files in 30s the supervisor fan-outs ~10 jobs in flight
+    // per worker; the result emitter must absorb the return wave without
+    // back-pressuring workers. 1024 → 4096 (4× headroom). See
+    // feedback_mneme_ai_dna_pace.md Principle B: "every queue depth tuned for
+    // AI-rate, not human-rate".
+    let result_cap = result_channel_cap();
+    let job_cap = worker_job_channel_cap();
+    info!(result_cap, job_cap, "ai-dna pace channels sized");
     let (tx_results, mut rx_results) =
-        mpsc::channel::<Result<mneme_parsers::ParseResult, ParserError>>(1024);
+        mpsc::channel::<Result<mneme_parsers::ParseResult, ParserError>>(result_cap);
     let mut job_senders = Vec::with_capacity(worker_count);
 
     for id in 0..worker_count {
-        let (tx_jobs, rx_jobs) = mpsc::channel::<ParseJob>(64);
+        // AI-DNA pace: per-worker job channel from 64 → 256 (4×). Pairs with the
+        // M16 fan-out dispatcher: bigger per-worker buffers absorb burst writes
+        // before the dispatcher has to fall back to send_timeout. See
+        // feedback_mneme_ai_dna_pace.md Principle B.
+        let (tx_jobs, rx_jobs) = mpsc::channel::<ParseJob>(job_cap);
         job_senders.push(tx_jobs);
         let worker = Worker::new(id, inc.clone(), rx_jobs, tx_results.clone());
         tokio::spawn(worker.run());

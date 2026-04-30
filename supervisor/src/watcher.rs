@@ -40,7 +40,29 @@ pub const DEFAULT_DEBOUNCE: Duration = Duration::from_millis(250);
 
 /// Hard cap on tracked pending events to avoid unbounded memory if the user
 /// does something wild like untarring 100k files.
-pub const MAX_PENDING: usize = 10_000;
+///
+/// AI-DNA pace: bumped from 10_000 to 65_536 (≈6.5×). Anish indexes 1000+
+/// file projects; AI mass-rename / mass-format operations easily emit
+/// 10k+ filesystem events in a single burst. Under the legacy cap the
+/// debouncer silently dropped events past 10k — visible to the user as
+/// "some files weren't re-indexed". 64k absorbs full project-wide bursts
+/// while still bounding memory: each `PendingBatch` is ~32B + a `PathBuf`
+/// (~50B avg on Windows) so 64k pending entries ≈ 5 MB. Tunable at
+/// runtime via `MNEME_WATCHER_MAX_PENDING`.
+///
+/// See `feedback_mneme_ai_dna_pace.md` Principle B: "Same-speed indexing.
+/// When AI is editing 10 files in 30 seconds, the watcher → re-parse →
+/// re-embed → graph-update path completes before the next AI tool call.
+/// No back-pressure visible to the AI."
+pub const MAX_PENDING: usize = 65_536;
+
+fn max_pending() -> usize {
+    std::env::var("MNEME_WATCHER_MAX_PENDING")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .filter(|n| *n > 0)
+        .unwrap_or(MAX_PENDING)
+}
 
 /// Classification of a single debounced file event.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -203,8 +225,17 @@ pub async fn run_watcher(
     let stats_for_debounce = stats.clone();
     let root_for_debounce = canonical.clone();
 
+    let pending_cap = max_pending();
     tokio::spawn(async move {
-        let mut pending: HashMap<PathBuf, PendingBatch> = HashMap::new();
+        // AI-DNA pace: pre-allocate the debounce table at 1/16th of the
+        // configured pending cap. We don't reserve the full cap up front
+        // (4 MB on Windows for 64k entries — wasteful for the steady-state
+        // case where pending is 0-50 entries), but we do start at a size
+        // that absorbs typical AI-burst windows without rehashing. The map
+        // grows as needed beyond this. See `feedback_mneme_ai_dna_pace.md`.
+        let initial_buckets = (pending_cap / 16).max(64);
+        let mut pending: HashMap<PathBuf, PendingBatch> =
+            HashMap::with_capacity(initial_buckets);
         let mut ticker = tokio::time::interval(debounce / 2);
         ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
 
@@ -214,8 +245,8 @@ pub async fn run_watcher(
                     match maybe_ev {
                         Some(Ok(ev)) => {
                             for path in classify_event(&ev, &root_for_debounce, &stats_for_debounce) {
-                                if pending.len() >= MAX_PENDING {
-                                    warn!(pending = pending.len(), "debounce queue full; dropping event");
+                                if pending.len() >= pending_cap {
+                                    warn!(pending = pending.len(), cap = pending_cap, "debounce queue full; dropping event");
                                     continue;
                                 }
                                 let kind = event_kind(&ev);

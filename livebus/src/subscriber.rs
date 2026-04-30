@@ -28,7 +28,17 @@ use crate::event::{DegradedMode, Event, EventPayload};
 
 /// Per-subscriber lag budget. If the subscriber falls this many events behind
 /// it is evicted and a `system.degraded_mode` event is published.
-pub const BACKPRESSURE_WINDOW: usize = 50;
+///
+/// AI-DNA pace: bumped from 50 to 256 (5× headroom). When AI edits 10 files
+/// in 30s the bus emits ~50-100 events in a sub-second burst; the legacy
+/// 50-cap evicted normal subscribers (vision app, MCP) the moment they were
+/// behind by half a second. The bumped cap absorbs full burst windows
+/// before declaring a subscriber slow. The `mpsc::channel(cap)` sized at
+/// `register_with_capacity` time is bumped in lockstep — see line ~142.
+///
+/// See `feedback_mneme_ai_dna_pace.md` Principle B: "every queue depth
+/// tuned for AI-rate, not human-rate".
+pub const BACKPRESSURE_WINDOW: usize = 256;
 
 /// Snapshot of subscriber-related stats for `/health`.
 #[derive(Debug, Clone, serde::Serialize)]

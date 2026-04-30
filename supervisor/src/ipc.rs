@@ -45,12 +45,28 @@ const IPC_READ_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Maximum concurrent IPC connections (I-4 / I-5 / NEW-008). Beyond
 /// this the listener still accepts but the per-connection task waits
-/// on the semaphore before draining its frame. 64 is generous for a
-/// single-machine MCP server: the CLI/MCP/vision-app combined have a
-/// tight steady-state of roughly 5-10 in-flight calls; 64 leaves
-/// 6x headroom for burst traffic without letting a runaway client fork
-/// unbounded supervisor work.
-const MAX_CONCURRENT_CONNECTIONS: usize = 64;
+/// on the semaphore before draining its frame.
+///
+/// AI-DNA pace: bumped from 64 to 256 (4×). Modern AI workflows fan out
+/// 8-12 parallel agent calls, plus the CLI / MCP / vision-app baseline of
+/// 5-10 in-flight calls and supervisor tooling polling /metrics, /health,
+/// `mneme daemon status`. Under burst the legacy 64-cap saturated and the
+/// per-connection tasks queued on the semaphore — visible to the AI as
+/// IPC latency. 256 leaves the same connection-storm safety margin
+/// (`Semaphore` still bounds the working set) while absorbing real
+/// burst rates. Tunable at runtime via `MNEME_IPC_MAX_CONNS`.
+///
+/// See `feedback_mneme_ai_dna_pace.md` Principle B: "every queue depth
+/// tuned for AI-rate, not human-rate".
+const MAX_CONCURRENT_CONNECTIONS_DEFAULT: usize = 256;
+
+fn max_concurrent_connections() -> usize {
+    std::env::var("MNEME_IPC_MAX_CONNS")
+        .ok()
+        .and_then(|v| v.parse::<usize>().ok())
+        .filter(|n| *n > 0)
+        .unwrap_or(MAX_CONCURRENT_CONNECTIONS_DEFAULT)
+}
 
 /// Commands accepted by the IPC server.
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -466,12 +482,17 @@ impl IpcServer {
         let mut conns: JoinSet<()> = JoinSet::new();
 
         // I-4 / I-5 / NEW-008: semaphore caps concurrent live IPC
-        // connections at MAX_CONCURRENT_CONNECTIONS. The listener still
+        // connections at `max_concurrent_connections()`. The listener still
         // accepts; per-connection tasks acquire a permit before doing
         // any work and release it on drop. This bounds the supervisor's
         // working-set under a runaway client that opens connections in
         // a tight loop without ever closing them.
-        let conn_limiter = Arc::new(Semaphore::new(MAX_CONCURRENT_CONNECTIONS));
+        //
+        // AI-DNA pace: cap defaults to MAX_CONCURRENT_CONNECTIONS_DEFAULT
+        // (256, 4× the legacy 64) but is configurable via
+        // `MNEME_IPC_MAX_CONNS` so future tuning doesn't require recompile.
+        let conn_cap = max_concurrent_connections();
+        let conn_limiter = Arc::new(Semaphore::new(conn_cap));
 
         loop {
             tokio::select! {
@@ -569,7 +590,14 @@ async fn handle_conn(
     // IPC client (`mneme daemon status` running in a tight loop) would
     // otherwise allocate a fresh Vec<u8> per request — measurable in the
     // working-set delta over a 100-poll burst.
-    let mut body: Vec<u8> = Vec::new();
+    //
+    // AI-DNA pace: preallocate 64 KiB (covers the typical command body —
+    // recall queries, blast result lists, status payloads). Larger frames
+    // (up to MAX_FRAME_BYTES = 16 MiB) still grow the buffer once on
+    // first use; the preallocation just removes the small-message hot-
+    // path realloc storm visible when AI fires hundreds of MCP calls
+    // per second. See `feedback_mneme_ai_dna_pace.md` Principle B.
+    let mut body: Vec<u8> = Vec::with_capacity(64 * 1024);
     loop {
         // Read a length prefix (u32 BE), bounded by IPC_READ_TIMEOUT
         // (NEW-016) so a client that opens the connection and stops
