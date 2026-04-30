@@ -51,6 +51,12 @@ walkdir = "2.5"
 # corrupting the per-project SQLite shard. Portable across Windows
 # (LockFileEx) and Unix (flock). Audit fix L4 (v0.3.0).
 fs2 = "0.4"
+# Cross-platform PID liveness check used by `build_lock::contention_error`
+# (B-018). When a stale `.lock` stamp PID is reported, we annotate the
+# error with `(stale stamp from PID N — race anyway)` so users don't
+# chase a zombie. Workspace-pinned at 0.32; already in Cargo.lock via
+# `mneme-supervisor`, so this row adds no extra crate to the build.
+sysinfo = { workspace = true }
 # ripgrep's gitignore parser — powers `.mnemeignore` + `.gitignore`
 # support in `mneme build` (P16). Supports nested ignore files and the
 # full gitignore spec (negation, directory-only, etc.).

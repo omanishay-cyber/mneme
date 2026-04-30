@@ -864,6 +864,8 @@ mod tests {
             project: None,
             all: false,
             purge_state: false,
+            keep_state: false,
+            keep_platforms_only: false,
             yes: false,
             status: false,
         };
@@ -884,6 +886,8 @@ mod tests {
             project: None,
             all: false,
             purge_state: false,
+            keep_state: false,
+            keep_platforms_only: false,
             yes: false,
             status: false,
         };
@@ -901,6 +905,8 @@ mod tests {
             project: None,
             all: true,
             purge_state: true,
+            keep_state: false,
+            keep_platforms_only: false,
             yes: false,
             status: false,
         };
@@ -971,6 +977,8 @@ mod tests {
             project: None,
             all: true,
             purge_state: false, // skip the detached rmdir + std::process::exit(0) path
+            keep_state: false,
+            keep_platforms_only: false,
             yes: true,
             status: false,
         };

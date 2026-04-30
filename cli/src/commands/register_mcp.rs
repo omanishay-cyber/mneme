@@ -361,6 +361,14 @@ pub async fn unregister(args: RegisterMcpArgs) -> CliResult<()> {
         // uninstall (--all closes NEW-056/057 only when caller opts in).
         all: false,
         purge_state: false,
+        // B-015: `keep_state` / `keep_platforms_only` are opt-OUT flags for
+        // the nuclear-by-default uninstall. unregister-mcp is platform-only
+        // by definition — `all: false` above already restricts the scope —
+        // so neither opt-out applies; both stay `false`. Plumbed as
+        // constants so the struct literal stays exhaustive (mirrors the
+        // `yes`/`status` rationale below).
+        keep_state: false,
+        keep_platforms_only: false,
         // unregister-mcp has no interactive prompt today; the inner
         // uninstall path also has none. Plumb a constant so the struct
         // literal is exhaustive (B-004 added the field).

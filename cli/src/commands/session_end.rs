@@ -243,6 +243,9 @@ mod tests {
         // no STDIN payload, run() should still exit Ok.
         let args = SessionEndArgs {
             session_id: Some("test-session".into()),
+            // HOOK-CANCELLED-002 default: parent path (not the
+            // detached fire-and-forget child re-entry).
+            detached_flush: false,
         };
         let r = run(args, Some(PathBuf::from("/nope-mneme.sock"))).await;
         assert!(r.is_ok(), "session-end must always exit Ok; got: {r:?}");
@@ -290,7 +293,7 @@ mod tests {
         let start = std::time::Instant::now();
         // No session id -> no work -> instant return (the `claude mcp
         // list` path).
-        let args = SessionEndArgs { session_id: None };
+        let args = SessionEndArgs { session_id: None, detached_flush: false };
         let r = run(args, Some(PathBuf::from("/nope-mneme.sock"))).await;
         let elapsed = start.elapsed();
         assert!(r.is_ok(), "session-end must always exit Ok; got: {r:?}");
@@ -312,7 +315,7 @@ mod tests {
     async fn session_end_with_empty_stdin_exits_zero() {
         let _keep = cwd_into_marker_free_tempdir();
         let start = std::time::Instant::now();
-        let args = SessionEndArgs { session_id: None };
+        let args = SessionEndArgs { session_id: None, detached_flush: false };
         let r = run(args, Some(PathBuf::from("/nope-mneme.sock"))).await;
         let elapsed = start.elapsed();
         assert!(r.is_ok(), "empty-stdin session-end must exit Ok; got: {r:?}");
@@ -332,6 +335,7 @@ mod tests {
         let start = std::time::Instant::now();
         let args = SessionEndArgs {
             session_id: Some("   ".into()),
+            detached_flush: false,
         };
         let r = run(args, Some(PathBuf::from("/nope-mneme.sock"))).await;
         let elapsed = start.elapsed();
