@@ -180,6 +180,10 @@ pub async fn run(args: RebuildArgs, socket_override: Option<PathBuf>) -> CliResu
         // run_inline does not consult this field; we set 0 for
         // determinism in case future refactors propagate it.
         lock_timeout_secs: 0,
+        // B-017: rebuild is a destructive admin operation; the user is
+        // already opted-in to noise. Default to noisy (`quiet=false`)
+        // so the per-30-s heartbeat fires during the silent passes.
+        quiet: false,
     };
     crate::commands::build::run_inline(build_args, project.clone()).await?;
 

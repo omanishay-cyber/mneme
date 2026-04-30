@@ -14,6 +14,7 @@ use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 use tracing::{info, warn};
 
+use crate::build_heartbeat::Heartbeat;
 use crate::build_lock::BuildLock;
 use crate::error::{CliError, CliResult};
 use crate::ipc::{IpcClient, IpcRequest, IpcResponse};
@@ -77,6 +78,17 @@ pub struct BuildArgs {
     /// deadline. Audit fix L4 (v0.3.0).
     #[arg(long, default_value_t = 0)]
     pub lock_timeout_secs: u64,
+
+    /// Suppress the per-30-second progress heartbeat that surfaces
+    /// during the parse / embed / graph passes. The heartbeat exists
+    /// to break long silences in `mneme build` so users don't assume
+    /// the process hung and Ctrl-C mid-write (B-017 in
+    /// `MNEME-BUILD-DIAGNOSIS-2026-04-30.md`). CI runners + cron jobs
+    /// that pipe stdout to a log file may want the noise gone — pass
+    /// `--quiet` and the heartbeat task stays armed but emits
+    /// nothing.
+    #[arg(long)]
+    pub quiet: bool,
 }
 
 /// File-count threshold above which `mneme build` prompts the user to
@@ -409,6 +421,15 @@ pub(crate) async fn run_inline(args: BuildArgs, project: PathBuf) -> CliResult<(
     }
     let inc = Arc::new(IncrementalParser::new(pool.clone()));
 
+    // B-017: progress heartbeat. Every 30 s the heartbeat task emits a
+    // status line so the parse / multimodal / embed / leiden /
+    // betweenness phases (which are otherwise silent for minutes at a
+    // time) cannot be mistaken for a hang. The handle is held for the
+    // full pipeline; `set_phase` re-uses it across stages. Drop is
+    // RAII-cancelled at function end so a panic / `?` short-circuit
+    // doesn't leak the timer task. See `build_heartbeat.rs`.
+    let heartbeat = Heartbeat::start("parse", 0, args.quiet);
+
     // 3. Walk the project. Respect:
     //    - hard-coded is_ignored() safety net (always pruned at the
     //      directory level, so we don't descend into AppData / .git)
@@ -495,6 +516,13 @@ pub(crate) async fn run_inline(args: BuildArgs, project: PathBuf) -> CliResult<(
             break;
         }
         total += 1;
+        // B-017: feed the heartbeat the discovered upper bound.
+        // `add_total(1)` per file walked produces a continuously-growing
+        // total that the 30 s status line can render. The first
+        // heartbeat may show `processed=N/M` where M is still climbing —
+        // that's correct: the user's mental model is "build is making
+        // progress", not "exact final count is known".
+        heartbeat.add_total(1);
 
         let path = entry.path();
 
@@ -777,6 +805,11 @@ pub(crate) async fn run_inline(args: BuildArgs, project: PathBuf) -> CliResult<(
         indexed += 1;
         node_total += n_nodes as u64;
         edge_total += n_edges as u64;
+        // B-017: lock-free progress update for the heartbeat task. The
+        // 30 s tick reads this atomic — calling it on every file is
+        // cheap (atomic store, no syscall) and gives the heartbeat
+        // accurate per-second-resolution rate numbers.
+        heartbeat.record_processed(indexed as u64);
         if indexed % 25 == 0 {
             println!("  indexed {indexed} files ({node_total} nodes, {edge_total} edges)");
             // K10 #6: persist the parse-pass cursor. Same cadence as
@@ -807,6 +840,7 @@ pub(crate) async fn run_inline(args: BuildArgs, project: PathBuf) -> CliResult<(
     // payload) AND `graph.db::nodes` (one row per page, kind='pdf_page',
     // `summary` = page text — so `recall_concept` hits PDF content via the
     // existing nodes_fts index without a schema bump).
+    heartbeat.set_phase("multimodal");
     let mm_stats = run_multimodal_pass(&store, &project_id, &project).await;
 
     // 4.5. Imports-edge resolver pass (Phase A blast=0 fix). Walks every
@@ -823,6 +857,7 @@ pub(crate) async fn run_inline(args: BuildArgs, project: PathBuf) -> CliResult<(
     //
     // MUST run before Leiden so community detection clusters by
     // resolved connectivity rather than by pseudo-id text.
+    heartbeat.set_phase("resolve-imports");
     let resolve_stats = run_resolve_imports_pass(&store, &project_id, &project, &paths).await;
 
     // 5. Leiden community detection. Reads (source_qualified, target_qualified)
@@ -836,6 +871,7 @@ pub(crate) async fn run_inline(args: BuildArgs, project: PathBuf) -> CliResult<(
     //
     // Failure here is non-fatal: clustering is bonus structure on top of a
     // successful raw graph build.
+    heartbeat.set_phase("graph-leiden");
     let cluster_stats = run_leiden_pass(&store, &project_id, &paths).await;
 
     // 6. Embedding pass (P3.4). Reads every substantive node out of
@@ -846,6 +882,7 @@ pub(crate) async fn run_inline(args: BuildArgs, project: PathBuf) -> CliResult<(
     // table stays empty forever and `mneme recall` degrades silently
     // to keyword-only retrieval. Failure is non-fatal — same contract
     // as the Leiden pass.
+    heartbeat.set_phase("embed");
     let embedding_stats = run_embedding_pass(&store, &project_id, &paths).await;
 
     // 7. Audit pass (I1 partial — populate findings.db). Spawns the
@@ -893,6 +930,7 @@ pub(crate) async fn run_inline(args: BuildArgs, project: PathBuf) -> CliResult<(
     // previous `betweenness: 0` constant in god_nodes responses with
     // real (or sample-approximated) BC scores. Bounded by source-cap
     // and wall-clock cap so very large graphs degrade gracefully.
+    heartbeat.set_phase("graph-betweenness");
     let betweenness_stats = run_betweenness_pass(&store, &project_id, &paths).await;
 
     // 12. Intent pass (J1). Scans every indexed source file's first 30
@@ -939,6 +977,7 @@ pub(crate) async fn run_inline(args: BuildArgs, project: PathBuf) -> CliResult<(
     // architecture.db::architecture_snapshots. Append-only — readers
     // pick the newest row. Without this pass architecture.db stayed
     // empty even though the analysis library was already in tree.
+    heartbeat.set_phase("graph-architecture");
     let architecture_stats =
         run_architecture_pass(&store, &project_id, &paths).await;
 
@@ -959,6 +998,7 @@ pub(crate) async fn run_inline(args: BuildArgs, project: PathBuf) -> CliResult<(
     // betweenness + criticality), so we anchor on community-id and
     // file-path lists; the daemon path can supersede this with richer
     // pages later.
+    heartbeat.set_phase("wiki");
     let wiki_stats = run_wiki_pass(&store, &project_id, &paths).await;
 
     // 16. Federated fingerprints pass (I1 batch 3). Trigger the
@@ -1016,6 +1056,15 @@ pub(crate) async fn run_inline(args: BuildArgs, project: PathBuf) -> CliResult<(
     if let Err(e) = store::mark_indexed(&paths, &project_id) {
         warn!(error = %e, "failed to stamp last_indexed_at; staleness nag may be inaccurate");
     }
+
+    // B-017: every silent pass has now finished. Stop the heartbeat
+    // BEFORE the build-complete summary block fires so the 30 s
+    // status lines can't interleave with the (atomic, contiguous)
+    // summary output. `Heartbeat::stop` is idempotent — `Drop`
+    // handles re-entry safely if a future code path re-uses the
+    // handle.
+    let mut heartbeat = heartbeat;
+    heartbeat.stop();
 
     let skipped_total = skipped_binary
         + skipped_unsupported
@@ -6704,14 +6753,25 @@ random prose with no bullet
         // Mirror image of the previous test — when the model IS present,
         // we still emit a status line so silent-success and silent-fail
         // are both impossible. The user always sees what backend ran.
+        //
+        // The line's exact wording was rewritten under B-009 to point
+        // operators at the `embeddings:` runtime row above for the
+        // ground-truth active backend (file-on-disk presence is no
+        // longer enough to claim a "loaded" model). Pin the present-
+        // path contract on the model name + the action-oriented hint,
+        // not on a literal `model:` prefix that B-009 dropped.
         let probes = ModelProbes {
             embedding_model_present: true,
             llm_model_present: true,
         };
         let line = probes.summary_embedding_status_line();
         assert!(
-            line.contains("model:") && !line.contains("no model installed"),
-            "expected explicit model line on present, got: {line:?}"
+            line.contains("bge-small-en-v1.5") && !line.contains("no model installed"),
+            "expected present-on-disk line to name the model and not the no-model branch; got: {line:?}"
+        );
+        assert!(
+            line.contains("active runtime backend") || line.contains("backend="),
+            "present-on-disk line must point operators at the runtime backend row (B-009); got: {line:?}"
         );
     }
 

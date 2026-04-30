@@ -25,6 +25,7 @@
 #![warn(rust_2018_idioms)]
 #![warn(missing_debug_implementations)]
 
+pub mod build_heartbeat;
 pub mod build_lock;
 pub mod commands;
 pub mod error;

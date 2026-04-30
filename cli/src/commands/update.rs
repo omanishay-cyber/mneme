@@ -41,6 +41,10 @@ pub async fn run(args: UpdateArgs, socket_override: Option<PathBuf>) -> CliResul
         // L4: incremental update is single-writer same as full build —
         // 0 = fail-fast if a competing build is in flight.
         lock_timeout_secs: 0,
+        // B-017: incremental update reuses the full build pipeline
+        // including the silent embed/graph passes. Default to
+        // noisy (`quiet=false`) so the heartbeat fires.
+        quiet: false,
     };
     crate::commands::build::run(build_args, socket_override).await
 }
