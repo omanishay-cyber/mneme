@@ -34,7 +34,17 @@ use crate::schema::SCHEMA_VERSION;
 // channel is full — beyond that we surface `DbError::Timeout` instead
 // of blocking forever (which is what `.send().await` would do if the
 // per-shard writer task wedges on slow disk / migration / OS lock).
-pub(crate) const WRITER_CHANNEL_CAP: usize = 256;
+//
+// AI-DNA pace: cap bumped from 256 → 1024 (4×). Per-shard, that's
+// 4× the AI-burst-rate headroom; across 26 shards that's 26 624 in-flight
+// writes the supervisor can absorb without back-pressuring the watcher
+// pipeline. The single-writer-per-shard invariant is preserved (still
+// one writer task draining the channel) — only the input buffer grows.
+// The `send_timeout(WRITER_SEND_TIMEOUT_SECS)` fallthrough already
+// guarantees no caller blocks forever, so a deeper buffer never trades
+// liveness for throughput. See `feedback_mneme_ai_dna_pace.md` Principle
+// B: "every queue depth tuned for AI-rate, not human-rate".
+pub(crate) const WRITER_CHANNEL_CAP: usize = 1024;
 pub(crate) const WRITER_SEND_TIMEOUT_SECS: u64 = 30;
 
 /// Read query.
