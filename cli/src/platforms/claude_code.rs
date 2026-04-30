@@ -500,28 +500,119 @@ fn strip_bom(s: &str) -> &str {
     s.strip_prefix('\u{feff}').unwrap_or(s)
 }
 
-/// Probe an existing `settings.json` and report (mneme_entry_count,
-/// expected_count). Used by `mneme doctor` to render a hooks-registered
-/// row. Returns `(0, HOOK_SPECS.len())` if the file is missing or the
-/// hooks block is absent.
-pub fn count_registered_mneme_hooks(path: &Path) -> (usize, usize) {
+/// File-level state for the `~/.claude/settings.json` probe — separates
+/// "the file is genuinely absent" from "we read bytes but couldn't make
+/// sense of them" so callers (`mneme doctor`) can give the user a real
+/// reason instead of a silent `0/8`.
+///
+/// B-AGENT-C-1 (v0.3.2): the previous `count_registered_mneme_hooks`
+/// collapsed every error path into `(0, expected)` with no diagnostic.
+/// When Claude Code rewrote `settings.json` mid-doctor (overwriting
+/// mneme's entries with its in-memory copy that lacked them), the user
+/// got `0/8` and no clue why.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum HookFileReadState {
+    /// The settings.json file does not exist on disk. This is the
+    /// "fresh user, never installed" state — distinct from "install
+    /// happened then file got clobbered".
+    Missing,
+    /// File exists but `std::fs::read` returned an error (locked, no
+    /// permissions, mid-write share violation on Windows). The string
+    /// payload is the io::Error display.
+    UnreadableIo(String),
+    /// File exists, bytes read OK. Used both when JSON parsed cleanly
+    /// AND when parse failed (the `parse_error` field on the parent
+    /// result tells the parse story separately).
+    Read,
+}
+
+/// Detailed result of probing `~/.claude/settings.json` for mneme
+/// hooks. Replacement / refinement for `count_registered_mneme_hooks`'s
+/// silent-zero behaviour.
+///
+/// All fields are pub so `mneme doctor` (and tests) can reason over
+/// them without going through extra accessors.
+#[derive(Debug, Clone)]
+pub struct HookCountResult {
+    /// Number of mneme-owned hook events found in the file.
+    pub count: usize,
+    /// Total number of events mneme registers (currently 8 — the
+    /// `HOOK_SPECS` length).
+    pub expected: usize,
+    /// File-level outcome. `Missing` and `UnreadableIo` short-circuit
+    /// before parsing.
+    pub read_state: HookFileReadState,
+    /// Filled when parsing or schema validation failed AFTER reading
+    /// bytes. Surfaces the concrete reason so doctor can say "json
+    /// parse failed: trailing comma at line 12" instead of silent 0/8.
+    pub parse_error: Option<String>,
+}
+
+/// Detailed variant of [`count_registered_mneme_hooks`] — every error
+/// path is surfaced via [`HookCountResult`] so the caller can render an
+/// honest diagnostic.
+///
+/// B-AGENT-C-1 (v0.3.2): Anish's reproduction was `mneme install` →
+/// (Claude Code, still running, auto-saves its in-memory settings.json,
+/// stripping mneme's entries) → `mneme doctor` reports `0/8` with no
+/// clue. The previous helper swallowed io / utf-8 / json failures and
+/// returned `(0, expected)` indistinguishably from the "no hooks
+/// present" case. This variant lets `mneme doctor` distinguish them
+/// and tell the user the truth.
+pub fn count_registered_mneme_hooks_detailed(path: &Path) -> HookCountResult {
     let expected = HOOK_SPECS.len();
     let bytes = match std::fs::read(path) {
         Ok(b) => b,
-        Err(_) => return (0, expected),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            return HookCountResult {
+                count: 0,
+                expected,
+                read_state: HookFileReadState::Missing,
+                parse_error: None,
+            };
+        }
+        Err(e) => {
+            return HookCountResult {
+                count: 0,
+                expected,
+                read_state: HookFileReadState::UnreadableIo(e.to_string()),
+                parse_error: None,
+            };
+        }
     };
     let text = match std::str::from_utf8(&bytes) {
         Ok(s) => s,
-        Err(_) => return (0, expected),
+        Err(e) => {
+            return HookCountResult {
+                count: 0,
+                expected,
+                read_state: HookFileReadState::Read,
+                parse_error: Some(format!("settings.json is not valid UTF-8: {e}")),
+            };
+        }
     };
     let trimmed = strip_bom(text);
     let value: serde_json::Value = match serde_json::from_str(trimmed) {
         Ok(v) => v,
-        Err(_) => return (0, expected),
+        Err(e) => {
+            return HookCountResult {
+                count: 0,
+                expected,
+                read_state: HookFileReadState::Read,
+                parse_error: Some(format!("settings.json failed to parse as JSON: {e}")),
+            };
+        }
     };
     let hooks = match value.get("hooks").and_then(|v| v.as_object()) {
         Some(h) => h,
-        None => return (0, expected),
+        None => {
+            return HookCountResult {
+                count: 0,
+                expected,
+                read_state: HookFileReadState::Read,
+                parse_error: None,
+            };
+        }
     };
 
     let mut count = 0usize;
@@ -546,7 +637,26 @@ pub fn count_registered_mneme_hooks(path: &Path) -> (usize, usize) {
             }
         }
     }
-    (count, expected)
+    HookCountResult {
+        count,
+        expected,
+        read_state: HookFileReadState::Read,
+        parse_error: None,
+    }
+}
+
+/// Probe an existing `settings.json` and report (mneme_entry_count,
+/// expected_count). Compatibility wrapper around
+/// [`count_registered_mneme_hooks_detailed`] for callers that only need
+/// the headline counts. New code should prefer the detailed variant —
+/// it surfaces concrete read / parse errors instead of collapsing them
+/// into a silent zero.
+///
+/// Returns `(0, HOOK_SPECS.len())` if the file is missing, unreadable,
+/// or the hooks block is absent.
+pub fn count_registered_mneme_hooks(path: &Path) -> (usize, usize) {
+    let r = count_registered_mneme_hooks_detailed(path);
+    (r.count, r.expected)
 }
 
 #[cfg(test)]
@@ -732,6 +842,102 @@ mod tests {
         std::fs::write(&path, inject_hooks_json("", &exe).unwrap()).unwrap();
         let (n, expected) = count_registered_mneme_hooks(&path);
         assert_eq!(n, expected);
+    }
+
+    // -----------------------------------------------------------------
+    // B-AGENT-C-1 (v0.3.2): the silent-zero error path in
+    // `count_registered_mneme_hooks` is the bug Anish hit when Claude
+    // Code rewrote settings.json mid-doctor. Every io / utf-8 / json
+    // failure historically returned `(0, expected)` with no diagnostic.
+    // The detailed variant surfaces the concrete reason so doctor can
+    // distinguish "no hooks present" from "could not read the file"
+    // from "JSON failed to parse" from "schema shape mismatched".
+    // Tests pin the new contract.
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn count_registered_detailed_reports_missing_file() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("nope.json");
+        let r = count_registered_mneme_hooks_detailed(&path);
+        assert_eq!(r.count, 0);
+        assert_eq!(r.expected, HOOK_SPECS.len());
+        assert!(matches!(r.read_state, HookFileReadState::Missing));
+        assert!(r.parse_error.is_none());
+    }
+
+    #[test]
+    fn count_registered_detailed_reports_malformed_json() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        std::fs::write(&path, "{ this is not valid json ").unwrap();
+        let r = count_registered_mneme_hooks_detailed(&path);
+        assert_eq!(r.count, 0);
+        assert!(matches!(r.read_state, HookFileReadState::Read));
+        assert!(
+            r.parse_error.is_some(),
+            "malformed JSON must surface a parse_error rather than silently returning 0/8"
+        );
+    }
+
+    #[test]
+    fn count_registered_detailed_reports_invalid_utf8() {
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        // Lone continuation byte — not valid UTF-8.
+        std::fs::write(&path, [0xff, 0xfe, 0x00, 0x80, 0x80]).unwrap();
+        let r = count_registered_mneme_hooks_detailed(&path);
+        assert_eq!(r.count, 0);
+        assert!(matches!(r.read_state, HookFileReadState::Read));
+        assert!(
+            r.parse_error.is_some(),
+            "invalid UTF-8 must surface as a parse_error, not a silent zero"
+        );
+    }
+
+    #[test]
+    fn count_registered_detailed_full_install_reports_present() {
+        let exe = fake_exe();
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        std::fs::write(&path, inject_hooks_json("", &exe).unwrap()).unwrap();
+        let r = count_registered_mneme_hooks_detailed(&path);
+        assert_eq!(r.count, HOOK_SPECS.len());
+        assert_eq!(r.expected, HOOK_SPECS.len());
+        assert!(matches!(r.read_state, HookFileReadState::Read));
+        assert!(r.parse_error.is_none());
+    }
+
+    #[test]
+    fn count_registered_detailed_recognises_b012_unmarked_entry() {
+        // A Claude-Code-flavoured entry that lacks the `_mneme` marker
+        // but DOES carry the canonical `~/.mneme/bin/mneme.exe` command
+        // shape. B-012 fallback should still recognise it; the detailed
+        // result must reflect that.
+        let dir = tempdir().unwrap();
+        let path = dir.path().join("settings.json");
+        let cmd = if cfg!(windows) {
+            "C:/Users/test/.mneme/bin/mneme.exe session-prime"
+        } else {
+            "/home/test/.mneme/bin/mneme session-prime"
+        };
+        let body = serde_json::json!({
+            "hooks": {
+                "SessionStart": [
+                    {
+                        "matcher": "*",
+                        "hooks": [{ "type": "command", "command": cmd }]
+                    }
+                ]
+            }
+        });
+        std::fs::write(&path, serde_json::to_string_pretty(&body).unwrap()).unwrap();
+        let r = count_registered_mneme_hooks_detailed(&path);
+        // Only one event registered (SessionStart). The other 7 will
+        // not match — but the one that does must be picked up via the
+        // command-shape fallback, not silently dropped.
+        assert_eq!(r.count, 1, "B-012 command-shape fallback must still trigger");
+        assert!(r.parse_error.is_none());
     }
 
     #[test]
