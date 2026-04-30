@@ -11,7 +11,7 @@ No harassment, no bigotry, no dismissive snark. Ship code, not drama.
 ## Reporting
 
 If someone violates this in a way that affects you or someone else, email
-**(GitHub Issues or Discussions)** directly. Include:
+**bhattanish@gmail.com** directly. Include:
 
 - What happened
 - Where it happened (link if possible)

@@ -546,7 +546,7 @@ Copyright © 2026 **Anish Trivedi**.
 
 ## 💬 Contact
 
-- **Email** — (GitHub Issues or Discussions)
+- **Email** — bhattanish@gmail.com
 - **GitHub Issues** — bug reports, feature requests
 - **GitHub Discussions** — architecture questions, use cases
 

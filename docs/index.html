@@ -340,12 +340,15 @@
       from { opacity: 0; transform: translateY(4px); }
       to { opacity: 1; transform: translateY(0); }
     }
-    .t-prompt { color: var(--accent-b); }
-    .t-flag { color: var(--accent-c); }
-    .t-str { color: #fbbf24; }
-    .t-dim { color: var(--muted); }
+    /* Terminal demo text — explicit colors for readability on dark terminal bg.
+       Don't inherit light-theme --text / --muted (those are dark-on-light). */
+    .terminal-body, .terminal-body .terminal-line { color: #e6e8ec; }
+    .t-prompt { color: #41E1B5; }
+    .t-flag   { color: #22D3EE; }
+    .t-str    { color: #fbbf24; }
+    .t-dim    { color: #9a9da7; }
     .t-match {
-      color: var(--text);
+      color: #e6e8ec;
       padding-left: 20px;
       position: relative;
     }
@@ -353,14 +356,14 @@
       content: "→";
       position: absolute;
       left: 0;
-      color: var(--accent-b);
+      color: #41E1B5;
     }
-    .t-score { color: var(--accent-a); font-weight: 600; }
+    .t-score { color: #4191E1; font-weight: 600; }
     .t-caret {
       display: inline-block;
       width: 8px;
       height: 14px;
-      background: var(--accent-b);
+      background: #41E1B5;
       vertical-align: text-bottom;
       margin-left: 2px;
       animation: blink 1.1s steps(2) infinite;
@@ -1525,7 +1528,7 @@ python run_crg_bench.py</code></pre>
       <a href="https://github.com/omanishay-cyber/mneme/blob/main/docs/design/2026-04-23-datatree-design.md">Design doc</a>
       <a href="https://github.com/omanishay-cyber/mneme/blob/main/CHANGELOG.md">Changelog</a>
       <a href="https://github.com/omanishay-cyber/mneme/blob/main/LICENSE">License</a>
-      <a href="mailto:(GitHub Issues or Discussions)">Contact</a>
+      <a href="mailto:bhattanish@gmail.com">Contact</a>
     </div>
     <p>© 2026 <strong>Anish Trivedi</strong>. Apache-2.0 — open-source, free to use, commercial restrictions apply.</p>
     <p style="margin-top:8px;opacity:0.6;">🌳 Named after Mneme, the Greek muse of memory.</p>
