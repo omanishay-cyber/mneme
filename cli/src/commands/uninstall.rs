@@ -868,8 +868,6 @@ mod tests {
             keep_platforms_only: false,
             yes: false,
             status: false,
-            keep_state: false,
-            keep_platforms_only: false,
         };
         let r = run(args).await;
         assert!(r.is_err(), "expected error for unknown platform");
@@ -892,8 +890,6 @@ mod tests {
             keep_platforms_only: false,
             yes: false,
             status: false,
-            keep_state: false,
-            keep_platforms_only: false,
         };
         let r = run(args).await;
         assert!(r.is_err(), "expected error for bad scope");
@@ -913,8 +909,6 @@ mod tests {
             keep_platforms_only: false,
             yes: false,
             status: false,
-            keep_state: false,
-            keep_platforms_only: false,
         };
         // Either succeeds (platform recognised) or fails with a known
         // error from a peer step. The smoke is that it does not panic.
@@ -987,8 +981,6 @@ mod tests {
             keep_platforms_only: false,
             yes: true,
             status: false,
-            keep_state: false,
-            keep_platforms_only: false,
         };
         let r = run(args).await;
         assert!(
