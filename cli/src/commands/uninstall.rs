@@ -226,11 +226,11 @@ pub async fn run(args: UninstallArgs) -> CliResult<()> {
     // legacy flags `--all` and `--purge-state` still work for back-compat
     // and for callers that want to be unambiguous.
     let effective_all = args.all || (!args.keep_platforms_only);
-    let effective_purge = if args.keep_platforms_only || args.keep_state {
-        false
-    } else {
-        args.purge_state || true // nuclear by default
-    };
+    // B-015: nuclear by default unless --keep-state / --keep-platforms-only.
+    // The legacy --purge-state flag is a no-op now (kept for back-compat) since
+    // purge is the default. Once both opt-out flags are off, we always purge.
+    let effective_purge = !(args.keep_platforms_only || args.keep_state);
+    let _ = args.purge_state; // legacy back-compat flag — no longer load-bearing
     if effective_all && !args.dry_run {
         println!(
             "mneme uninstall — full nuclear cleanup{}{}",

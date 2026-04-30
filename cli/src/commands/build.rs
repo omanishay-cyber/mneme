@@ -2683,11 +2683,14 @@ fn parse_mneme_intent(head: &str) -> Option<(String, Option<String>)> {
             // First token is kind, rest is reason (optionally separated by ':' or '—' or '-')
             let mut kind_part = String::new();
             let mut reason_part = String::new();
-            for (i, c) in after.chars().enumerate() {
+            // Use char_indices() so the index is a BYTE offset into `after`,
+            // safe for &str slicing even when the marker line contains
+            // multi-byte UTF-8 characters (e.g. the em-dash separator).
+            for (byte_idx, c) in after.char_indices() {
                 if c.is_alphanumeric() || c == '_' {
                     kind_part.push(c);
                 } else {
-                    reason_part = after[i..]
+                    reason_part = after[byte_idx..]
                         .trim_start_matches(|c: char| {
                             c == ':' || c == '-' || c == '—' || c == ' ' || c == '\t'
                         })
