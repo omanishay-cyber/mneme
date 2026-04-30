@@ -19,9 +19,19 @@ use tree_sitter::{InputEdit, Point, Tree};
 
 /// Maximum number of trees the LRU keeps alive.
 ///
-/// 1000 files × ~10KB average tree footprint ≈ 10MB — easily fits in RAM
-/// while covering nearly every "hot" file in a typical project session.
-pub const DEFAULT_TREE_CACHE: usize = 1000;
+/// AI-DNA pace: bumped from 1000 to 4000 (4× headroom). Anish indexes 1000+
+/// file projects; AI editing across the whole project burst-cycles all of
+/// them. With the legacy 1000-cap the LRU evicts hot trees mid-session,
+/// which forces full re-parses on the next save and breaks the
+/// "same-speed indexing" promise. 4000 trees × ~10KB ≈ 40MB — well within
+/// the resource policy ("no artificial caps on RAM, CPU, or disk", see
+/// `docs/design/2026-04-23-resource-policy-addendum.md`). Override at
+/// runtime via `MNEME_PARSE_TREE_CACHE` (env, parsed in main.rs).
+///
+/// See `feedback_mneme_ai_dna_pace.md` Principle B: "Same-speed indexing.
+/// When AI is editing 10 files in 30 seconds, the watcher → re-parse →
+/// re-embed → graph-update path completes before the next AI tool call."
+pub const DEFAULT_TREE_CACHE: usize = 4000;
 
 /// One slot of the LRU.
 #[derive(Debug, Clone)]
