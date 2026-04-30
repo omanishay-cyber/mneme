@@ -391,13 +391,183 @@ fn hooks_remediation_message(count: usize, expected: usize) -> String {
     }
 }
 
+/// B-AGENT-C-2 (v0.3.2): compose the full doctor message for the
+/// hooks row, taking Claude Code's running-state into account.
+///
+/// Anish's reproduction:
+///   1. `mneme install` runs successfully, writing 8 hooks into
+///      `~/.claude/settings.json::hooks` with the `_mneme.managed=true`
+///      marker.
+///   2. Claude Code is still open — it has its own in-memory copy of
+///      settings.json that pre-dates the install and lacks mneme's
+///      hooks.
+///   3. Claude later auto-saves settings.json (UI interaction, slash
+///      command, tab focus, exit) — overwriting mneme's entries with
+///      its own stale view.
+///   4. `mneme doctor` reads the now-stripped file and reports `0/8`.
+///   5. User panics, closes Claude, re-runs install, hooks return.
+///
+/// We can't prevent step 3 — Claude owns the file — but doctor can
+/// stop blaming the install and tell the truth. Four message branches
+/// per the truth table below; `parse_error` is an orthogonal overlay
+/// surfacing the Layer-1 fix (errors are no longer silent zeroes).
+///
+/// |     count == expected | claude_running   | message
+/// |-----------------------|------------------|----------------------------
+/// | yes                   | None             | "8/8 entries registered"
+/// | yes                   | Some(pid)        | "+ note: restart Claude"
+/// | no, count == 0        | None             | "0/N — re-run `mneme install`"
+/// | no, count == 0        | Some(pid)        | "0/N + claude is running"
+/// | no, partial           | None             | "M/N — partial; re-run --force"
+/// | no, partial           | Some(pid)        | "M/N + claude is running"
+///
+/// Pure (no I/O); Claude state and parse-error are passed in by the
+/// caller so this can be unit-tested deterministically.
+pub(crate) fn compose_hooks_message(
+    count: usize,
+    expected: usize,
+    claude_pid: Option<u32>,
+    parse_error: Option<String>,
+) -> String {
+    // Layer 1 overlay: a concrete read / parse error trumps every other
+    // signal — surface it so the user knows the file is broken, not
+    // empty.
+    if let Some(err) = parse_error {
+        if let Some(pid) = claude_pid {
+            return format!(
+                "{count}/{expected} — could not read settings.json cleanly ({err}). \
+                 Claude Code is RUNNING (PID {pid}); it may be holding the file. \
+                 Close Claude entirely and re-run `mneme doctor` to verify."
+            );
+        }
+        return format!(
+            "{count}/{expected} — could not read settings.json cleanly ({err}). \
+             Open the file and check its JSON, then re-run `mneme install`."
+        );
+    }
+
+    // Truth table on (count == expected, claude_pid).
+    let all_present = count == expected;
+    let none_present = count == 0;
+
+    match (all_present, claude_pid) {
+        // 8/8 + Claude not running — the existing happy-path line.
+        (true, None) => hooks_remediation_message(count, expected),
+
+        // 8/8 + Claude running — install worked; remind the user that
+        // already-open sessions won't pick up the new hooks until
+        // Claude is restarted.
+        (true, Some(pid)) => format!(
+            "{count}/{expected} entries registered. Note: Claude Code is running \
+             (PID {pid}); new hooks won't fire in already-open sessions — \
+             restart Claude to pick them up."
+        ),
+
+        // 0/N + Claude running — THE bug Anish hit. Claude likely
+        // overwrote the file with its in-memory copy. Don't blame the
+        // install.
+        (false, Some(pid)) if none_present => format!(
+            "{count}/{expected} detected, but Claude Code is RUNNING (PID {pid}). \
+             Claude may be holding settings.json with an in-memory copy that does \
+             not include mneme hooks. Close Claude entirely and re-run \
+             `mneme doctor` to verify. If still missing, run `mneme install` \
+             to re-register."
+        ),
+
+        // 0/N + Claude closed — true negative. Install genuinely didn't
+        // take. Existing copy is correct here.
+        (false, None) if none_present => hooks_remediation_message(count, expected),
+
+        // Partial + Claude running — Claude probably stripped some,
+        // not all. Tell the user to close + reinstall.
+        (false, Some(pid)) => format!(
+            "{count}/{expected} — partial registration; Claude Code is RUNNING \
+             (PID {pid}) and may have rewritten settings.json. Close Claude \
+             entirely and re-run `mneme install --force`."
+        ),
+
+        // Partial + Claude closed — hand-edited. Existing partial copy
+        // is correct.
+        (false, None) => hooks_remediation_message(count, expected),
+    }
+}
+
+/// B-AGENT-C-2 (v0.3.2): is Claude Code currently running on this host?
+///
+/// Returns the PID of the first matching process, or None if no Claude
+/// process is found. Cross-platform via the workspace `sysinfo` dep
+/// already used by `cli/src/commands/abort.rs` and `cli/src/build_lock.rs`.
+///
+/// Recognition heuristics (any one match):
+///   - process name (case-insensitive) == "claude.exe" / "claude"
+///   - process command line contains "claude-code" (covers
+///     `node claude-code` invocations on systems where the CLI is
+///     run as a node script)
+///
+/// Best-effort: a sysinfo refresh failure returns None — the doctor's
+/// hook-state diagnosis still works, just without the Claude-running
+/// overlay. Never panics.
+pub(crate) fn is_claude_code_running() -> Option<u32> {
+    use sysinfo::{ProcessRefreshKind, ProcessesToUpdate, System};
+    let mut sys = System::new();
+    // Refresh only the process surface — RAM / CPU / disk are not
+    // needed and `refresh_processes_specifics` with `Everything` is
+    // overkill. `ProcessRefreshKind::new()` is the cheapest variant
+    // that still populates `name()` and `cmd()`.
+    sys.refresh_processes_specifics(
+        ProcessesToUpdate::All,
+        true,
+        ProcessRefreshKind::new(),
+    );
+    for (pid, proc_) in sys.processes() {
+        let name = proc_.name().to_string_lossy().to_lowercase();
+        // Direct executable name match. We accept both `claude.exe`
+        // (Windows) and `claude` (POSIX). We deliberately do NOT match
+        // bare "node" here — only when its cmdline contains
+        // "claude-code" (see below).
+        if name == "claude.exe" || name == "claude" {
+            return Some(pid.as_u32());
+        }
+        // Command-line match for `node claude-code` style invocations.
+        // sysinfo's `cmd()` returns the argv vector; we lowercase and
+        // join so we don't have to care about which slot the
+        // claude-code script lives in.
+        let cmd_joined: String = proc_
+            .cmd()
+            .iter()
+            .map(|s| s.to_string_lossy().to_lowercase())
+            .collect::<Vec<_>>()
+            .join(" ");
+        if cmd_joined.contains("claude-code") || cmd_joined.contains("claude_code") {
+            return Some(pid.as_u32());
+        }
+    }
+    None
+}
+
 /// K1 / Phase A §K1: render the "Claude Code hooks" box.
 /// Reports whether mneme's 8 hook entries are registered in
 /// `~/.claude/settings.json`. Green when all 8 are present, red
 /// otherwise. Split out so we can emit it on both supervisor-up and
 /// supervisor-down paths.
+///
+/// **B-AGENT-C-2 (v0.3.2):** the simple "hooks present? yes/no" line
+/// turned out to be wrong when Claude Code was running. Claude owns
+/// `~/.claude/settings.json` while it is open; if the user installed
+/// mneme with Claude already running, Claude's next auto-save can
+/// strip mneme's entries. Doctor now:
+///
+///   1. uses `count_registered_mneme_hooks_detailed` so a real read /
+///      parse error surfaces instead of silently degrading to `0/8`
+///      (Layer 1 fix);
+///   2. probes the live process table for Claude Code via
+///      `is_claude_code_running()` so the message can call out the
+///      likely cause when hooks appear missing while Claude is up
+///      (Layer 2 fix).
 fn render_hooks_registered_box() {
-    use crate::platforms::claude_code::{count_registered_mneme_hooks, HOOK_SPECS};
+    use crate::platforms::claude_code::{
+        count_registered_mneme_hooks_detailed, HookFileReadState, HOOK_SPECS,
+    };
 
     println!();
     println!("┌─────────────────────────────────────────────────────────┐");
@@ -410,46 +580,79 @@ fn render_hooks_registered_box() {
         .map(|p| p.display().to_string())
         .unwrap_or_else(|| "?".into());
 
+    let claude_pid = is_claude_code_running();
+
     match settings_path.as_ref() {
-        Some(p) if p.exists() => {
-            let (count, expected) = count_registered_mneme_hooks(p);
-            let mark = if count == expected { "✓" } else { "✗" };
-            let value = hooks_remediation_message(count, expected);
-            line(&format!("{mark} hooks_registered"), &value);
-            line("settings.json", &path_str);
-            // Per-event breakdown so users can see which event is
-            // missing without opening the JSON. Helps debug a partial
-            // registration (e.g. user hand-edited Stop out of the file).
-            if count != expected {
-                let body = std::fs::read_to_string(p).unwrap_or_default();
-                let parsed: serde_json::Value =
-                    serde_json::from_str(&body).unwrap_or(serde_json::json!({}));
-                let hooks_obj = parsed
-                    .get("hooks")
-                    .and_then(|v| v.as_object())
-                    .cloned()
-                    .unwrap_or_default();
-                for spec in HOOK_SPECS {
-                    let present = hooks_obj
-                        .get(spec.event)
-                        .and_then(|v| v.as_array())
-                        .map(|arr| {
-                            arr.iter().any(|e| {
-                                e.get("_mneme")
-                                    .and_then(|m| m.get("managed"))
-                                    .and_then(|v| v.as_bool())
-                                    .unwrap_or(false)
-                            })
-                        })
-                        .unwrap_or(false);
-                    let m = if present { "✓" } else { "✗" };
-                    line(&format!("  {m} {}", spec.event), if present { "yes" } else { "no" });
+        Some(p) => {
+            let r = count_registered_mneme_hooks_detailed(p);
+            match &r.read_state {
+                HookFileReadState::Missing => {
+                    // True negative — file does not exist.
+                    let value = compose_hooks_message(0, r.expected, claude_pid, None);
+                    line("✗ hooks_registered", &value);
+                    line("settings.json", &p.display().to_string());
+                    line(
+                        "  status",
+                        "settings.json does not exist (mneme install has not run)",
+                    );
+                }
+                HookFileReadState::UnreadableIo(io_msg) => {
+                    // File present but unreadable — surface concrete reason.
+                    let value = compose_hooks_message(
+                        0,
+                        r.expected,
+                        claude_pid,
+                        Some(format!("io error: {io_msg}")),
+                    );
+                    line("✗ hooks_registered", &value);
+                    line("settings.json", &path_str);
+                }
+                HookFileReadState::Read => {
+                    let mark = if r.count == r.expected { "✓" } else { "✗" };
+                    let value = compose_hooks_message(
+                        r.count,
+                        r.expected,
+                        claude_pid,
+                        r.parse_error.clone(),
+                    );
+                    line(&format!("{mark} hooks_registered"), &value);
+                    line("settings.json", &path_str);
+                    // Per-event breakdown so users can see which event is
+                    // missing without opening the JSON. Helps debug a partial
+                    // registration (e.g. user hand-edited Stop out of the file).
+                    // Only render when parse succeeded — otherwise the body is
+                    // not trustworthy.
+                    if r.count != r.expected && r.parse_error.is_none() {
+                        let body = std::fs::read_to_string(p).unwrap_or_default();
+                        let parsed: serde_json::Value =
+                            serde_json::from_str(&body).unwrap_or(serde_json::json!({}));
+                        let hooks_obj = parsed
+                            .get("hooks")
+                            .and_then(|v| v.as_object())
+                            .cloned()
+                            .unwrap_or_default();
+                        for spec in HOOK_SPECS {
+                            let present = hooks_obj
+                                .get(spec.event)
+                                .and_then(|v| v.as_array())
+                                .map(|arr| {
+                                    arr.iter().any(|e| {
+                                        e.get("_mneme")
+                                            .and_then(|m| m.get("managed"))
+                                            .and_then(|v| v.as_bool())
+                                            .unwrap_or(false)
+                                    })
+                                })
+                                .unwrap_or(false);
+                            let m = if present { "✓" } else { "✗" };
+                            line(
+                                &format!("  {m} {}", spec.event),
+                                if present { "yes" } else { "no" },
+                            );
+                        }
+                    }
                 }
             }
-        }
-        Some(p) => {
-            line("✗ hooks_registered", "0/8 — settings.json does not exist");
-            line("settings.json", &p.display().to_string());
         }
         None => {
             line("✗ hooks_registered", "could not resolve home dir");
@@ -1907,6 +2110,140 @@ mod tests {
             flags & CREATE_NO_WINDOW,
             CREATE_NO_WINDOW,
             "doctor mcp-probe spawn must set CREATE_NO_WINDOW (0x08000000); got {flags:#010x}"
+        );
+    }
+
+    // -----------------------------------------------------------------
+    // B-AGENT-C-2 (v0.3.2): doctor reports `0/8 hooks` when Claude
+    // Code is running and overwrote settings.json with its in-memory
+    // copy that lacks mneme's entries. The fix is a four-branch
+    // truth-table on (claude_running, hooks_present) — see
+    // `compose_hooks_message` for the contract. These tests pin every
+    // branch independently so future edits don't silently collapse
+    // them.
+    //
+    // Anish's exact quote: "install was good, just when i made mneme
+    // doctor it showed all hooks missing and claude was on, i had to
+    // close all and do mneme install and it came back but still not
+    // plesent". The "still not plesent" is what Layer 2 fixes — even
+    // when the underlying race is timing-dependent, the user gets a
+    // crisp explanation instead of a scary `0/8`.
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn is_claude_code_running_never_panics() {
+        // Either we get Some(pid) (Claude is open) or None (closed).
+        // Either is correct — the contract is just totality.
+        let _ = super::is_claude_code_running();
+    }
+
+    #[test]
+    fn message_when_claude_running_and_hooks_missing_calls_out_pid() {
+        // The headline-bug message — Anish's repro: install OK, Claude
+        // up, doctor reports 0/8, user panics. New copy must say the
+        // hooks are not detected AND that Claude is up AND give the
+        // PID so the user can map it back to a window.
+        let msg = super::compose_hooks_message(0, 8, Some(98765), None);
+        assert!(msg.contains("0/8"), "must show count: {msg}");
+        assert!(
+            msg.to_lowercase().contains("claude"),
+            "must name Claude Code: {msg}"
+        );
+        assert!(
+            msg.to_lowercase().contains("running")
+                || msg.to_lowercase().contains("open"),
+            "must indicate Claude is alive: {msg}"
+        );
+        assert!(msg.contains("98765"), "must include the PID: {msg}");
+        assert!(
+            msg.to_lowercase().contains("close"),
+            "must tell the user to close Claude: {msg}"
+        );
+    }
+
+    #[test]
+    fn message_when_claude_not_running_and_hooks_missing_keeps_install_remediation() {
+        // True negative: install genuinely didn't take. Old copy is
+        // correct here — point the user at `mneme install`.
+        let msg = super::compose_hooks_message(0, 8, None, None);
+        assert!(msg.contains("0/8"), "must show count: {msg}");
+        assert!(
+            msg.contains("mneme install"),
+            "true-negative must point to `mneme install`: {msg}"
+        );
+        // Critically: must NOT pretend Claude is the cause.
+        assert!(
+            !msg.to_lowercase().contains("running"),
+            "must not blame Claude when it isn't open: {msg}"
+        );
+    }
+
+    #[test]
+    fn message_when_claude_running_and_hooks_present_emits_restart_reminder() {
+        // Hooks are wired correctly (8/8) but Claude was already open
+        // when the user installed. New hooks won't fire in
+        // already-open sessions until Claude is restarted.
+        let msg = super::compose_hooks_message(8, 8, Some(12345), None);
+        assert!(msg.contains("8/8"), "must show count: {msg}");
+        assert!(
+            msg.to_lowercase().contains("restart")
+                || msg.to_lowercase().contains("won't fire")
+                || msg.to_lowercase().contains("won't pick"),
+            "running-Claude-with-hooks-present must remind to restart: {msg}"
+        );
+    }
+
+    #[test]
+    fn message_when_claude_not_running_and_hooks_present_is_clean() {
+        // Happy path: 8/8 + Claude closed.
+        let msg = super::compose_hooks_message(8, 8, None, None);
+        assert!(msg.contains("8/8"), "must show count: {msg}");
+        assert!(
+            msg.contains("entries registered"),
+            "happy path must show the existing 'entries registered' line: {msg}"
+        );
+        // Must NOT scare the user with "running" or "restart".
+        assert!(
+            !msg.to_lowercase().contains("restart"),
+            "happy path must not emit a restart reminder: {msg}"
+        );
+    }
+
+    #[test]
+    fn message_when_read_error_surfaces_diagnostic() {
+        // Layer 1 wired-through-Layer-2: when the detailed counter
+        // reports a parse_error we must surface it instead of silently
+        // returning "0/8 — re-run mneme install" which would mislead
+        // the user.
+        let parse_err = "settings.json failed to parse as JSON: trailing comma at line 12";
+        let msg = super::compose_hooks_message(0, 8, None, Some(parse_err.to_string()));
+        assert!(
+            msg.contains("settings.json"),
+            "diagnostic must mention the file: {msg}"
+        );
+        assert!(
+            msg.contains("parse") || msg.contains("trailing comma"),
+            "diagnostic must surface the concrete reason: {msg}"
+        );
+    }
+
+    #[test]
+    fn message_with_claude_running_and_read_error_combines_both_signals() {
+        // If Claude is up AND parse failed (e.g. Claude's mid-write
+        // produced a partial JSON read), the message must mention BOTH
+        // — Claude-is-open is the likely cause, parse-error is the
+        // concrete symptom.
+        let parse_err = "unexpected end of JSON input";
+        let msg = super::compose_hooks_message(
+            0,
+            8,
+            Some(54321),
+            Some(parse_err.to_string()),
+        );
+        assert!(msg.contains("54321"), "must include PID: {msg}");
+        assert!(
+            msg.contains("parse") || msg.contains("unexpected end"),
+            "must surface parse error: {msg}"
         );
     }
 }
