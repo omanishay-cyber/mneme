@@ -5,6 +5,72 @@ All notable changes to mneme will be recorded here.
 Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [0.3.2-v3-home] — 2026-04-30 — Wave 4: build UX + AI-DNA pace + doctor reliability
+
+### Fixed (Wave 4 — 2026-04-30 office cycle)
+
+- **B-017 — Build heartbeat during silent parse/embed/graph phases.** Pre-fix, after the multimodal-warning batch (Tesseract-disabled lines etc.), the build pipeline emitted nothing for 5–20 minutes during parse → embed → graph phases on Orion-sized corpora. Users assumed hang and panic-closed the terminal — which actually killed the build mid-write and left a stale `.lock`. New `cli/src/build_heartbeat.rs` (514 lines) provides a RAII heartbeat handle with atomic counters, configurable interval/sink, and quiet-mode opt-out. `cli/src/commands/build.rs` wires 7 `set_phase` callouts + per-file `add_total`/`record_processed` + explicit `stop()` before summary. Status line format: `[01:34 elapsed] phase=parse processed=512/4218 rate=327.5/s`. Lines also mirror to `tracing::info!(target: "build.heartbeat", ...)` for structured-log capture. New `--quiet` flag for `mneme build` opts out. **9 unit tests + 2 integration tests added, all pass.**
+- **B-018 — Stale stamp PID surfaces in contention error message.** Pre-fix, `cli/src/build_lock.rs::contention_error` would emit `another build in progress for project X (locked at pid=23968 ts=…)` even when PID 23968 was a long-dead crashed-without-Drop holder. The OS auto-releases the kernel lock on process death (Windows `LockFileEx` + Unix `flock` are both process-affine), but the on-disk `.lock` file persists with the stale PID. New helpers `parse_pid_from_stamp`, `is_pid_alive` (cross-platform via `sysinfo`), `stale_stamp_annotation` now annotate dead-PID messages with `(stale stamp from PID N — race anyway)`. **3 unit tests added, all pass.**
+- **doctor-claude — `mneme doctor` no longer lies about hooks when Claude Code is running.** Anish's bug report: install succeeds, doctor reports `hooks_registered: 0/8` while Claude is open, closing Claude + reinstalling shows 8/8. Two confounding root causes:
+  - **H1 (silent error swallowing)** — `cli/src/platforms/claude_code.rs::count_registered_mneme_hooks` collapsed every io / utf-8 / json / schema-shape error into `(0, expected)` indistinguishable from "no hooks present". New `count_registered_mneme_hooks_detailed()` returns `HookCountResult { count, expected, read_state: HookFileReadState::{Missing,UnreadableIo(String),Read}, parse_error: Option<String> }`. Doctor now distinguishes "no install yet" from "file locked" from "bytes consumed but parse failed".
+  - **H2 (Claude clobbers settings.json on auto-save)** — Claude Code holds an in-memory copy of `~/.claude/settings.json`; on UI interaction or focus change, Claude saves and overwrites mneme's hook entries. New `is_claude_code_running() -> Option<u32>` enumerates the live process table via the workspace `sysinfo` dep (matches `claude.exe` / `claude` by name OR `claude-code` / `claude_code` in cmd line). `compose_hooks_message()` is a pure four-branch truth table: (claude-running × hooks-present), (claude-running × hooks-missing), (claude-not-running × hooks-present), (claude-not-running × hooks-missing). When Claude is running and hooks missing, doctor now emits a clear warning naming the PID and explaining Claude may be holding the stale in-memory copy — instead of a misleading "0/8 install broken" line.
+  - **12 new unit tests added** across `commands::doctor::tests` and `platforms::claude_code::tests`, all pass.
+
+### Added (Wave 4)
+
+- **`mneme abort` — graceful in-flight build cancellation with WAL checkpoint and lock cleanup.** New `cli/src/commands/abort.rs` (583 lines) + `cli/tests/abort_test.rs` (257 lines). Previously, the only way to stop a running `mneme build` was `Get-Process mneme | Stop-Process -Force` or closing the terminal — both corrupt WAL files mid-write. The new command:
+  1. Resolves project ID(s) via `PathManager`, supports `--project <path>` / `--all` / `--force` / `--timeout-secs N` (default 5).
+  2. Reads `~/.mneme/projects/<id>/.lock`, parses `pid=N ts=T`, checks PID liveness via `sysinfo`.
+  3. If PID dead: lock is stale, skip to cleanup (no signal sent).
+  4. If PID alive and not `--force`: send graceful kill via `taskkill` (Windows) / `kill -SIGTERM` (Unix). Wait up to `--timeout-secs`.
+  5. If still alive after timeout (or `--force`): hard-kill via `taskkill /F` / `kill -SIGKILL`.
+  6. Cleanup: 500 ms settle window for kernel to reap, then `PRAGMA wal_checkpoint(TRUNCATE)` per shard DB to flush WAL, then remove `.lock`.
+  7. Print summary: `aborted: project=<id> pid=<N> graceful=<true|false> wal_checkpointed=<n_dbs>`.
+  - Self-PID guard: refuses to abort if a stale `.lock` happens to carry the running `mneme abort` process's own PID.
+  - `--all` aggregates failures: warns to stderr but exits 0 if at least one project succeeded.
+  - **17 unit tests + 4 integration tests added, all pass.**
+
+### Changed (Wave 4 — AI-DNA pace tuning)
+
+Per [`feedback_mneme_ai_dna_pace.md`](../.claude/projects/...) Principle B ("larger buffers across the pipeline; same-speed indexing; no hard caps unless mathematically necessary"), 9 buffer/queue/cap sites tuned up across 4 crates. Each bump justified for AI burst rates:
+
+- **supervisor — `MAX_CONCURRENT_CONNECTIONS`: 64 → 256 (4×).** (`supervisor/src/ipc.rs:53`) Env override `MNEME_IPC_MAX_CONNS`. AI parallel agents (8–12) + CLI/MCP/vision baseline saturated 64.
+- **supervisor — IPC body buffer pre-allocated 64 KiB** instead of `Vec::new()`. (`supervisor/src/ipc.rs:572`) Eliminates hot-path realloc storm.
+- **supervisor — `MAX_PENDING` watcher events: 10 000 → 65 536 (~6.5×).** (`supervisor/src/watcher.rs:43`) Env override `MNEME_WATCHER_MAX_PENDING`. AI mass-rename in 1000+ file projects emits >10k events.
+- **supervisor — watcher pending HashMap pre-sized to MAX_PENDING/16** to avoid rehash storm.
+- **parsers — `tx_results` channel cap: 1024 → 4096 (4×).** (`parsers/src/main.rs:56`) Env override `MNEME_PARSE_RESULT_CHANNEL_CAP`. 4× headroom for fan-in burst.
+- **parsers — per-worker `tx_jobs` cap: 64 → 256 (4×).** (`parsers/src/main.rs:60`) Env override `MNEME_PARSE_WORKER_JOB_CHANNEL_CAP`. M16 fan-out fast path stays hot longer.
+- **parsers — `DEFAULT_TREE_CACHE`: 1000 → 4000 (4×).** (`parsers/src/incremental.rs:24`) LRU eviction was breaking same-speed-indexing on 1000+ file projects.
+- **livebus — `BACKPRESSURE_WINDOW`: 50 → 256 (5×).** (`livebus/src/subscriber.rs:31`) Old window evicted normal subscribers after 0.5s burst. Per-subscriber mpsc capacity auto-tracks.
+- **store — `WRITER_CHANNEL_CAP`: 256 → 1024 (4×) per shard.** (`store/src/query.rs:37`) 26 shards × 1024 = 26 624 in-flight headroom. Single-writer invariant preserved (only the input channel grew).
+
+13 buffer sites audited and **kept as-is** (already AI-burst-sized or correctly bounded for safety). Every wait-path already has a `send_timeout` fallthrough — 0 timeout-additions needed (the M15 + M16 + IPC_READ_TIMEOUT + NEW-016 prior work covers this).
+
+**4 new env vars introduced for runtime override without recompile** (production tuning knob):
+- `MNEME_IPC_MAX_CONNS` (supervisor) — default 256
+- `MNEME_WATCHER_MAX_PENDING` (supervisor) — default 65 536
+- `MNEME_PARSE_RESULT_CHANNEL_CAP` (parsers) — default 4096
+- `MNEME_PARSE_WORKER_JOB_CHANNEL_CAP` (parsers) — default 256
+
+### Changed (Wave 4 — public-facing docs)
+
+- **README.md benchmarks rewritten in plain English.** Per Anish's direct quote *"no one can get p50 and shit"*, the headline `Benchmarks` table now reads `"typical query saves ~34%, best 5% save 71%"` instead of `1.338× mean / 1.519× p50 / 3.542× p95`, etc. Technical numbers preserved in a "For engineers" footnote linking to [`BENCHMARKS.md`](benchmarks/BENCHMARKS.md). Badge on line 29 changed from `incremental p95 0ms` to `incremental instant`.
+
+### Test gate (Wave 4 — POS2)
+
+- `cargo check --workspace` → EXIT 0 (15.4 s)
+- `cargo test --workspace --lib` → **708 passed / 0 failed** across 10 crates (cli=423 · daemon=86 · scanners=49 · multimodal=48 · parsers=48 · livebus=20 · brain=15 · store=10 · md-ingest=9 · common=0)
+- `cd mcp && bunx tsc --noEmit` → EXIT 0
+- `cd mcp && bun test` → 12/12 pass
+- `cd vision && bunx tsc --noEmit` → EXIT 0
+
+### Architecture notes
+
+- **Wave 4 used 4 parallel git worktree-isolated agents** with disjoint file portfolios per `feedback_parallel_agents_need_worktrees.md` + `feedback_agent_dispatch_full_power.md`. Two waves of 2 concurrent agents (Anish's POS2 server CPU cap), zero file-overlap conflicts after merge resolution.
+- **No version bump** per `feedback_mneme_dont_bump_version_unless_shipping.md`. Workspace stays at `0.3.2`. The `v3-home` suffix on this CHANGELOG section reflects the home-fix wave layer count, not a version bump.
+
+---
+
 ## [0.3.2-v2-home] — 2026-04-30 — Scanner panic + diagnostic chain + real-embeddings default
 
 ### Fixed (Wave 3 — Home cycle 2026-04-30)
