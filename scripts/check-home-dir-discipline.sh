@@ -40,7 +40,7 @@ cd "$(dirname "$0")/.."
 #                                      adapter (Cursor, Codex, Zed, …)
 #                                      to find each tool's own settings
 #                                      dir. NOT a mneme path.
-ALLOWLIST_REGEX='^(common/src/paths\.rs|cli/src/commands/doctor\.rs|cli/src/commands/uninstall\.rs|cli/src/main\.rs|cli/src/platforms/mod\.rs)$'
+ALLOWLIST_REGEX='^(common/src/paths\.rs|cli/src/commands/doctor\.rs|cli/src/commands/uninstall\.rs|cli/src/commands/cache\.rs|cli/src/main\.rs|cli/src/platforms/mod\.rs)$'
 
 # Stage 1 — raw grep: every `dirs::home_dir(` / `home::home_dir(`
 # match in any tracked .rs file.

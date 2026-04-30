@@ -22,7 +22,7 @@ db-urls = ["https://github.com/RustSec/advisory-db"]
 # cargo-deny 0.15+ accepts "all" | "workspace" | "transitive" | "none" on
 # `unmaintained` (old "warn" is gone). "all" is the most permissive + logs.
 yanked = "warn"
-unmaintained = "all"
+unmaintained = "warn"
 ignore = [
     # paste — upstream author archived the repo; alternatives (pastey,
     # with_builtin_macros) exist but switching requires a tokenizers fork.
