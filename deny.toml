@@ -64,6 +64,8 @@ allow = [
     "Zlib",
     "0BSD",
     "OpenSSL",
+    "WTFPL",       # Do What The F*** You Want To Public License — permissive, no restrictions
+    "Unlicense",   # Public-domain dedication — most permissive license possible
 ]
 # cargo-deny 0.15+ removed `deny = [...]` — use allow-only model. Anything
 # not in `allow` above is rejected by default. To flag copyleft explicitly,
@@ -166,6 +168,11 @@ skip = [
     { crate = "rustix", reason = "which 6.0 pins rustix 0.38 on Linux; tempfile 3.27 ships rustix 1.x — fixed by bumping which to 7.x in v0.4" },
     # Direct fallout of the rustix 0.38 vs 1.x split (Linux only).
     { crate = "linux-raw-sys", reason = "parallels rustix 0.38 vs 1.x split — clears when which bumps to 7.x" },
+    # which 4.4 (bindgen 0.64 → tesseract chain → mneme-multimodal) vs which 6.0
+    # (mneme-cli direct). bindgen 0.69+ moves to which 7.x but bindgen is a
+    # transitive dep of leptonica-sys/tesseract-sys/whisper-rs-sys — bumping
+    # requires upstream bumps in the OCR/Whisper crate chain.
+    { crate = "which", reason = "bindgen 0.64 (tesseract/whisper chain) pins 4.4; mneme-cli direct uses 6.0" },
 ]
 skip-tree = []
 
