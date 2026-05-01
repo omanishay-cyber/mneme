@@ -4759,7 +4759,34 @@ impl Drop for BuildChildRegistry {
 /// Best-effort cross-platform process kill. We don't propagate errors
 /// because at this point the build is already exiting and a stale PID
 /// (kernel reaped it before we got there) is the common case.
+///
+/// B-030 (D:\Mneme Dome cycle, 2026-05-01): defensive PID bounds check.
+/// On Unix, `kill(2)` interprets:
+///   - `pid == 0`  → "send to every process in the calling process group"
+///   - `pid == -1` → "send to every process the caller can signal"
+///   - `pid <  -1` → "send to every process in the process group `-pid`"
+/// `/usr/bin/kill -TERM <num>` parses `<num>` as a signed int; a u32 value
+/// greater than `i32::MAX` (e.g. `u32::MAX = 4294967295`) wraps to `-1`,
+/// which means **SIGTERM every process the user owns** — including the
+/// running cargo test, the shell, the SSH session.
+///
+/// This was the smoking gun for the GitHub CI ubuntu hang: the
+/// `build_child_registry_kill_all_is_idempotent` test deliberately
+/// registers `u32::MAX` as a fake PID to verify idempotency, and on
+/// Linux the resulting `kill -TERM 4294967295` killed the cargo test
+/// itself, hanging the runner until the wall-clock reclaim. Same root
+/// cause locked up Phase A test on home VM 192.168.1.178.
+///
+/// Fix: reject any PID that's 0, > i32::MAX, or otherwise unsafe to
+/// pass to `kill(2)`. Conservative and cross-platform.
 fn kill_pid_best_effort(pid: u32) {
+    // B-030: never pass a PID that could be interpreted as "kill many".
+    // Valid Unix PIDs are in (0, i32::MAX]; Windows PIDs go up to u32
+    // but a value > i32::MAX coming from a cast is almost certainly a
+    // sentinel/test value, not a real running process.
+    if pid == 0 || pid > i32::MAX as u32 {
+        return;
+    }
     #[cfg(windows)]
     {
         // taskkill /F /PID <pid> is the standard Windows path. /T
@@ -4783,8 +4810,12 @@ fn kill_pid_best_effort(pid: u32) {
         // Unix. SIGTERM gives the child a chance to flush; if it
         // ignores the signal we trust the kernel cleanup at process
         // exit.
+        //
+        // B-030: `--` separator forces `kill` to treat the argument
+        // as a PID even if it lexically looks like a flag (defence
+        // in depth — bounds check above is the primary guard).
         let _ = std::process::Command::new("kill")
-            .args(["-TERM", &pid.to_string()])
+            .args(["-TERM", "--", &pid.to_string()])
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
             .status();
