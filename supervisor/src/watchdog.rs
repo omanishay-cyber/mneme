@@ -138,9 +138,16 @@ impl Watchdog {
                 Some(h) => h,
                 None => continue,
             };
-            let (status, endpoint, deadline_opt) = {
+            // B-021 v2 (concurrency-audit F3 fix, 2026-04-30): read ALL
+            // four fields under ONE lock acquisition to avoid the TOCTOU
+            // gap where status/last_heartbeat could change between two
+            // separate lock blocks (audit found this would surface as
+            // "self-test logs `pending_first_hb` for a worker that just
+            // sent its first heartbeat" — telemetry inconsistency, not
+            // safety bug, but cheap to fix and worth doing).
+            let (status, endpoint, deadline_opt, last_hb_opt) = {
                 let h = handle.lock().await;
-                (h.status, h.spec.health_endpoint.clone(), h.spec.heartbeat_deadline)
+                (h.status, h.spec.health_endpoint.clone(), h.spec.heartbeat_deadline, h.last_heartbeat)
             };
             if status != ChildStatus::Running {
                 continue;
@@ -156,10 +163,6 @@ impl Watchdog {
             // that fills `supervisor.log` with thousands of false alarms
             // (observed: 22 workers × every 60s for 7+ minutes on POS PC).
             // Workers that wired heartbeat-send keep the real check.
-            let last_hb_opt = {
-                let h = handle.lock().await;
-                h.last_heartbeat
-            };
             match (deadline_opt, last_hb_opt) {
                 (None, _) => {
                     // Opted-out worker: log liveness as opt-out, not failure.

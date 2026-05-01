@@ -139,7 +139,12 @@ pub async fn run(args: DoctorArgs, socket_override: Option<PathBuf>) -> CliResul
         return Ok(());
     }
 
-    let client = make_client(socket_override);
+    // B-017 v2 (concurrency-audit F6 fix, 2026-04-30): doctor MUST NOT
+    // auto-spawn a daemon. The outer 3s timeout below would interrupt
+    // the auto-spawn-then-retry path mid-poll, leaving an orphaned
+    // `mneme daemon start` process. Doctor's job is to OBSERVE health,
+    // not to silently start the daemon.
+    let client = make_client(socket_override).with_no_autospawn();
     // B-017/B-018 (D:\Mneme Dome cycle, 2026-04-30): doctor must never
     // hang. Two independent safeguards:
     //   1. If `~/.mneme/run/daemon.pid` is stale (file present but its
