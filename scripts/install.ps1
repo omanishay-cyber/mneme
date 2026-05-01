@@ -713,19 +713,18 @@ if ($NoToolchain) {
         }
     }
 
-    # G4: Tauri CLI. Depends on Rust being present (just installed above).
-    # Cargo subcommand form: `cargo install tauri-cli --version "^2.0"`.
-    # This took 3-5min on a fresh machine. Worth it: yesterday's vision
-    # app build failure was a missing build.rs+icons WITHOUT Tauri CLI
-    # diagnostics; users got the cryptic Cargo error instead.
+    # G4: Tauri CLI — DETECT-ONLY (B-031, D:\Mneme Dome cycle, 2026-05-01).
     #
-    # B-006 follow-on: the previous version of this block called
-    # `& $cargoExe.Source tauri --version 2>&1` directly. With
-    # tauri-cli not installed, cargo prints "error: no such command: tauri"
-    # to stderr and exits 101, which under EAP=Stop fires NativeCommandError
-    # and aborts the WHOLE install. The Invoke-NativeProbe helper contains
-    # both stderr noise and the non-zero exit code, then we inspect .Output
-    # for the "no such command" hint to decide whether to install.
+    # tauri-cli is a build-time tool. Mneme ships a prebuilt
+    # `mneme-vision-tauri.exe` (renamed `mneme-vision.exe`) inside the
+    # release zip. End users running the live `iex (irm ...)` one-liner
+    # never need to BUILD vision/tauri themselves; they just run the
+    # bundled binary. Auto-installing tauri-cli wasted 3-5 min + 35 MB
+    # of crate downloads on every fresh install for zero runtime benefit.
+    #
+    # New behaviour: detect-only. Warn if missing, point at install
+    # command, never invoke `cargo install tauri-cli` automatically.
+    # Anyone building vision/tauri from source can install it themselves.
     $cargoExe = Get-Command cargo -ErrorAction SilentlyContinue
     if ($cargoExe) {
         $tauriPresent = $false
@@ -736,38 +735,14 @@ if ($NoToolchain) {
             $tauriProbe = Invoke-NativeProbe -ExePath $cargoExe.Source -ProbeArgs @('tauri','--version')
             if ($tauriProbe.Success) { $tauriPresent = $true }
         }
-        if (-not $tauriPresent) {
-            # Bug F gate: don't burn 3-5 min on a doomed download. cargo
-            # install tauri-cli compiles ~560 crates and links them with
-            # MSVC's link.exe; without MSVC Build Tools the build fails
-            # at link stage AFTER the full download. Pre-check link.exe +
-            # cl.exe and skip with a remediation hint when missing.
-            if (-not (Test-MsvcLinker)) {
-                Write-Warn "[G4] MSVC link.exe missing - skipping cargo install tauri-cli to avoid a 5-min doomed compile"
-                Write-Warn "      install MSVC Build Tools then re-run install.ps1:"
-                Write-Warn "      winget install --id Microsoft.VisualStudio.2022.BuildTools --silent --override `"--add Microsoft.VisualStudio.Workload.VCTools --includeRecommended`""
-                Write-Warn "      (tauri-cli is dev-time only; the rest of mneme installs without it.)"
-            } else {
-                Write-Info "[G4] Tauri CLI missing - cargo install tauri-cli (3-5 min)"
-                try {
-                    $p = Start-Process $cargoExe.Source -ArgumentList 'install','tauri-cli','--locked','--version','^2.0' -Wait -PassThru -NoNewWindow
-                    if ($p.ExitCode -eq 0) {
-                        Write-OK "[G4] Tauri CLI installed (cargo tauri)"
-                    } else {
-                        # tauri-cli is dev-time only (used for vision/tauri builds);
-                        # a failure here is non-fatal to the rest of the install.
-                        Write-Warn ("[G4] cargo install tauri-cli exited {0} - non-fatal, continuing" -f $p.ExitCode)
-                    }
-                } catch {
-                    Write-Warn ("[G4] Tauri CLI install failed (non-fatal): {0}" -f $_.Exception.Message)
-                }
-            }
+        if ($tauriPresent) {
+            Write-OK "[G4] Tauri CLI present (build-time only; not required at runtime)"
         } else {
-            Write-OK "[G4] Tauri CLI present"
+            Write-Info "[G4] Tauri CLI not detected — SKIPPED (build-time only, prebuilt mneme-vision.exe ships in release zip)"
+            Write-Info "      To build vision/tauri from source manually: cargo install tauri-cli --locked --version '^2.0'"
         }
-    } else {
-        Write-Warn "[G4] Tauri CLI install skipped - Rust unavailable"
     }
+    # If cargo is missing entirely, no point mentioning Tauri.
 
     # G7: sqlite3 CLI. Optional but valuable for shard diagnostics.
     #
