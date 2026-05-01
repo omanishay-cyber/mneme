@@ -140,15 +140,42 @@ pub async fn run(args: DoctorArgs, socket_override: Option<PathBuf>) -> CliResul
     }
 
     let client = make_client(socket_override);
-    let is_up = client.is_running().await;
-    line(
-        "supervisor",
-        if is_up {
-            "running ✓"
-        } else {
-            "NOT RUNNING ✗"
-        },
-    );
+    // B-017/B-018 (D:\Mneme Dome cycle, 2026-04-30): doctor must never
+    // hang. Two independent safeguards:
+    //   1. If `~/.mneme/run/daemon.pid` is stale (file present but its
+    //      PID is not alive), skip the IPC entirely — a wedged stale
+    //      named pipe can accept our connect and then block `read_exact`
+    //      until the 120s DEFAULT_IPC_TIMEOUT fires.
+    //   2. Even when the PID looks alive, cap the liveness probe at 3s
+    //      so a stuck daemon can't stall the rest of the doctor output.
+    let pid_state = check_daemon_pid_liveness(&state);
+    let is_up = match pid_state {
+        DaemonPidState::AliveProbeFresh => {
+            match tokio::time::timeout(Duration::from_secs(3), client.is_running()).await {
+                Ok(up) => up,
+                Err(_) => {
+                    warn!(
+                        "doctor: daemon PID is alive but supervisor did not answer Ping in 3s — treating as down"
+                    );
+                    false
+                }
+            }
+        }
+        DaemonPidState::Stale => {
+            warn!(
+                "doctor: stale ~/.mneme/run/daemon.pid (process not alive) — supervisor is down"
+            );
+            false
+        }
+        DaemonPidState::Missing => false,
+    };
+    let supervisor_label = match (is_up, pid_state) {
+        (true, _) => "running ✓",
+        (false, DaemonPidState::Stale) => "NOT RUNNING ✗ (stale PID file)",
+        (false, DaemonPidState::AliveProbeFresh) => "NOT RESPONDING ✗ (3s ping timeout)",
+        (false, DaemonPidState::Missing) => "NOT RUNNING ✗",
+    };
+    line("supervisor", supervisor_label);
     // Per-tool path indicator: which source `recall`/`blast`/`godnodes`
     // will hit right now. Added in v0.3.1 alongside supervisor IPC for
     // those three commands — an up daemon serves them from its pooled
@@ -1068,6 +1095,55 @@ fn is_writable(path: &std::path::Path) -> bool {
             std::fs::remove_file(&probe)
         })
         .is_ok()
+}
+
+/// B-017/B-018 (D:\Mneme Dome cycle, 2026-04-30): three-state result of
+/// inspecting `~/.mneme/run/daemon.pid`. Drives the doctor's pre-IPC
+/// gate so we never block on a wedged stale named pipe.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum DaemonPidState {
+    /// `daemon.pid` is missing entirely — supervisor has never run, or
+    /// uninstall already removed the runtime dir.
+    Missing,
+    /// `daemon.pid` exists but the PID inside is no longer alive (the
+    /// supervisor crashed or was killed without cleanup). The pipe at
+    /// `~/.mneme/supervisor.pipe` may still be present and may even
+    /// accept connects via Windows kernel pipe-name reuse — DO NOT IPC.
+    Stale,
+    /// `daemon.pid` exists and the PID is alive. A short-budget IPC
+    /// probe is safe (and required) to confirm liveness.
+    AliveProbeFresh,
+}
+
+/// B-017/B-018: read `~/.mneme/run/daemon.pid` and classify its state.
+///
+/// Pure-stdlib + `sysinfo` (already a workspace dep). Never panics; any
+/// IO error degrades to `Missing` so we still attempt the IPC if a
+/// transient FS hiccup hides the pid file.
+pub(crate) fn check_daemon_pid_liveness(state_dir: &std::path::Path) -> DaemonPidState {
+    let pid_file = state_dir.join("run").join("daemon.pid");
+    let raw = match std::fs::read_to_string(&pid_file) {
+        Ok(s) => s,
+        Err(_) => return DaemonPidState::Missing,
+    };
+    let pid: u32 = match raw.trim().parse() {
+        Ok(p) => p,
+        Err(_) => return DaemonPidState::Stale,
+    };
+    if is_pid_alive(pid) {
+        DaemonPidState::AliveProbeFresh
+    } else {
+        DaemonPidState::Stale
+    }
+}
+
+/// Cross-platform liveness probe for a numeric PID. Returns `true` if a
+/// process with that PID currently exists on the system.
+fn is_pid_alive(pid: u32) -> bool {
+    use sysinfo::{Pid, System};
+    let mut sys = System::new();
+    sys.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[Pid::from_u32(pid)]), true);
+    sys.process(Pid::from_u32(pid)).is_some()
 }
 
 /// Search PATH for `name` (with platform-appropriate extensions) and

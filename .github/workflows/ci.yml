@@ -61,7 +61,19 @@ jobs:
         run: cargo build --workspace --verbose
 
       - name: Test
-        run: cargo test --workspace --verbose
+        # B-022 (D:\Mneme Dome cycle, 2026-04-30): cap test parallelism on
+        # ubuntu so the 7-GB GitHub runner doesn't OOM-cancel mid-suite.
+        # Earlier `ubuntu-latest` runs were force-cancelled at the 9-min
+        # mark (per WHAT-I-BROKE-2026-04-30 §2). `--test-threads=2` keeps
+        # the daemon-spawn-heavy supervisor + cli tests from doubling-up.
+        # Windows + macOS retain default parallelism (no observed OOM).
+        run: |
+          if [ "${{ runner.os }}" = "Linux" ]; then
+            cargo test --workspace --verbose -- --test-threads=2
+          else
+            cargo test --workspace --verbose
+          fi
+        shell: bash
 
       - name: Check multimodal extractors (default features)
         run: cargo check -p mneme-multimodal

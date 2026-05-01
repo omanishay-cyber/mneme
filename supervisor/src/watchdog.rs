@@ -138,9 +138,9 @@ impl Watchdog {
                 Some(h) => h,
                 None => continue,
             };
-            let (status, endpoint) = {
+            let (status, endpoint, deadline_opt) = {
                 let h = handle.lock().await;
-                (h.status, h.spec.health_endpoint.clone())
+                (h.status, h.spec.health_endpoint.clone(), h.spec.heartbeat_deadline)
             };
             if status != ChildStatus::Running {
                 continue;
@@ -149,26 +149,40 @@ impl Watchdog {
                 Some(e) => e,
                 None => continue,
             };
-
-            // The actual `/health` call is delegated to the child's IPC
-            // surface. To avoid pulling in an HTTP client just for a localhost
-            // ping, we treat the heartbeat-update path as proof of life: any
-            // child that has updated its heartbeat within the last
-            // `self_test_interval` is considered healthy.
-            let elapsed_ms = {
+            // B-021 (D:\Mneme Dome cycle, 2026-04-30): if the worker has
+            // opted out of heartbeat enforcement (heartbeat_deadline=None
+            // per the S-PHASE NEW-055 contract on `heartbeat_pass`), the
+            // self-test log MUST NOT report `healthy:false` every cycle —
+            // that fills `supervisor.log` with thousands of false alarms
+            // (observed: 22 workers × every 60s for 7+ minutes on POS PC).
+            // Workers that wired heartbeat-send keep the real check.
+            let last_hb_opt = {
                 let h = handle.lock().await;
                 h.last_heartbeat
-                    .map(|t| t.elapsed().as_millis() as u64)
-                    .unwrap_or(u64::MAX)
             };
-            let healthy = elapsed_ms < self.self_test_interval.as_millis() as u64;
-            debug!(
-                child = %name,
-                endpoint = %endpoint,
-                healthy,
-                last_hb_ms = elapsed_ms,
-                "self-test"
-            );
+            match (deadline_opt, last_hb_opt) {
+                (None, _) => {
+                    // Opted-out worker: log liveness as opt-out, not failure.
+                    debug!(child = %name, endpoint = %endpoint, healthy = "n/a", reason = "no_heartbeat_wired", "self-test");
+                }
+                (Some(_), None) => {
+                    // Has a deadline but never sent a single heartbeat —
+                    // worker is alive (would not be Running otherwise) but
+                    // hasn't wired the emit. Distinct from "missed".
+                    debug!(child = %name, endpoint = %endpoint, healthy = "pending_first_hb", "self-test");
+                }
+                (Some(_deadline), Some(t)) => {
+                    let elapsed_ms = t.elapsed().as_millis() as u64;
+                    let healthy = elapsed_ms < self.self_test_interval.as_millis() as u64;
+                    debug!(
+                        child = %name,
+                        endpoint = %endpoint,
+                        healthy,
+                        last_hb_ms = elapsed_ms,
+                        "self-test"
+                    );
+                }
+            }
         }
         Ok(())
     }

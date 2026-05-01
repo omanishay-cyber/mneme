@@ -308,6 +308,21 @@ pub async fn run(args: UninstallArgs) -> CliResult<()> {
             remove_defender_exclusions();
             if effective_purge {
                 purge_mneme_state();
+                // B-024 (D:\Mneme Dome cycle, 2026-04-30): explicit
+                // residue notice. The sync-delete in purge_mneme_state
+                // typically clears ~99% of the install (everything except
+                // bin/, which holds the running mneme.exe). The detached
+                // cmd fallback for bin/ is unreliable on Windows
+                // (verified: VM 192.168.1.193 — bin/ survived even
+                // after 30s wait). Tell the user the truth.
+                let bin_residue = std::path::Path::new(&{
+                    let r = common::paths::PathManager::default_root();
+                    r.root().join("bin")
+                }).exists();
+                if bin_residue {
+                    println!("⚠ ~/.mneme/bin/ still contains the running mneme.exe (Windows self-deletion limitation).");
+                    println!("  After this process exits, run:  Remove-Item -Recurse -Force ~/.mneme");
+                }
                 // K18 fix: exit promptly so Windows releases the
                 // mandatory file lock on `mneme.exe` (the running
                 // binary) before the detached `cmd` child wakes up
@@ -664,6 +679,97 @@ fn purge_mneme_state() {
         // re-running --purge-state would see the OLD marker and assume
         // it was current.
         let _ = std::fs::remove_file(&marker_path);
+
+        // B-024 (D:\Mneme Dome cycle, 2026-04-30): SYNCHRONOUS attempt
+        // BEFORE falling back to the detached cmd path.
+        //
+        // Why: the detached `cmd /c "timeout 10 & rmdir /s /q & powershell"`
+        // chain failed silently on Windows VMs (verified on VM 192.168.1.193:
+        // dir still 100% intact 30s after `mneme uninstall --yes`, no helper
+        // script written, no status marker). A direct synchronous
+        // `Remove-Item -Recurse -Force` from the SAME shell succeeded on
+        // attempt 1.
+        //
+        // Strategy: try sync delete with backoff. The only file that's
+        // intrinsically locked is `mneme.exe` (the running binary); we
+        // delete every OTHER file first, then attempt the bin/ dir last.
+        // If the bin/ dir survives because of the self-locked mneme.exe,
+        // we still spawn the detached fallback for that one binary.
+        let mut sync_remaining: Vec<std::path::PathBuf> = Vec::new();
+        let sync_target_dirs: Vec<&str> = vec![
+            "cache", "install-receipts", "logs", "mcp", "models",
+            "plugin", "projects", "run", "scripts", "static", "vision-dist",
+        ];
+        let sync_target_files: Vec<&str> = vec![
+            ".install-manifest.json", "CHANGELOG.md", "CLAUDE.md", "INSTALL.md",
+            "LICENSE", "README.md", "VERSION.txt", "uninstall.ps1",
+            "supervisor.pipe", "meta.db",
+        ];
+        // Delete every NON-bin item synchronously first.
+        for sub in &sync_target_dirs {
+            let p = mneme_dir.join(sub);
+            if p.exists() {
+                if let Err(e) = std::fs::remove_dir_all(&p) {
+                    sync_remaining.push(p.clone());
+                    warn!(path = %p.display(), error = %e, "sync delete failed");
+                }
+            }
+        }
+        for sub in &sync_target_files {
+            let p = mneme_dir.join(sub);
+            if p.exists() {
+                if let Err(e) = std::fs::remove_file(&p) {
+                    sync_remaining.push(p.clone());
+                    warn!(path = %p.display(), error = %e, "sync file delete failed");
+                }
+            }
+        }
+        // Try bin/ — will likely fail because mneme.exe is the running
+        // process, but worth attempting for the case where uninstall is
+        // invoked from a *different* binary (e.g. `mneme.exe` copied
+        // elsewhere then run with cwd != .mneme).
+        let bin_dir = mneme_dir.join("bin");
+        if bin_dir.exists() {
+            if let Err(_e) = std::fs::remove_dir_all(&bin_dir) {
+                sync_remaining.push(bin_dir.clone());
+            }
+        }
+        // Try the root mneme_dir itself — succeeds if everything above
+        // cleaned out and bin/ also went.
+        if mneme_dir.exists() {
+            if let Err(_e) = std::fs::remove_dir_all(&mneme_dir) {
+                // Expected if bin/ survived; proceed to detached fallback.
+            }
+        }
+
+        // SUCCESS PATH: dir fully gone, no fallback needed. Write the
+        // LIE-4 status marker synchronously (status=complete) since
+        // there's no detached child to do it.
+        if !mneme_dir.exists() {
+            let done = UninstallStatus {
+                status: "complete".to_string(),
+                remaining_paths: vec![],
+                timestamp: chrono::Utc::now().to_rfc3339(),
+            };
+            if let Ok(text) = serde_json::to_string_pretty(&done) {
+                let _ = std::fs::write(&marker_path, text);
+            }
+            info!(
+                path = %mneme_dir.display(),
+                "synchronous uninstall complete (no detached fallback needed)"
+            );
+            return;
+        }
+        // Otherwise fall through to the detached approach for whatever
+        // survived (typically just the bin/ dir holding the running
+        // mneme.exe).
+        if !sync_remaining.is_empty() {
+            warn!(
+                remaining = sync_remaining.len(),
+                "sync delete left {} items; spawning detached fallback for residue",
+                sync_remaining.len()
+            );
+        }
 
         // Stage a tiny PowerShell helper script next to the marker so
         // the detached cleanup can do MORE than rmdir — specifically,

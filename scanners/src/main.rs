@@ -341,6 +341,7 @@ async fn run_orchestrator_mode(cmd: OrchestratorCommand) -> std::io::Result<()> 
     let mut scanned = 0usize;
     let mut findings_total = 0usize;
     let mut errors = 0usize;
+    let mut timeouts = 0usize;
     let stdout = tokio::io::stdout();
     let stdout = Arc::new(tokio::sync::Mutex::new(stdout));
 
@@ -349,6 +350,23 @@ async fn run_orchestrator_mode(cmd: OrchestratorCommand) -> std::io::Result<()> 
     // dominant cost is file IO. Parallelising the walk would complicate
     // ordered stdout emission; stick with the simple sequential path.
     let worker = ScanWorker::new(registry.clone(), 0);
+
+    // B-019 (D:\Mneme Dome cycle, 2026-04-30): per-file timeout +
+    // stdout heartbeat. Two related fixes for the same symptom — CLI
+    // observes scanner subprocess produced no stdout for >30s on real
+    // Electron projects (37k+ partial findings before kill). Causes:
+    //   a) A single file can wedge `worker.run_one()` (e.g. pathological
+    //      regex, runaway tree-sitter walk). Wrap the call in a 60s
+    //      timeout so guaranteed forward progress to the next file.
+    //   b) Long stretches of files that produce no findings leave stdout
+    //      silent for minutes; the CLI's line_budget then false-positives
+    //      a hang. Emit a `_progress` JSON line every 25 files (or every
+    //      5s, whichever first) so the read loop sees fresh bytes.
+    const PER_FILE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+    const PROGRESS_FILE_INTERVAL: usize = 25;
+    const PROGRESS_TIME_INTERVAL: std::time::Duration = std::time::Duration::from_secs(5);
+    let mut last_progress_emit = std::time::Instant::now();
+    let mut files_since_progress: usize = 0;
 
     for entry in walker {
         let entry = match entry {
@@ -405,8 +423,24 @@ async fn run_orchestrator_mode(cmd: OrchestratorCommand) -> std::io::Result<()> 
         // makes the catch_unwind in worker.rs a no-op, so process-level
         // diagnostics are the only signal).
         eprintln!("[scan-file] {}", path.display());
-        let res = worker.run_one(job).await;
+        // B-019: per-file timeout. Any single file taking >60s indicates
+        // a runaway scanner; we record it and move on. The stderr
+        // checkpoint above pinpoints the offender for postmortem.
+        let res = match tokio::time::timeout(PER_FILE_TIMEOUT, worker.run_one(job)).await {
+            Ok(r) => r,
+            Err(_) => {
+                eprintln!(
+                    "[scan-timeout] {} (exceeded {}s)",
+                    path.display(),
+                    PER_FILE_TIMEOUT.as_secs()
+                );
+                timeouts += 1;
+                errors += 1;
+                continue;
+            }
+        };
         scanned += 1;
+        files_since_progress += 1;
         if !res.failed_scanners.is_empty() {
             errors += res.failed_scanners.len();
         }
@@ -427,6 +461,26 @@ async fn run_orchestrator_mode(cmd: OrchestratorCommand) -> std::io::Result<()> 
                 // Reader hung up — bail.
                 break;
             }
+        }
+        // B-019: emit a `_progress` heartbeat so the CLI's line_budget
+        // never fires on long stretches of zero-finding files.
+        let need_progress = files_since_progress >= PROGRESS_FILE_INTERVAL
+            || last_progress_emit.elapsed() >= PROGRESS_TIME_INTERVAL;
+        if need_progress {
+            let progress = serde_json::json!({
+                "_progress": true,
+                "scanned": scanned,
+                "findings": findings_total,
+                "errors": errors,
+                "timeouts": timeouts,
+                "current_file": path.display().to_string(),
+            });
+            if let Ok(mut bytes) = serde_json::to_vec(&progress) {
+                bytes.push(b'\n');
+                let _ = buf_out.write_all(&bytes).await;
+            }
+            files_since_progress = 0;
+            last_progress_emit = std::time::Instant::now();
         }
         let _ = buf_out.flush().await;
         drop(buf_out);
