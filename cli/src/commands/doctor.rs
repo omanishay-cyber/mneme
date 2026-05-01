@@ -167,9 +167,7 @@ pub async fn run(args: DoctorArgs, socket_override: Option<PathBuf>) -> CliResul
             }
         }
         DaemonPidState::Stale => {
-            warn!(
-                "doctor: stale ~/.mneme/run/daemon.pid (process not alive) — supervisor is down"
-            );
+            warn!("doctor: stale ~/.mneme/run/daemon.pid (process not alive) — supervisor is down");
             false
         }
         DaemonPidState::Missing => false,
@@ -1147,7 +1145,10 @@ pub(crate) fn check_daemon_pid_liveness(state_dir: &std::path::Path) -> DaemonPi
 fn is_pid_alive(pid: u32) -> bool {
     use sysinfo::{Pid, System};
     let mut sys = System::new();
-    sys.refresh_processes(sysinfo::ProcessesToUpdate::Some(&[Pid::from_u32(pid)]), true);
+    sys.refresh_processes(
+        sysinfo::ProcessesToUpdate::Some(&[Pid::from_u32(pid)]),
+        true,
+    );
     sys.process(Pid::from_u32(pid)).is_some()
 }
 

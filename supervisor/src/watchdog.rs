@@ -147,7 +147,12 @@ impl Watchdog {
             // safety bug, but cheap to fix and worth doing).
             let (status, endpoint, deadline_opt, last_hb_opt) = {
                 let h = handle.lock().await;
-                (h.status, h.spec.health_endpoint.clone(), h.spec.heartbeat_deadline, h.last_heartbeat)
+                (
+                    h.status,
+                    h.spec.health_endpoint.clone(),
+                    h.spec.heartbeat_deadline,
+                    h.last_heartbeat,
+                )
             };
             if status != ChildStatus::Running {
                 continue;

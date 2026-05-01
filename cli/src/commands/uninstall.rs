@@ -318,10 +318,13 @@ pub async fn run(args: UninstallArgs) -> CliResult<()> {
                 let bin_residue = std::path::Path::new(&{
                     let r = common::paths::PathManager::default_root();
                     r.root().join("bin")
-                }).exists();
+                })
+                .exists();
                 if bin_residue {
                     println!("⚠ ~/.mneme/bin/ still contains the running mneme.exe (Windows self-deletion limitation).");
-                    println!("  After this process exits, run:  Remove-Item -Recurse -Force ~/.mneme");
+                    println!(
+                        "  After this process exits, run:  Remove-Item -Recurse -Force ~/.mneme"
+                    );
                 }
                 // K18 fix: exit promptly so Windows releases the
                 // mandatory file lock on `mneme.exe` (the running
