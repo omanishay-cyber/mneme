@@ -291,15 +291,41 @@ if ($NoModels) {
     # fails, that's a real failure the user must see and act on.
     if ($modelDownloads -gt 0) {
         Step "mneme models install --from-path $modelsDir"
+        # Bug-2026-05-02 (store PC POS install cycle): same root cause
+        # as the schtasks fix in scripts/install.ps1 step 6. With the
+        # script-global $ErrorActionPreference='Stop' (line 56), PS5.1
+        # wraps any stderr line from `mneme models install` (the merge
+        # progress message `merged 2 parts -> ... bytes` is printed via
+        # eprintln! in cli/src/commands/models.rs) as a NativeCommandError
+        # object, which Stop turns into a TERMINATING exception BEFORE
+        # the LASTEXITCODE-eq-0 success branch runs. Result: every
+        # bootstrap reported "INSTALL EXCEPTION: mneme models install
+        # threw: merged 2 parts -> ..." and aborted at the FINAL step,
+        # even though models were already merged + installed correctly.
+        # Fix: do the invocation under a local Continue pref so exit
+        # code drives the success/failure branch, not exception flow.
         try {
-            & $mnemeExe models install --from-path $modelsDir
-            if ($LASTEXITCODE -eq 0) {
-                OK "models installed under ~/.mneme/models"
-            } else {
-                throw "mneme models install exited with code $LASTEXITCODE -- bootstrap aborted (models are required for smart recall)"
-            }
+            $prevEAP = $ErrorActionPreference
+            $ErrorActionPreference = 'Continue'
+            $modelsOut = & $mnemeExe models install --from-path $modelsDir 2>&1
+            $modelsExit = $LASTEXITCODE
         } catch {
-            throw "mneme models install threw: $_  -- bootstrap aborted (models are required for smart recall)"
+            # An ACTUAL exception (e.g. mneme.exe missing or unreachable)
+            # - distinct from the cosmetic stderr-as-error case Stop
+            # triggers when the binary writes progress to stderr.
+            $modelsOut = $_.Exception.Message
+            $modelsExit = 99
+        } finally {
+            $ErrorActionPreference = $prevEAP
+        }
+        # Echo what mneme printed (merge progress, registration result,
+        # any genuine warnings). One line per item, indented for the
+        # visual grouping the rest of the script uses.
+        if ($modelsOut) { $modelsOut | ForEach-Object { Write-Host "    $_" } }
+        if ($modelsExit -eq 0) {
+            OK "models installed under ~/.mneme/models"
+        } else {
+            throw "mneme models install exited with code $modelsExit -- bootstrap aborted (models are required for smart recall)"
         }
     }
 }
