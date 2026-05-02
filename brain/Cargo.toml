@@ -14,16 +14,14 @@ name = "mneme_brain"
 path = "src/lib.rs"
 
 [features]
-# B-010 (v0.3.2-v2-home): real-embeddings is now ON by default in
-# production builds. The `ort` crate's `load-dynamic` feature means the
-# build still succeeds without a system `onnxruntime.dll` (link is
-# deferred to runtime), and `RealBackend::try_new` returns Err on missing
-# DLL/model so the embedder GRACEFULLY falls back to hashing-trick. The
-# only cost of enabling-by-default is a slightly bigger binary; the upside
-# is real BGE embeddings work on any machine that has `onnxruntime.dll`
-# on PATH (or `ORT_DYLIB_PATH` set) without requiring users to know about
-# a non-default cargo feature flag. `cargo check --workspace` still
-# succeeds on any machine because the dependency is dynamic-load.
+# B-010 (v0.3.2-v2-home): real-embeddings ON by default in production
+# builds. The `ort` crate's `load-dynamic` feature means the build
+# still succeeds without a system `onnxruntime.dll` (link is deferred
+# to runtime), and `RealBackend::try_new` returns Err on missing
+# DLL/model so the embedder GRACEFULLY falls back to hashing-trick.
+# Bug-2026-05-02 added a runtime escape hatch (MNEME_FORCE_HASH_EMBED)
+# AND the proper fix below for the WinDev2407 hang (single-threaded
+# ORT session config — see brain/src/embeddings.rs::RealBackend).
 default = ["real-embeddings"]
 # Optional local LLM (Phi-3-mini-4k Q4_K_M via llama.cpp).
 # Enabling pulls in a native build of llama.cpp; disabled by default to keep

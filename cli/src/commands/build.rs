@@ -327,7 +327,11 @@ async fn run_dispatched(args: &BuildArgs, project: &Path, client: &IpcClient) ->
             // `mneme cache du` afterwards to confirm community shard
             // population.
             model_probes.print_warnings_in_summary();
-            let emb_line = model_probes.summary_embedding_status_line();
+            // Dispatched-build path doesn't have per-pass embed stats
+            // (the supervisor owns that loop). Pass None so the line
+            // defers to the per-pass `embeddings: ... backend=<name>`
+            // row above instead of asserting a backend we can't see.
+            let emb_line = model_probes.summary_embedding_status_line(None);
             info!(target: "build.summary", embedding = %emb_line, mode = "dispatched");
             println!("  {emb_line}");
             return Ok(());
@@ -875,7 +879,7 @@ pub(crate) async fn run_inline(args: BuildArgs, project: PathBuf) -> CliResult<(
     // to keyword-only retrieval. Failure is non-fatal — same contract
     // as the Leiden pass.
     heartbeat.set_phase("embed");
-    let embedding_stats = run_embedding_pass(&store, &project_id, &paths).await;
+    let embedding_stats = run_embedding_pass(&store, &project_id, &paths, &heartbeat).await;
 
     // 7. Audit pass (I1 partial — populate findings.db). Spawns the
     // mneme-scanners worker via the existing audit subprocess fallback
@@ -1215,7 +1219,15 @@ pub(crate) async fn run_inline(args: BuildArgs, project: PathBuf) -> CliResult<(
     // what the counters MEAN: did the embedding model load, and is the
     // community partition reproducible. Logged via `info!` AND printed
     // so both interactive use and structured-log capture see them.
-    let emb_line = model_probes.summary_embedding_status_line();
+    // Inline build path: pass the actual runtime backend reported by
+    // the embedding pass (set in run_embedding_pass) so the status line
+    // can switch on real success vs hashing-trick fallback vs no-op.
+    let backend_for_line = if embedding_stats.backend.is_empty() {
+        None
+    } else {
+        Some(embedding_stats.backend.as_str())
+    };
+    let emb_line = model_probes.summary_embedding_status_line(backend_for_line);
     let comm_line = community_status_line(&cluster_stats);
     info!(target: "build.summary", embedding = %emb_line, community = %comm_line);
     println!("  {emb_line}");
@@ -1817,6 +1829,7 @@ async fn run_embedding_pass(
     store: &Store,
     project_id: &ProjectId,
     paths: &PathManager,
+    heartbeat: &crate::build_heartbeat::Heartbeat,
 ) -> EmbeddingStats {
     let mut stats = EmbeddingStats::default();
 
@@ -1892,6 +1905,15 @@ async fn run_embedding_pass(
     if with_text.is_empty() {
         return stats;
     }
+
+    // Bug-2026-05-02 cosmetic: wire the heartbeat counter to actual
+    // embed progress. set_phase("embed") at the call site clears the
+    // processed atomic; set_total here makes the per-30s heartbeat
+    // line read `phase=embed processed=N/M rate=X/s` for real values
+    // (M was previously 1477 from a stale estimate while N stuck at 0
+    // for the entire pass — the heartbeat was lying about hang risk).
+    heartbeat.set_total(with_text.len() as u64);
+    let mut chunks_processed: u64 = 0;
 
     const BATCH: usize = 64;
     for chunk in with_text.chunks(BATCH) {
@@ -2003,6 +2025,13 @@ async fn run_embedding_pass(
                 }
             }
         }
+        // Bug-2026-05-02 cosmetic: tick the heartbeat counter at the end
+        // of every chunk. Cumulative count of nodes the embedder has
+        // actually processed (including failures, since each one
+        // consumed a chunk slot). Heartbeat thread reads this atomic
+        // every 30s and renders the `processed=N/M rate=X/s` line.
+        chunks_processed += chunk.len() as u64;
+        heartbeat.record_processed(chunks_processed);
     }
 
     stats
@@ -4462,34 +4491,52 @@ impl ModelProbes {
         }
     }
 
-    /// K3 + H4 + B-009: explicit, action-oriented embedding status line
-    /// for the build summary. Replaces the silent "embeddings: 0 written"
-    /// degraded-build path with a line that tells the user (a) it's
-    /// degraded and (b) exactly what to type to fix it.
+    /// K3 + H4 + B-009 + Bug-2026-05-02: explicit, action-oriented
+    /// embedding status line for the build summary. Tells the operator
+    /// (a) what backend is actually active and (b) exactly what to type
+    /// if it's degraded.
     ///
-    /// B-009: previously this line ALWAYS reported `model: bge-small-en-v1.5
-    /// (present)` unconditionally whenever the `.onnx` file existed on
-    /// disk, even when the active runtime backend was the hashing-trick
-    /// fallback (because `real-embeddings` feature wasn't compiled in or
-    /// `onnxruntime.dll` wasn't loadable). Users saw `(present)` and
-    /// assumed real semantic recall when they were actually getting the
-    /// fallback. The line now hedges with `file on disk; active backend
-    /// shown above in `embeddings:` summary line` so the user knows to
-    /// cross-reference the per-build `embeddings: ... backend=<name>`
-    /// row that the embedding pass already emits — that row is the
-    /// ground truth for runtime backend.
-    pub(crate) fn summary_embedding_status_line(&self) -> String {
-        if self.embedding_model_present {
-            // Model file present. The actual ACTIVE backend (real BGE vs
-            // hashing-trick fallback) is reported by the per-build
-            // `embeddings: N written, ... backend=<name>` row emitted by
-            // the embedding pass — that row is the runtime ground truth.
-            // We deliberately do NOT claim "(present)" without a
-            // qualifier because the file-on-disk vs runtime-loaded check
-            // diverges silently when ORT can't load `onnxruntime.dll`.
-            "embeddings: bge-small-en-v1.5 model file present on disk (active runtime backend reported in `embeddings:` summary row above — `backend=hashing-trick` means the .onnx is unloadable; rebuild with `--features mneme-brain/real-embeddings` and add `onnxruntime.dll` to PATH or set ORT_DYLIB_PATH)".to_string()
-        } else {
-            "embeddings: 0 embedded \u{2014} no model installed (run `mneme models install qwen-embed-0.5b` to enable semantic recall)".to_string()
+    /// B-009 history: the line used to ALWAYS print "model file present
+    /// (active backend reported above)" with a long fallback warning
+    /// regardless of what backend was actually used. After we shipped
+    /// the BGE/ORT fix (DLL 1.24.4 + ORT_DYLIB_PATH guard, see
+    /// brain/src/embeddings.rs::RealBackend::try_new), real BGE works
+    /// out of the box on every install. The static warning was
+    /// MISLEADING in the success case — users saw the alarming
+    /// "rebuild with --features ..." text right under their successful
+    /// build summary that already showed `backend=bge-small-en-v1.5`.
+    ///
+    /// New behavior: take the actual runtime backend name from the
+    /// embedding pass and switch on it. Three branches:
+    ///   - no model installed         → "0 embedded — install models"
+    ///   - real backend (BGE) active  → ✓ confirmation only
+    ///   - fallback backend active    → fallback warning (the OLD text,
+    ///                                  now emitted only when relevant)
+    ///   - backend unknown (dispatched) → neutral "see `embeddings:` row"
+    pub(crate) fn summary_embedding_status_line(&self, runtime_backend: Option<&str>) -> String {
+        if !self.embedding_model_present {
+            return "embeddings: 0 embedded \u{2014} no model installed (run `mneme models install qwen-embed-0.5b` to enable semantic recall)".to_string();
+        }
+        match runtime_backend {
+            Some("bge-small-en-v1.5") => {
+                "embeddings: bge-small-en-v1.5 active (real BGE inference via bundled ONNX Runtime 1.24)".to_string()
+            }
+            Some(name) if name.starts_with("hashing") || name.contains("fallback") => {
+                format!(
+                    "embeddings: {name} fallback active — semantic recall is degraded. \
+                     Bundled `onnxruntime.dll` failed to load. \
+                     Verify ~/.mneme/bin/onnxruntime.dll is the 1.24.x build \
+                     (or set ORT_DYLIB_PATH to a valid 1.24.x DLL)."
+                )
+            }
+            Some(name) => {
+                format!("embeddings: {name} active")
+            }
+            None => {
+                // Dispatched-build path doesn't see per-pass stats. Defer
+                // to the per-pass `embeddings: ... backend=<name>` row.
+                "embeddings: bge-small-en-v1.5 model file present on disk (see `embeddings:` summary row above for the active runtime backend)".to_string()
+            }
         }
     }
 }
@@ -6787,7 +6834,7 @@ random prose with no bullet
             embedding_model_present: false,
             llm_model_present: true,
         };
-        let line = probes.summary_embedding_status_line();
+        let line = probes.summary_embedding_status_line(None);
         assert!(
             line.contains("0 embedded") && line.contains("no model installed"),
             "expected zero-embedding warning, got: {line:?}"
@@ -6800,28 +6847,44 @@ random prose with no bullet
 
     #[test]
     fn build_summary_surfaces_present_embedding_status() {
-        // Mirror image of the previous test — when the model IS present,
-        // we still emit a status line so silent-success and silent-fail
-        // are both impossible. The user always sees what backend ran.
-        //
-        // The line's exact wording was rewritten under B-009 to point
-        // operators at the `embeddings:` runtime row above for the
-        // ground-truth active backend (file-on-disk presence is no
-        // longer enough to claim a "loaded" model). Pin the present-
-        // path contract on the model name + the action-oriented hint,
-        // not on a literal `model:` prefix that B-009 dropped.
+        // When the model IS present AND the actual runtime backend is the
+        // real BGE one, the status line must say so plainly — not hedge
+        // with the misleading hashing-trick fallback warning that the
+        // B-009 era line printed unconditionally. Bug-2026-05-02 made
+        // this branch take the runtime backend name and switch on it.
         let probes = ModelProbes {
             embedding_model_present: true,
             llm_model_present: true,
         };
-        let line = probes.summary_embedding_status_line();
+        let line = probes.summary_embedding_status_line(Some("bge-small-en-v1.5"));
         assert!(
-            line.contains("bge-small-en-v1.5") && !line.contains("no model installed"),
-            "expected present-on-disk line to name the model and not the no-model branch; got: {line:?}"
+            line.contains("bge-small-en-v1.5") && line.contains("active"),
+            "real-backend line must name the model and say active; got: {line:?}"
         );
         assert!(
-            line.contains("active runtime backend") || line.contains("backend="),
-            "present-on-disk line must point operators at the runtime backend row (B-009); got: {line:?}"
+            !line.contains("rebuild with") && !line.contains("hashing-trick fallback"),
+            "real-backend line must NOT print fallback diagnostics; got: {line:?}"
+        );
+    }
+
+    #[test]
+    fn build_summary_warns_only_when_fallback_actually_active() {
+        // When BGE failed to load and we fell back to hashing-trick, the
+        // line MUST print the diagnostics. The check is by backend name,
+        // not by file-on-disk presence — the model file is still there
+        // even if the runtime couldn't load it.
+        let probes = ModelProbes {
+            embedding_model_present: true,
+            llm_model_present: true,
+        };
+        let line = probes.summary_embedding_status_line(Some("hashing-trick"));
+        assert!(
+            line.contains("hashing-trick") && line.contains("degraded"),
+            "fallback line must call out degradation; got: {line:?}"
+        );
+        assert!(
+            line.contains("ORT_DYLIB_PATH") || line.contains("onnxruntime.dll"),
+            "fallback line must hint at the DLL fix; got: {line:?}"
         );
     }
 

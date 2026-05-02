@@ -271,12 +271,16 @@ fn install(from_path: Option<PathBuf>, from_url: Option<String>, force: bool) ->
             root.display()
         );
         println!("        · run `mneme doctor` to see them per kind");
-        println!("        · enable `real-embeddings` feature at build time to use BGE");
-        println!("        · on Windows also set ORT_DYLIB_PATH or place onnxruntime.dll on PATH");
-        println!(
-            "          (or run `mneme models install-onnx-runtime` to drop it under \
-             ~/.mneme/bin/)"
-        );
+        // Bug-2026-05-02 cosmetic: removed two stale tips that suggested
+        // the user "enable real-embeddings feature at build time" and
+        // "set ORT_DYLIB_PATH or place onnxruntime.dll on PATH". Both
+        // are now defaults baked into the release zip — real-embeddings
+        // is in brain/Cargo.toml `default = [...]` and the bundled
+        // ~/.mneme/bin/onnxruntime.dll is the matching ORT 1.24.4 build
+        // (RealBackend::try_new pins ORT_DYLIB_PATH to it before
+        // Session::builder runs). Printing those tips on every install
+        // told users their setup was missing something when in fact it
+        // was already complete.
         return Ok(());
     }
 
