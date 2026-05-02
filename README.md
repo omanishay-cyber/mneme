@@ -33,12 +33,12 @@ iex (irm https://github.com/omanishay-cyber/mneme/releases/download/v0.3.2/boots
 ```
 
 ```bash
-# macOS (coming soon · auto-detects Intel / Apple Silicon)
+# macOS · one command · auto-detects Intel / Apple Silicon
 curl -fsSL https://github.com/omanishay-cyber/mneme/releases/download/v0.3.2/install-mac.sh | bash
 ```
 
 ```bash
-# Linux (coming soon · auto-detects x64 / ARM64)
+# Linux · one command · auto-detects x64 / ARM64
 curl -fsSL https://github.com/omanishay-cyber/mneme/releases/download/v0.3.2/install-linux.sh | bash
 ```
 
@@ -124,13 +124,13 @@ Every AI coding assistant has the same three flaws:
 iex (irm https://github.com/omanishay-cyber/mneme/releases/download/v0.3.2/bootstrap-install.ps1)
 ```
 
-**🍎 macOS** *(coming soon · auto-detects Intel / Apple Silicon)*
+**🍎 macOS** *(auto-detects Intel / Apple Silicon)*
 
 ```bash
 curl -fsSL https://github.com/omanishay-cyber/mneme/releases/download/v0.3.2/install-mac.sh | bash
 ```
 
-**🐧 Linux** *(coming soon · auto-detects x64 / ARM64)*
+**🐧 Linux** *(auto-detects x64 / ARM64)*
 
 ```bash
 curl -fsSL https://github.com/omanishay-cyber/mneme/releases/download/v0.3.2/install-linux.sh | bash
@@ -400,13 +400,13 @@ The bootstrap is what `iex (irm)` runs. It auto-detects everything (OS, architec
 iex (irm https://github.com/omanishay-cyber/mneme/releases/download/v0.3.2/bootstrap-install.ps1)
 ```
 
-#### macOS *(coming soon)*
+#### macOS
 
 ```bash
 curl -fsSL https://github.com/omanishay-cyber/mneme/releases/download/v0.3.2/install-mac.sh | bash
 ```
 
-#### Linux *(coming soon)*
+#### Linux
 
 ```bash
 curl -fsSL https://github.com/omanishay-cyber/mneme/releases/download/v0.3.2/install-linux.sh | bash

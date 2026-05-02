@@ -15,14 +15,14 @@ Each script auto-detects your architecture (x64 / ARM64), downloads the matching
 iex (irm https://github.com/omanishay-cyber/mneme/releases/download/v0.3.2/bootstrap-install.ps1)
 ```
 
-### macOS (Intel x64 / Apple Silicon arm64) - **coming soon**
+### macOS (Intel x64 / Apple Silicon arm64)
 
 ```bash
 # auto-detects via uname -m
 curl -fsSL https://github.com/omanishay-cyber/mneme/releases/download/v0.3.2/install-mac.sh | bash
 ```
 
-### Linux (x64 / ARM64) - **coming soon**
+### Linux (x64 / ARM64)
 
 ```bash
 # auto-detects via uname -m
@@ -33,7 +33,7 @@ curl -fsSL https://github.com/omanishay-cyber/mneme/releases/download/v0.3.2/ins
 
 | Requirement | Detail |
 |---|---|
-| **OS** | 64-bit Windows 11 (arm64 planned), macOS 14+ (Intel + Apple Silicon, planned), Ubuntu 22.04+ / Debian / Fedora (planned) |
+| **OS** | 64-bit Windows 10/11 (x64 live, arm64 in CI build), macOS 14+ (Intel + Apple Silicon, both live), Ubuntu 22.04+ / Debian / Fedora (x64 live, arm64 in CI build) |
 | **CPU baseline** | x86-64-v3 - AVX2 / BMI2 / FMA. Intel Haswell (2013+) or AMD Excavator (2015+). Almost every PC sold since 2013 qualifies. The bootstrap refuses early on pre-Haswell hardware with a clear error. |
 | **Disk** | 5 GB free (binaries ~250 MB, models ~3.4 GB, room for first project's shards) |
 | **Privileges** | No admin needed. Defender exclusions are added best-effort if elevated; install proceeds without them otherwise. |
