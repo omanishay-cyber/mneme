@@ -1,0 +1,283 @@
+name: Multi-Arch Release
+
+# Cross-platform release builder. Produces 6 platform archives for the
+# v0.3.2 (and later) GitHub Release pages so the Mac/Linux install
+# one-liners actually resolve to a real download. The Windows x64 leg
+# duplicates what `release.yml` builds on tag push — kept here for
+# parity so a single `gh workflow run multi-arch-release.yml` rebuilds
+# every platform from one button.
+#
+# Triggers:
+#   workflow_dispatch  - manual rebuild + upload (any tag, defaults to v0.3.2)
+#   release published  - automatic on every Release publish event
+#
+# Caveats (read carefully):
+#   - GitHub-hosted ARM64 runners (`windows-11-arm`, `ubuntu-22.04-arm`)
+#     went GA in 2024-2025 but availability still varies by org plan.
+#     If a leg fails to schedule with "no runners matching labels",
+#     fall back to `cross` or `cargo-zigbuild` cross-compilation on
+#     x64 runners — see comments at each ARM leg.
+#   - macOS binaries are UNSIGNED. First-launch on Mac requires the
+#     user to right-click -> Open (or `xattr -dr com.apple.quarantine`).
+#     install-mac.sh prints this hint at the end of install.
+#   - Linux glibc (gnu) chosen over musl for broadest compatibility.
+#     musl static builds are a future enhancement.
+#
+# Author: Anish Trivedi. Apache-2.0.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to upload to (e.g. v0.3.2)"
+        required: true
+        default: "v0.3.2"
+  release:
+    types: [published]
+
+permissions:
+  contents: write   # required to upload release assets
+
+env:
+  CARGO_TERM_COLOR: always
+  ORT_VERSION: "1.24.4"
+
+jobs:
+  build:
+    name: Build ${{ matrix.target }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            target: x86_64-pc-windows-msvc
+            artifact: mneme-v0.3.2-windows-x64.zip
+            archive: zip
+            ort_archive: onnxruntime-win-x64-1.24.4.zip
+            ort_lib: onnxruntime.dll
+          # `windows-11-arm` is the ARM64 Windows runner label (GA 2025).
+          # If unavailable in your org, swap to `windows-latest` + use
+          # `cargo-xwin` or `cross` for aarch64-pc-windows-msvc.
+          - os: windows-11-arm
+            target: aarch64-pc-windows-msvc
+            artifact: mneme-v0.3.2-windows-arm64.zip
+            archive: zip
+            ort_archive: onnxruntime-win-arm64-1.24.4.zip
+            ort_lib: onnxruntime.dll
+          - os: macos-13
+            target: x86_64-apple-darwin
+            artifact: mneme-v0.3.2-macos-x64.tar.gz
+            archive: tar.gz
+            ort_archive: onnxruntime-osx-x86_64-1.24.4.tgz
+            ort_lib: libonnxruntime.dylib
+          - os: macos-14
+            target: aarch64-apple-darwin
+            artifact: mneme-v0.3.2-macos-arm64.tar.gz
+            archive: tar.gz
+            ort_archive: onnxruntime-osx-arm64-1.24.4.tgz
+            ort_lib: libonnxruntime.dylib
+          - os: ubuntu-22.04
+            target: x86_64-unknown-linux-gnu
+            artifact: mneme-v0.3.2-linux-x64.tar.gz
+            archive: tar.gz
+            ort_archive: onnxruntime-linux-x64-1.24.4.tgz
+            ort_lib: libonnxruntime.so
+          # `ubuntu-22.04-arm` is the ARM64 Linux runner (GA 2025).
+          # If unavailable, swap to `ubuntu-22.04` + use `cross` for
+          # aarch64-unknown-linux-gnu (uses Docker with the right
+          # cross toolchain pre-installed).
+          - os: ubuntu-22.04-arm
+            target: aarch64-unknown-linux-gnu
+            artifact: mneme-v0.3.2-linux-arm64.tar.gz
+            archive: tar.gz
+            ort_archive: onnxruntime-linux-aarch64-1.24.4.tgz
+            ort_lib: libonnxruntime.so
+    runs-on: ${{ matrix.os }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          bun-version: latest
+
+      # B2 (2026-05-02): mcp/node_modules is a hard requirement of the
+      # stage scripts. Without zod + @modelcontextprotocol/sdk the staged
+      # archive ships broken. `--frozen-lockfile` keeps CI deterministic.
+      - name: Install MCP server deps
+        working-directory: mcp
+        run: bun install --frozen-lockfile
+
+      # F1 D1: pre-build the Vision SPA so the staged archive can ship
+      # the `static/vision/` tree the daemon's tower-http ServeDir mount
+      # expects at <MNEME_HOME>/static/vision/index.html.
+      - name: Install Vision SPA deps
+        working-directory: vision
+        run: bun install --frozen-lockfile
+
+      - name: Build Vision SPA
+        working-directory: vision
+        run: bun run build
+
+      - name: Build Rust workspace (release)
+        run: cargo build --workspace --release --target ${{ matrix.target }}
+
+      # ----------------------------------------------------------------
+      # ONNX Runtime download + extract. Bundled next to mneme.exe /
+      # mneme so the `ort` crate's load-dynamic feature finds the
+      # right libonnxruntime / onnxruntime.dll. Without this the BGE
+      # embedder silently falls back to hashing-trick and recall
+      # quality drops. Pinned to 1.24.4 to match the api-24 feature
+      # the `ort 2.0.0-rc.x` crate compiles against.
+      # ----------------------------------------------------------------
+      - name: Download ONNX Runtime (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          $url = "https://github.com/microsoft/onnxruntime/releases/download/v${{ env.ORT_VERSION }}/${{ matrix.ort_archive }}"
+          Write-Host "Downloading $url"
+          Invoke-WebRequest -Uri $url -OutFile ort.zip
+          Expand-Archive -Path ort.zip -DestinationPath ort-extracted -Force
+          # Find the dynamic lib (path varies between versions / arches).
+          $dll = Get-ChildItem -Path ort-extracted -Recurse -Filter ${{ matrix.ort_lib }} | Select-Object -First 1
+          if (-not $dll) {
+            Write-Error "${{ matrix.ort_lib }} not found in extracted bundle"
+            exit 1
+          }
+          $dest = "target/${{ matrix.target }}/release"
+          Copy-Item $dll.FullName "$dest/${{ matrix.ort_lib }}" -Force
+          # Also drop into vendor/ so stage-release-zip.ps1 picks it up
+          # (script checks vendor/onnxruntime/ first, target/release/ second).
+          New-Item -ItemType Directory -Force -Path vendor/onnxruntime | Out-Null
+          Copy-Item $dll.FullName "vendor/onnxruntime/${{ matrix.ort_lib }}" -Force
+          Write-Host "ok: ${{ matrix.ort_lib }} bundled at $dest/"
+
+      - name: Download ONNX Runtime (POSIX)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          url="https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/${{ matrix.ort_archive }}"
+          echo "Downloading $url"
+          curl -fsSL -o ort.tgz "$url"
+          mkdir -p ort-extracted
+          tar -xzf ort.tgz -C ort-extracted
+          # Find libonnxruntime.so / libonnxruntime.dylib in the extracted tree.
+          ortlib=$(find ort-extracted -name "${{ matrix.ort_lib }}" | head -1)
+          if [ -z "$ortlib" ]; then
+            echo "ERROR: ${{ matrix.ort_lib }} not found in extracted bundle" >&2
+            find ort-extracted -type f | head -30 >&2
+            exit 1
+          fi
+          dest="target/${{ matrix.target }}/release"
+          cp "$ortlib" "$dest/${{ matrix.ort_lib }}"
+          # Also drop in vendor/ for stage scripts.
+          mkdir -p vendor/onnxruntime
+          cp "$ortlib" "vendor/onnxruntime/${{ matrix.ort_lib }}"
+          echo "ok: ${{ matrix.ort_lib }} bundled at $dest/"
+
+      # ----------------------------------------------------------------
+      # Stage + package. Two paths: PowerShell stage-release-zip.ps1 on
+      # Windows (existing canonical script) and the new
+      # stage-release-archive.sh on POSIX (mac + linux).
+      # ----------------------------------------------------------------
+      - name: Stage release archive (Windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/test/stage-release-zip.ps1 `
+            -SourceRoot . `
+            -OutZip "./${{ matrix.artifact }}" `
+            -StageDir "./stage-${{ matrix.target }}" `
+            -Force
+
+      - name: Stage release archive (POSIX)
+        if: runner.os != 'Windows'
+        shell: bash
+        run: |
+          chmod +x scripts/test/stage-release-archive.sh
+          ./scripts/test/stage-release-archive.sh \
+            --source-root . \
+            --target "${{ matrix.target }}" \
+            --out "./${{ matrix.artifact }}" \
+            --stage-dir "./stage-${{ matrix.target }}" \
+            --force
+
+      # actions/upload-artifact@v4 is one-artifact-per-name, so each
+      # matrix leg uploads its own named artifact and the publish job
+      # downloads them all into a single artifacts/ tree.
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact }}
+          path: ${{ matrix.artifact }}
+          if-no-files-found: error
+
+  publish:
+    name: Publish to GitHub Release
+    needs: build
+    # `if: !cancelled()` keeps us publishing partial-matrix successes
+    # so a single ARM runner outage doesn't block the other 5 platforms.
+    if: ${{ !cancelled() }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+
+      - name: List downloaded artifacts
+        run: find artifacts -type f | sort
+
+      - name: Determine release tag
+        id: tag
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "value=${{ inputs.tag }}" >> $GITHUB_OUTPUT
+          elif [ "${{ github.event_name }}" = "release" ]; then
+            echo "value=${{ github.event.release.tag_name }}" >> $GITHUB_OUTPUT
+          else
+            echo "value=v0.3.2" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Upload all artifacts to release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.tag.outputs.value }}"
+          echo "Uploading to release $TAG"
+          # Find every .zip and .tar.gz under artifacts/ regardless of
+          # the per-job artifact subdir name actions/download-artifact
+          # invents. --clobber so re-runs overwrite cleanly.
+          ASSETS=$(find artifacts -type f \( -name '*.zip' -o -name '*.tar.gz' \))
+          if [ -z "$ASSETS" ]; then
+            echo "ERROR: no artifacts found to upload" >&2
+            exit 1
+          fi
+          echo "Assets to upload:"
+          echo "$ASSETS"
+          # shellcheck disable=SC2086
+          gh release upload "$TAG" $ASSETS \
+            --repo "${{ github.repository }}" \
+            --clobber
+
+      - name: Verify release assets
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          TAG="${{ steps.tag.outputs.value }}"
+          echo "Final release asset list for $TAG:"
+          gh release view "$TAG" --repo "${{ github.repository }}" --json assets --jq '.assets[].name' | sort
