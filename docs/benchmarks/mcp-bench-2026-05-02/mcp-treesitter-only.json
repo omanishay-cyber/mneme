@@ -1,0 +1,7 @@
+﻿{
+  "mcpServers": {
+    "tree-sitter": {
+      "command": "<home>/.mneme/bin/treesitter-mcp-wrapper.cmd"
+    }
+  }
+}

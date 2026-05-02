@@ -1,0 +1,7 @@
+﻿{
+  "mcpServers": {
+    "mneme": {
+      "command": "<home>/.mneme/bin/mneme-mcp-wrapper.cmd"
+    }
+  }
+}

@@ -1,0 +1,3 @@
+What design patterns are used in this project? For each pattern, name it and cite at least one concrete file/function where it appears.
+
+CRITICAL CONSTRAINT: You MUST answer this using ONLY the MCP server tools available to you (their names start with mcp__). Do NOT use the built-in Bash, Read, Grep, Glob tools. If the MCP server cannot answer, say so explicitly. The current working directory is the project root.

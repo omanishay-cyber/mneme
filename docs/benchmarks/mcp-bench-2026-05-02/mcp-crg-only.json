@@ -1,0 +1,7 @@
+﻿{
+  "mcpServers": {
+    "code-review-graph": {
+      "command": "<home>/.mneme/bin/crg-mcp-wrapper.cmd"
+    }
+  }
+}

@@ -1,0 +1,29 @@
+﻿{
+  "queries": [
+    {
+      "id": "Q1",
+      "title": "Authentication functions",
+      "prompt": "Find all functions related to authentication in this project. List each function with its file path and a 1-line description. Cite the actual files you used."
+    },
+    {
+      "id": "Q2",
+      "title": "Blast radius",
+      "prompt": "What is the blast radius of changing src/utils/auth.ts in this project? List every file that would need to be re-tested or updated if its public API changed. Cite each file with reasoning."
+    },
+    {
+      "id": "Q3",
+      "title": "Login call graph",
+      "prompt": "Show me the call graph for the login flow in this internal-app app. Start from the LoginPage component and follow every function/IPC/store call until you reach the data layer. Output as an indented tree."
+    },
+    {
+      "id": "Q4",
+      "title": "Design patterns",
+      "prompt": "What design patterns are used in this project? For each pattern, name it and cite at least one concrete file/function where it appears."
+    },
+    {
+      "id": "Q5",
+      "title": "Security issues in auth",
+      "prompt": "Find any security issues in the auth implementation of this Electron + React + TypeScript app. For each issue cite the exact file:line and explain the vulnerability concretely (no generic advice)."
+    }
+  ]
+}
