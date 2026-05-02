@@ -1,4 +1,4 @@
-# Mneme - one-line installer for Windows (v0.3.1+)
+﻿# Mneme - one-line installer for Windows (v0.3.1+)
 #
 # Usage (PowerShell, as current user - elevation is optional, see below):
 #   iwr -useb https://raw.githubusercontent.com/omanishay-cyber/mneme/main/scripts/install.ps1 | iex
@@ -123,13 +123,13 @@ if ($Mode -eq 'upgrade') {
 $env:MNEME_INSTALLED_BY_SCRIPT = '1'
 
 # ----------------------------------------------------------------------------
-# CONSOLE ENCODING — force UTF-8
+# CONSOLE ENCODING -- force UTF-8
 # ----------------------------------------------------------------------------
 # Without this, Windows PowerShell 5.1 inherits the OEM code page (CP437 on
-# US-English Windows). When the script (or its child processes — `mneme.exe
+# US-English Windows). When the script (or its child processes -- `mneme.exe
 # register-mcp`, `mneme.exe doctor`) writes Unicode glyphs (✓ U+2713,
-# ✗ U+2717, ─ U+2500, — U+2014), the console renders the UTF-8 byte
-# sequences as separate CP437 chars: ✓ → "Γ£ô", ─ → "ΓöÇ", — → "ΓÇö".
+# ✗ U+2717, ─ U+2500, -- U+2014), the console renders the UTF-8 byte
+# sequences as separate CP437 chars: ✓ → "Γ£ô", ─ → "ΓöÇ", -- → "ΓÇö".
 # Setting both [Console]::OutputEncoding (governs how PS reads child stdout)
 # and $OutputEncoding (governs how PS encodes when piping to children) to
 # UTF-8 fixes both directions. Wrapped in try/catch because some hosts
@@ -499,7 +499,7 @@ if ($BunExe) {
         # Bug G-13 (2026-05-01): Bun is the runtime for the MCP server.
         # Without it, every MCP tool registered with Claude Code fails
         # to start. Previously we Write-Warn'd and continued, exiting
-        # with code 0 — the user got an "install complete" message and
+        # with code 0 -- the user got an "install complete" message and
         # then "mneme: disconnected" forever in Claude Code. Failing
         # loud here stops the install at the right step so the user can
         # see and act.
@@ -722,7 +722,7 @@ if ($NoToolchain) {
         }
     }
 
-    # G4: Tauri CLI — DETECT-ONLY (B-031, D:\Mneme Dome cycle, 2026-05-01).
+    # G4: Tauri CLI -- DETECT-ONLY (B-031, D:\Mneme Dome cycle, 2026-05-01).
     #
     # tauri-cli is a build-time tool. Mneme ships a prebuilt
     # `mneme-vision-tauri.exe` (renamed `mneme-vision.exe`) inside the
@@ -747,7 +747,7 @@ if ($NoToolchain) {
         if ($tauriPresent) {
             Write-OK "[G4] Tauri CLI present (build-time only; not required at runtime)"
         } else {
-            Write-Info "[G4] Tauri CLI not detected — SKIPPED (build-time only, prebuilt mneme-vision.exe ships in release zip)"
+            Write-Info "[G4] Tauri CLI not detected -- SKIPPED (build-time only, prebuilt mneme-vision.exe ships in release zip)"
             Write-Info "      To build vision/tauri from source manually: cargo install tauri-cli --locked --version '^2.0'"
         }
     }
@@ -1080,13 +1080,13 @@ if ($UsePreExtracted) {
     }
 
     # ----------------------------------------------------------------------
-    # AGGRESSIVE CLEAN-STALE — wipe code dirs the release zip OWNS so
+    # AGGRESSIVE CLEAN-STALE -- wipe code dirs the release zip OWNS so
     # leftover files from prior versions can't survive an upgrade.
     # ----------------------------------------------------------------------
     # User data is preserved (projects/, snapshots/, models/, logs/,
     # run/, install-receipts/, meta.db). Without this step, files
     # present in v0.3.0 but absent in v0.3.2 (or vice versa) can stick
-    # around and confuse the daemon — exactly the "stale shit bugs us"
+    # around and confuse the daemon -- exactly the "stale shit bugs us"
     # symptom Anish flagged.
     $StaleCodeDirs = @('bin', 'mcp', 'scripts', 'plugin', 'static')
     $cleanedAny = $false
@@ -1538,7 +1538,7 @@ if (-not (Test-Path $MnemeBin)) {
             }
         }
 
-        # Verify via HTTP /health on port 7777 — proves both supervisor +
+        # Verify via HTTP /health on port 7777 -- proves both supervisor +
         # workers are up AND the supervisor.pipe discovery file is in sync.
         # (Polling `mneme daemon status` would re-trigger the auto-spawn
         # loop if the discovery file is stale; HTTP /health is safe.)
@@ -1750,12 +1750,12 @@ if ($NoModels) {
 # ============================================================================
 #
 # Without this, `mneme doctor` reports:
-#     link.exe : MISSING — not on PATH
-#     cl.exe   : MISSING — not on PATH
-#     summary  : FAIL — MSVC Build Tools missing
+#     link.exe : MISSING -- not on PATH
+#     cl.exe   : MISSING -- not on PATH
+#     summary  : FAIL -- MSVC Build Tools missing
 #
 # even when VS Build Tools IS installed (the same doctor output shows
-# `VC Tools : ok` and `Windows SDK : ok` — the FAIL is only because the
+# `VC Tools : ok` and `Windows SDK : ok` -- the FAIL is only because the
 # default PATH doesn't include the MSVC bin; Microsoft only adds it inside
 # the "x64 Native Tools" cmd shim's transient environment).
 #

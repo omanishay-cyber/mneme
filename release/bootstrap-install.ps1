@@ -1,6 +1,6 @@
-# bootstrap-install.ps1
+﻿# bootstrap-install.ps1
 # ----------------------
-# One-liner Windows installer for mneme — TRULY one-command, all included.
+# One-liner Windows installer for mneme -- TRULY one-command, all included.
 #
 # Usage (PowerShell, any user, no admin needed):
 #
@@ -25,7 +25,7 @@
 #   -NoToolchain     skip toolchain auto-install (G1-G10)
 #   -KeepDownload    keep the temp download dir for inspection
 #   -SkipHashCheck   skip SHA-256 verification of downloaded assets
-#                    (Bug G-14 — only use for hand-cut beta zips that
+#                    (Bug G-14 -- only use for hand-cut beta zips that
 #                    aren't yet listed in $ExpectedHashes)
 #
 # Apache-2.0. (c) 2026 Anish Trivedi & Kruti Trivedi.
@@ -73,7 +73,7 @@ $releaseBase = "https://github.com/omanishay-cyber/mneme/releases/download/$Vers
 # canonical SHA-256. Files NOT in this table fall through to a "warn-
 # but-continue" path so we don't block on assets we don't yet pin
 # (e.g., new model files added between releases). Files IN this table
-# MUST match — mismatch is a hard fail.
+# MUST match -- mismatch is a hard fail.
 #
 # To regenerate a hash:
 #   Get-FileHash <file> -Algorithm SHA256 | Select-Object Hash
@@ -82,7 +82,7 @@ $releaseBase = "https://github.com/omanishay-cyber/mneme/releases/download/$Vers
 # To skip verification entirely (for a hand-cut beta zip), pass
 # `-SkipHashCheck` to bootstrap-install.ps1.
 $ExpectedHashes = @{
-    # Mneme release artifacts — populate per-release before tagging.
+    # Mneme release artifacts -- populate per-release before tagging.
     # Example placeholders (NOT the real hashes for v0.3.2):
     # 'mneme-v0.3.2-windows-x64.zip' = '0123456789ABCDEF...';
     # 'bge-small-en-v1.5.onnx'        = '...';
@@ -105,7 +105,7 @@ function Get-Asset {
             Step "Fetching $Name (attempt $attempt/$RetryCount)"
             Invoke-WebRequest -Uri $url -OutFile $Dest -UseBasicParsing
             $sz = (Get-Item $Dest).Length
-            if ($sz -lt 100) { throw "downloaded file too small ($sz bytes) — likely a 404 HTML page" }
+            if ($sz -lt 100) { throw "downloaded file too small ($sz bytes) -- likely a 404 HTML page" }
 
             # Bug G-14 / SEC-3 (2026-05-01): SHA-256 verification.
             # If the file is in our pinned-hash table, compute its
@@ -120,7 +120,7 @@ function Get-Asset {
                     if ($actual -ne $expected) {
                         # Remove the corrupt file so a retry doesn't trust the cached copy.
                         Remove-Item -LiteralPath $Dest -Force -ErrorAction SilentlyContinue
-                        throw "SHA-256 mismatch for $Name`n  expected: $expected`n  actual:   $actual`n  (likely corrupt download or tampered file — refusing to install)"
+                        throw "SHA-256 mismatch for $Name`n  expected: $expected`n  actual:   $actual`n  (likely corrupt download or tampered file -- refusing to install)"
                     }
                     OK "SHA-256 verified for $Name"
                 } else {
@@ -168,7 +168,7 @@ foreach ($n in $names) {
             $killed += 1
         } catch {
             $failed += 1
-            WarnLine ("could not stop ${n} (PID $($_.Id)): $($_.Exception.Message) — extract may fail if exe is still locked")
+            WarnLine ("could not stop ${n} (PID $($_.Id)): $($_.Exception.Message) -- extract may fail if exe is still locked")
         }
     }
 }
@@ -214,7 +214,7 @@ if ($LASTEXITCODE -ne 0) {
 # Step 5: Download + install model assets (B-020 fix, 2026-04-30)
 # ---------------------------------------------------------------------------
 if ($NoModels) {
-    Section "Models — SKIPPED (-NoModels)"
+    Section "Models -- SKIPPED (-NoModels)"
     WarnLine "Smart-search will use the hashing-trick fallback (lower recall)."
     WarnLine "Local LLM summaries will fall back to signature-only text."
     WarnLine "Run later:  mneme models install --from-path <download-folder>"
@@ -223,7 +223,7 @@ if ($NoModels) {
     $modelsDir = Join-Path $tmpDir 'models'
     New-Item -ItemType Directory -Force -Path $modelsDir | Out-Null
 
-    # Asset list — names must match release artifacts exactly. Each is
+    # Asset list -- names must match release artifacts exactly. Each is
     # tagged with `Required`: a missing required asset aborts the model
     # install but doesn't fail the whole bootstrap (mneme runtime works
     # without models, just degraded).
@@ -254,9 +254,9 @@ if ($NoModels) {
         } catch {
             $modelFailures += $a.Name
             if ($a.Required) {
-                WarnLine "REQUIRED asset $($a.Name) failed — smart embeddings will be unavailable"
+                WarnLine "REQUIRED asset $($a.Name) failed -- smart embeddings will be unavailable"
             } else {
-                WarnLine "optional asset $($a.Name) failed — corresponding capability disabled"
+                WarnLine "optional asset $($a.Name) failed -- corresponding capability disabled"
             }
         }
     }
@@ -266,7 +266,7 @@ if ($NoModels) {
     # --from-path` (the next step). No external PowerShell merge script
     # is needed or invoked. See Bug D-1c fix in models.rs.
 
-    # Hand the directory to mneme — it handles validation + placement.
+    # Hand the directory to mneme -- it handles validation + placement.
     #
     # Bug G-6 part B (2026-05-01): non-zero exit from `mneme models
     # install` is now FATAL. Previously this was a `WarnLine` + continue
@@ -274,7 +274,7 @@ if ($NoModels) {
     # downloaded but never registered. Combined with the (now-fixed)
     # phi-3 silent drop, the user could end up with 1.2 GB of model
     # files on disk and zero of them registered, with a "DONE" message
-    # printed at the end. Models are the value-add — if registration
+    # printed at the end. Models are the value-add -- if registration
     # fails, that's a real failure the user must see and act on.
     if ($modelDownloads -gt 0) {
         Step "mneme models install --from-path $modelsDir"
@@ -283,10 +283,10 @@ if ($NoModels) {
             if ($LASTEXITCODE -eq 0) {
                 OK "models installed under ~/.mneme/models"
             } else {
-                throw "mneme models install exited with code $LASTEXITCODE — bootstrap aborted (models are required for smart recall)"
+                throw "mneme models install exited with code $LASTEXITCODE -- bootstrap aborted (models are required for smart recall)"
             }
         } catch {
-            throw "mneme models install threw: $_  — bootstrap aborted (models are required for smart recall)"
+            throw "mneme models install threw: $_  -- bootstrap aborted (models are required for smart recall)"
         }
     }
 }
