@@ -387,7 +387,11 @@ async fn reindex_one(
                 )
                 .await;
             if !_resp_e.success {
-                let _err_msg = _resp_e.error.as_ref().map(|e| e.message.as_str()).unwrap_or("unknown");
+                let _err_msg = _resp_e
+                    .error
+                    .as_ref()
+                    .map(|e| e.message.as_str())
+                    .unwrap_or("unknown");
                 tracing::warn!(
                     error = %_err_msg,
                     qualified_name = %qn,
@@ -411,7 +415,11 @@ async fn reindex_one(
             )
             .await;
         if !_resp_n.success {
-            let _err_msg = _resp_n.error.as_ref().map(|e| e.message.as_str()).unwrap_or("unknown");
+            let _err_msg = _resp_n
+                .error
+                .as_ref()
+                .map(|e| e.message.as_str())
+                .unwrap_or("unknown");
             tracing::warn!(
                 error = %_err_msg,
                 path = %path_str,
@@ -502,7 +510,11 @@ async fn reindex_one(
         )
         .await;
     if !_resp_f.success {
-        let _err_msg = _resp_f.error.as_ref().map(|e| e.message.as_str()).unwrap_or("unknown");
+        let _err_msg = _resp_f
+            .error
+            .as_ref()
+            .map(|e| e.message.as_str())
+            .unwrap_or("unknown");
         tracing::warn!(error = %_err_msg, path = %path_str, "watcher: failed to upsert files row; graph may drift");
     }
 
@@ -555,10 +567,14 @@ async fn reindex_one(
                 },
             )
             .await;
-            if !_resp.success {
-                let _err_msg = _resp.error.as_ref().map(|e| e.message.as_str()).unwrap_or("unknown");
-                tracing::warn!(error = %_err_msg, qualified_name = %qn, "watcher: failed to wipe old edges before re-insert; duplicates may accumulate");
-            }
+        if !_resp.success {
+            let _err_msg = _resp
+                .error
+                .as_ref()
+                .map(|e| e.message.as_str())
+                .unwrap_or("unknown");
+            tracing::warn!(error = %_err_msg, qualified_name = %qn, "watcher: failed to wipe old edges before re-insert; duplicates may accumulate");
+        }
     }
 
     // Upsert nodes + edges.
@@ -598,10 +614,14 @@ async fn reindex_one(
                 },
             )
             .await;
-            if !_resp.success {
-                let _err_msg = _resp.error.as_ref().map(|e| e.message.as_str()).unwrap_or("unknown");
-                tracing::warn!(error = %_err_msg, qualified_name = %node.id, "watcher: failed to upsert node; graph may drift");
-            }
+        if !_resp.success {
+            let _err_msg = _resp
+                .error
+                .as_ref()
+                .map(|e| e.message.as_str())
+                .unwrap_or("unknown");
+            tracing::warn!(error = %_err_msg, qualified_name = %node.id, "watcher: failed to upsert node; graph may drift");
+        }
     }
     for edge in &graph.edges {
         let sql = "INSERT INTO edges(kind,source_qualified,target_qualified,confidence,confidence_score,source_extractor,extra,updated_at) \
@@ -637,10 +657,14 @@ async fn reindex_one(
                 },
             )
             .await;
-            if !_resp.success {
-                let _err_msg = _resp.error.as_ref().map(|e| e.message.as_str()).unwrap_or("unknown");
-                tracing::warn!(error = %_err_msg, edge_kind = ?edge.kind, "watcher: failed to insert edge; graph may drift");
-            }
+        if !_resp.success {
+            let _err_msg = _resp
+                .error
+                .as_ref()
+                .map(|e| e.message.as_str())
+                .unwrap_or("unknown");
+            tracing::warn!(error = %_err_msg, edge_kind = ?edge.kind, "watcher: failed to insert edge; graph may drift");
+        }
     }
 
     let latency_ms = started.elapsed().as_millis() as u64;

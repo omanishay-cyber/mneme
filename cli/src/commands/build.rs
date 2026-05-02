@@ -1614,8 +1614,7 @@ async fn run_leiden_pass(
     // tokio's blocking pool, freeing the main thread to drive the
     // heartbeat (and any other awaited tasks).
     let runner = ClusterRunner::new(ClusterRunnerConfig::default());
-    let leiden_join =
-        tokio::task::spawn_blocking(move || runner.run(&brain_edges)).await;
+    let leiden_join = tokio::task::spawn_blocking(move || runner.run(&brain_edges)).await;
     let communities = match leiden_join {
         Ok(Ok(c)) => c,
         Ok(Err(e)) => {
@@ -1832,7 +1831,9 @@ async fn run_embedding_pass(
     // connection — without spawn_blocking the heartbeat freezes
     // during this read on the current_thread runtime.
     let graph_db_for_read = graph_db.clone();
-    let rows = match tokio::task::spawn_blocking(move || read_embeddable_nodes(&graph_db_for_read)).await {
+    let rows = match tokio::task::spawn_blocking(move || read_embeddable_nodes(&graph_db_for_read))
+        .await
+    {
         Ok(Ok(v)) => v,
         Ok(Err(e)) => {
             warn!(error = %e, "embeddings: failed to read graph.db nodes; skipping");

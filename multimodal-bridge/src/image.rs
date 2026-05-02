@@ -202,7 +202,11 @@ impl ImageExtractor {
             let stderr = String::from_utf8_lossy(&output.stderr);
             return Err(ExtractError::Parse {
                 path: path.to_path_buf(),
-                reason: format!("tesseract exit {:?}: {}", output.status.code(), stderr.trim()),
+                reason: format!(
+                    "tesseract exit {:?}: {}",
+                    output.status.code(),
+                    stderr.trim()
+                ),
             });
         }
         let text = String::from_utf8_lossy(&output.stdout).trim().to_string();
@@ -235,7 +239,10 @@ impl ImageExtractor {
 /// `OCR_RUNTIME_AVAILABLE` (lib.rs) can reuse the same check.
 pub fn locate_tesseract_exe() -> Option<std::path::PathBuf> {
     // 1. PATH probe via `--version`.
-    if let Ok(out) = std::process::Command::new("tesseract").arg("--version").output() {
+    if let Ok(out) = std::process::Command::new("tesseract")
+        .arg("--version")
+        .output()
+    {
         if out.status.success() {
             return Some(std::path::PathBuf::from("tesseract"));
         }

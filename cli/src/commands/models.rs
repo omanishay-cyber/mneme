@@ -505,9 +505,8 @@ pub fn install_from_path_to_root(src_dir: &Path, root: &Path) -> CliResult<usize
     // manifest entry. The PowerShell script becomes vestigial.
     // ------------------------------------------------------------------
     let mut part_groups: BTreeMap<String, BTreeMap<u32, PathBuf>> = BTreeMap::new();
-    let pre_scan = fs::read_dir(src_dir).map_err(|e| {
-        CliError::Other(format!("read --from-path {}: {e}", src_dir.display()))
-    })?;
+    let pre_scan = fs::read_dir(src_dir)
+        .map_err(|e| CliError::Other(format!("read --from-path {}: {e}", src_dir.display())))?;
     for dirent in pre_scan {
         let dirent = match dirent {
             Ok(d) => d,

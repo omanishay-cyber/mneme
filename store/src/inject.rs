@@ -230,7 +230,11 @@ impl DefaultInject {
                 ],
             }).await;
             if !resp.success {
-                let msg = resp.error.as_ref().map(|e| e.message.as_str()).unwrap_or("unknown");
+                let msg = resp
+                    .error
+                    .as_ref()
+                    .map(|e| e.message.as_str())
+                    .unwrap_or("unknown");
                 tracing::warn!(error = %msg, action = %action, layer = ?layer, "audit_log inject write failed; audit trail will have a gap");
             }
         }
@@ -256,7 +260,11 @@ impl DefaultInject {
                 })
                 .await;
             if !resp.success {
-                let msg = resp.error.as_ref().map(|e| e.message.as_str()).unwrap_or("unknown");
+                let msg = resp
+                    .error
+                    .as_ref()
+                    .map(|e| e.message.as_str())
+                    .unwrap_or("unknown");
                 tracing::warn!(error = %msg, key = %key, "audit_log idempotency write failed; replay safety degraded");
             }
         }

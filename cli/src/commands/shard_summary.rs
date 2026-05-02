@@ -268,9 +268,7 @@ enum ShardProbe {
 fn is_safe_sql_ident(name: &str) -> bool {
     !name.is_empty()
         && name.len() <= 64
-        && name
-            .chars()
-            .all(|c| c.is_ascii_alphanumeric() || c == '_')
+        && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
 fn probe_table(db_path: &Path, table: &str) -> ShardProbe {
