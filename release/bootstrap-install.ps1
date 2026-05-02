@@ -15,8 +15,12 @@
 #   2. Downloads mneme-<ver>-windows-x64.zip from the GitHub Release
 #   3. Expands it into ~/.mneme/
 #   4. Runs ~/.mneme/scripts/install.ps1 with -LocalZip + -WithMultimodal
-#   5. Downloads model assets (bge, qwen-embed, qwen-coder, phi-3 parts) and
-#      installs them via `mneme models install --from-path`
+#   5. Downloads model assets (bge, qwen-embed, qwen-coder, phi-3) from the
+#      Hugging Face mirror (https://huggingface.co/aaditya4u/mneme-models --
+#      Cloudflare-backed, ~5x faster than GitHub Releases, no 2 GB asset cap
+#      so phi-3 ships as one file instead of split parts) with the GitHub
+#      Release as a transparent fallback if HF is unreachable, then installs
+#      them via `mneme models install --from-path`
 #   6. Reports success / next steps
 #
 # Opt-outs:
@@ -107,47 +111,93 @@ $ExpectedHashes = @{
 }
 
 function Get-Asset {
+    # Wave 6 / 2026-05-02: dual-source download (Hugging Face primary,
+    # GitHub Release fallback). For legacy callers that don't pass
+    # explicit URLs, $PrimaryUrl auto-derives to the GitHub release
+    # path (preserving the old `$releaseBase/$Name` behavior used for
+    # the installer zip itself).
     param(
         [string]$Name,
         [string]$Dest,
-        [int]$RetryCount = 3
+        [int]$RetryCount = 3,
+        [string]$PrimaryUrl = $null,
+        [string]$FallbackUrl = $null
     )
-    $url = "$releaseBase/$Name"
-    for ($attempt = 1; $attempt -le $RetryCount; $attempt++) {
-        try {
-            Step "Fetching $Name (attempt $attempt/$RetryCount)"
-            Invoke-WebRequest -Uri $url -OutFile $Dest -UseBasicParsing
-            $sz = (Get-Item $Dest).Length
-            if ($sz -lt 100) { throw "downloaded file too small ($sz bytes) -- likely a 404 HTML page" }
 
-            # Bug G-14 / SEC-3 (2026-05-01): SHA-256 verification.
-            # If the file is in our pinned-hash table, compute its
-            # SHA-256 and compare. Mismatch = fail loud (the file
-            # could be tampered with or partially downloaded). If the
-            # file is NOT in the table, log a one-line WARN so it's
-            # visible in the install log without blocking new assets.
-            if (-not $SkipHashCheck) {
-                if ($ExpectedHashes.ContainsKey($Name)) {
-                    $expected = $ExpectedHashes[$Name].ToUpper()
-                    $actual = (Get-FileHash -Path $Dest -Algorithm SHA256).Hash.ToUpper()
-                    if ($actual -ne $expected) {
-                        # Remove the corrupt file so a retry doesn't trust the cached copy.
-                        Remove-Item -LiteralPath $Dest -Force -ErrorAction SilentlyContinue
-                        throw "SHA-256 mismatch for $Name`n  expected: $expected`n  actual:   $actual`n  (likely corrupt download or tampered file -- refusing to install)"
+    # B5: silence Invoke-WebRequest "Writing web request" progress chatter.
+    # Local scope so this only affects per-call IWRs in this function,
+    # without polluting the caller's $ProgressPreference.
+    $ProgressPreference = 'SilentlyContinue'
+
+    # Default $PrimaryUrl to the GitHub release URL for backward
+    # compatibility (used by the release-zip download in Step 1).
+    if (-not $PrimaryUrl) { $PrimaryUrl = "$releaseBase/$Name" }
+
+    # Default $FallbackUrl to the GitHub release URL when the caller
+    # supplied a $PrimaryUrl that isn't already the release URL --
+    # i.e., HF primary + GitHub fallback for the model downloads.
+    if (-not $FallbackUrl -and $PrimaryUrl -ne "$releaseBase/$Name") {
+        $FallbackUrl = "$releaseBase/$Name"
+    }
+
+    # Build the source list: primary always, fallback only if distinct.
+    $sources = @(
+        @{ Url = $PrimaryUrl; Label = 'primary' }
+    )
+    if ($FallbackUrl -and $FallbackUrl -ne $PrimaryUrl) {
+        $sources += @{ Url = $FallbackUrl; Label = 'fallback' }
+    }
+
+    foreach ($src in $sources) {
+        $url = $src.Url
+        $label = $src.Label
+        for ($attempt = 1; $attempt -le $RetryCount; $attempt++) {
+            try {
+                Step "Fetching $Name from $label (attempt $attempt/$RetryCount): $url"
+                Invoke-WebRequest -Uri $url -OutFile $Dest -UseBasicParsing
+                $sz = (Get-Item $Dest).Length
+                if ($sz -lt 100) { throw "downloaded file too small ($sz bytes) -- likely a 404 HTML page" }
+
+                # Bug G-14 / SEC-3 (2026-05-01): SHA-256 verification.
+                # If the file is in our pinned-hash table, compute its
+                # SHA-256 and compare. Mismatch = fail loud (the file
+                # could be tampered with or partially downloaded). If the
+                # file is NOT in the table, log a one-line WARN so it's
+                # visible in the install log without blocking new assets.
+                if (-not $SkipHashCheck) {
+                    if ($ExpectedHashes.ContainsKey($Name)) {
+                        $expected = $ExpectedHashes[$Name].ToUpper()
+                        $actual = (Get-FileHash -Path $Dest -Algorithm SHA256).Hash.ToUpper()
+                        if ($actual -ne $expected) {
+                            # Remove the corrupt file so a retry doesn't trust the cached copy.
+                            Remove-Item -LiteralPath $Dest -Force -ErrorAction SilentlyContinue
+                            throw "SHA-256 mismatch for $Name`n  expected: $expected`n  actual:   $actual`n  (likely corrupt download or tampered file -- refusing to install)"
+                        }
+                        OK "SHA-256 verified for $Name"
+                    } else {
+                        WarnLine "no pinned SHA-256 for $Name (continuing without integrity check)"
                     }
-                    OK "SHA-256 verified for $Name"
-                } else {
-                    WarnLine "no pinned SHA-256 for $Name (continuing without integrity check)"
                 }
-            }
 
-            $mb = [math]::Round($sz / 1MB, 2)
-            OK "downloaded $Name ($mb MB)"
-            return
-        } catch {
-            WarnLine "attempt $attempt failed: $_"
-            if ($attempt -eq $RetryCount) { throw $_ }
-            Start-Sleep -Seconds (2 * $attempt)
+                $mb = [math]::Round($sz / 1MB, 2)
+                OK "downloaded $Name ($mb MB) from $label"
+                return
+            } catch {
+                WarnLine "attempt $attempt ($label) failed: $_"
+                if ($attempt -eq $RetryCount) {
+                    # Remove any partial file so the next source / next
+                    # call doesn't trust a half-finished download.
+                    Remove-Item -LiteralPath $Dest -Force -ErrorAction SilentlyContinue
+                    if ($src -eq $sources[-1]) {
+                        # Last source exhausted -- bubble up.
+                        throw $_
+                    } else {
+                        WarnLine "$label exhausted -- trying fallback source"
+                        break
+                    }
+                }
+                Start-Sleep -Seconds (2 * $attempt)
+            }
         }
     }
 }
@@ -236,25 +286,56 @@ if ($NoModels) {
     $modelsDir = Join-Path $tmpDir 'models'
     New-Item -ItemType Directory -Force -Path $modelsDir | Out-Null
 
-    # Asset list -- names must match release artifacts exactly. Each is
-    # tagged with `Required`: a missing required asset aborts the model
-    # install but doesn't fail the whole bootstrap (mneme runtime works
-    # without models, just degraded).
+    # Asset list -- names must match what `mneme models install
+    # --from-path` expects on disk. Each entry has:
+    #   Name        - on-disk filename (also the install-time identifier)
+    #   Required    - if download fails for a required asset, smart
+    #                 embeddings are degraded but bootstrap continues
+    #   PrimaryUrl  - Hugging Face mirror (Cloudflare-backed, fast,
+    #                 free unlimited public bandwidth, no 2 GB cap)
+    #   FallbackUrl - if $null, Get-Asset auto-derives the GitHub
+    #                 release URL ($releaseBase/$Name) as a fallback
+    #                 for resilience when HF is unreachable
     #
-    # Bug D-1a/D-1b/D-1c (2026-05-01): `merge-phi3-parts.ps1` removed.
-    # Native part-merge now lives in `cli/src/commands/models.rs`
-    # (`parse_split_part` + the merge block in `install_from_path_to_root`).
-    # The PowerShell script was not in source control, was called with
-    # the wrong parameter name, and silently dropped 2.28 GB of phi-3
-    # parts on every install. Rust handles it now: download the parts,
-    # `mneme models install --from-path` concatenates them.
+    # Wave 6 / 2026-05-02: model downloads switched from GitHub
+    # Releases (Azure Blob, 5-50 MB/s) to Hugging Face Hub
+    # (Cloudflare, 50-200 MB/s, ~5x faster). HF has no 2 GB asset
+    # cap, so phi-3-mini-4k.gguf ships as one ~2.4 GB file instead
+    # of split parts. The Rust-side part-merge logic in
+    # `cli/src/commands/models.rs::install_from_path_to_root` is
+    # retained for v0.3.2 backwards-compat (it gracefully no-ops when
+    # the input is already a single file).
     $assets = @(
-        @{ Name = 'bge-small-en-v1.5.onnx';   Required = $true  },
-        @{ Name = 'tokenizer.json';            Required = $true  },
-        @{ Name = 'qwen-embed-0.5b.gguf';      Required = $false },
-        @{ Name = 'qwen-coder-0.5b.gguf';      Required = $false },
-        @{ Name = 'phi-3-mini-4k.gguf.part00'; Required = $false },
-        @{ Name = 'phi-3-mini-4k.gguf.part01'; Required = $false }
+        @{
+            Name = 'bge-small-en-v1.5.onnx';
+            Required = $true;
+            PrimaryUrl = 'https://huggingface.co/aaditya4u/mneme-models/resolve/main/bge-small-en-v1.5.onnx';
+            FallbackUrl = $null
+        },
+        @{
+            Name = 'tokenizer.json';
+            Required = $true;
+            PrimaryUrl = 'https://huggingface.co/aaditya4u/mneme-models/resolve/main/tokenizer.json';
+            FallbackUrl = $null
+        },
+        @{
+            Name = 'qwen-embed-0.5b.gguf';
+            Required = $false;
+            PrimaryUrl = 'https://huggingface.co/aaditya4u/mneme-models/resolve/main/qwen-embed-0.5b.gguf';
+            FallbackUrl = $null
+        },
+        @{
+            Name = 'qwen-coder-0.5b.gguf';
+            Required = $false;
+            PrimaryUrl = 'https://huggingface.co/aaditya4u/mneme-models/resolve/main/qwen-coder-0.5b.gguf';
+            FallbackUrl = $null
+        },
+        @{
+            Name = 'phi-3-mini-4k.gguf';
+            Required = $false;
+            PrimaryUrl = 'https://huggingface.co/aaditya4u/mneme-models/resolve/main/phi-3-mini-4k.gguf';
+            FallbackUrl = $null
+        }
     )
 
     $modelDownloads = 0
@@ -262,7 +343,7 @@ if ($NoModels) {
     foreach ($a in $assets) {
         $dest = Join-Path $modelsDir $a.Name
         try {
-            Get-Asset -Name $a.Name -Dest $dest -RetryCount 3
+            Get-Asset -Name $a.Name -Dest $dest -RetryCount 3 -PrimaryUrl $a.PrimaryUrl -FallbackUrl $a.FallbackUrl
             $modelDownloads += 1
         } catch {
             $modelFailures += $a.Name
@@ -275,9 +356,12 @@ if ($NoModels) {
     }
     OK "downloaded $modelDownloads / $($assets.Count) model assets ($(($modelFailures | Measure-Object).Count) failed)"
 
-    # NOTE: phi-3 parts are merged natively by `mneme models install
-    # --from-path` (the next step). No external PowerShell merge script
-    # is needed or invoked. See Bug D-1c fix in models.rs.
+    # NOTE (Wave 6, 2026-05-02): phi-3 now ships as one ~2.4 GB file
+    # from Hugging Face (no 2 GB asset cap). The merge code path in
+    # `cli/src/commands/models.rs::install_from_path_to_root` is left
+    # in place for v0.3.2 backwards compat (it no-ops on already-merged
+    # input) -- can be removed in a future release once no installs
+    # depend on the GitHub split-parts fallback.
 
     # Hand the directory to mneme -- it handles validation + placement.
     #
