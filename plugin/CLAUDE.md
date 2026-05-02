@@ -53,8 +53,8 @@ Never combine fixes. **One fix = one step.** This is non-negotiable.
 Mneme continuously scans changed files for rule violations. Findings are
 tagged red (critical) / yellow (should-fix) / green (info).
 
-- Before commit: `audit(scope='diff')` — see what's wrong with your changes
-- During work: `drift_findings(severity='critical')` — never let red sit
+- Before commit: `audit(scope='diff')` - see what's wrong with your changes
+- During work: `drift_findings(severity='critical')` - never let red sit
 - Theme issues: `audit_theme(file=...)`
 - Type issues: `audit_types(file=...)`
 - Security: `audit_security(file=...)`
