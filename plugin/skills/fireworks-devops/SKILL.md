@@ -72,7 +72,6 @@ Description:
 <body — the diff shows WHAT changed>      ← focus on motivation and context
                                           ← blank line
 <footer>                                  ← breaking changes, issue refs
-Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
 ```
 
 ### Example Commit Messages
@@ -85,7 +84,6 @@ with their own branding. This adds a template system using
 jsPDF with support for custom logos, colors, and footer text.
 
 Closes #234
-Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
 ```
 
 ```
@@ -95,7 +93,6 @@ Two sync operations could overlap when the user triggered a
 manual sync while auto-sync was in progress. Added a mutex
 lock to prevent concurrent sync operations.
 
-Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
 ```
 
 ### Safety Rules (Non-Negotiable)
@@ -157,7 +154,6 @@ gh pr create --title "feat(inventory): add barcode scanner support" --body "$(ca
 - [ ] Verify fallback when no scanner detected
 - [ ] Test in both light and dark themes
 
-Generated with [Claude Code](https://claude.com/claude-code)
 EOF
 )"
 ```
