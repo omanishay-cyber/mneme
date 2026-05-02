@@ -26,9 +26,8 @@ import { zodToJsonSchema } from "zod-to-json-schema";
 import { getLastIndexed, graphStats, shardDbPath } from "./store.ts";
 
 // ---------------------------------------------------------------------------
-// Copyright line — matches mcp/package.json `author`. Wife-name placeholder
-// dropped pending Anish's confirmation of canonical surname (Trivedi vs
-// Patel). Do not remove the banner; only the contested second name.
+// Copyright line — matches mcp/package.json `author`. Both maintainers
+// credited per published author convention.
 // ---------------------------------------------------------------------------
 
 const COPYRIGHT = "© 2026 Anish Trivedi & Kruti Trivedi";

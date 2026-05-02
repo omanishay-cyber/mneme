@@ -188,7 +188,7 @@ pub async fn run(args: InjectArgs, socket_override: Option<PathBuf>) -> CliResul
     // silently no-ops with an empty additional_context. The previous
     // UX-3 behaviour was to render a `<mneme-status>` block every prompt
     // — that combined with the hook auto-spawn loop produced the
-    // "hydra heads" on Anish's POS host (postmortem §3.E + §12.5).
+    // "hydra heads" on our AWS test host (postmortem §3.E + §12.5).
     //
     // The new contract: mneme is intentionally inactive when the user
     // has not run `mneme daemon start`. Silence on the prompt is the

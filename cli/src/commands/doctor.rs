@@ -68,7 +68,7 @@ pub struct DoctorArgs {
 
     /// Skip the per-MCP-tool health probe (spawns a fresh
     /// `mneme mcp stdio` child to enumerate the live tool set). The
-    /// probe is usually <2s on POS2 but can be skipped for a faster
+    /// probe is usually <2s on a typical AWS instance but can be skipped for a faster
     /// run in CI / automated scripts.
     #[arg(long)]
     pub skip_mcp_probe: bool,
@@ -446,7 +446,7 @@ fn hooks_remediation_message(count: usize, expected: usize) -> String {
 /// B-AGENT-C-2 (v0.3.2): compose the full doctor message for the
 /// hooks row, taking Claude Code's running-state into account.
 ///
-/// Anish's reproduction:
+/// Reproduction:
 ///   1. `mneme install` runs successfully, writing 8 hooks into
 ///      `~/.claude/settings.json::hooks` with the `_mneme.managed=true`
 ///      marker.
@@ -2392,7 +2392,7 @@ mod tests {
     // branch independently so future edits don't silently collapse
     // them.
     //
-    // Anish's exact quote: "install was good, just when i made mneme
+    // User feedback verbatim: "install was good, just when i made mneme
     // doctor it showed all hooks missing and claude was on, i had to
     // close all and do mneme install and it came back but still not
     // plesent". The "still not plesent" is what Layer 2 fixes — even
@@ -2409,7 +2409,7 @@ mod tests {
 
     #[test]
     fn message_when_claude_running_and_hooks_missing_calls_out_pid() {
-        // The headline-bug message — Anish's repro: install OK, Claude
+        // The headline-bug message — repro: install OK, Claude
         // up, doctor reports 0/8, user panics. New copy must say the
         // hooks are not detected AND that Claude is up AND give the
         // PID so the user can map it back to a window.

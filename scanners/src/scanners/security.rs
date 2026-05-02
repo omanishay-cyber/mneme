@@ -188,7 +188,7 @@ impl Scanner for SecurityScanner {
             // boundary before slicing, or `&content[..end]` panics inside
             // a multi-byte char (e.g. box-drawing `─` U+2500 = 3 bytes).
             // Was crashing the entire scanners subprocess with
-            // STATUS_STACK_BUFFER_OVERRUN (0xc0000409) on Orion electron/main.cjs.
+            // STATUS_STACK_BUFFER_OVERRUN (0xc0000409) on a real Electron app's main.cjs.
             // Backstep is fine — we're truncating an upper bound, so a few
             // bytes of lost lookahead are harmless to the validator search.
             let mut body_window_end = (m.end() + 400).min(content.len());

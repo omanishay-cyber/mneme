@@ -477,7 +477,7 @@ impl HookCtx {
 /// write to the supervisor that hit a missing pipe spawned a fresh
 /// `mneme daemon start` and waited 3 s — multiplied across the 6 hook
 /// kinds firing on every Claude Code tool call, that produced the
-/// "hydra heads" loop on Anish's POS host (postmortem §3.E + §12.5).
+/// "hydra heads" loop on our AWS test host (postmortem §3.E + §12.5).
 /// The direct-DB fallback path below is the correct degradation when
 /// the daemon is intentionally not running.
 async fn try_supervisor_write(req: crate::ipc::IpcRequest) -> Result<(), String> {

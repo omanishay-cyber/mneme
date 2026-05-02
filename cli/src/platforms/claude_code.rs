@@ -548,7 +548,7 @@ pub struct HookCountResult {
 /// path is surfaced via [`HookCountResult`] so the caller can render an
 /// honest diagnostic.
 ///
-/// B-AGENT-C-1 (v0.3.2): Anish's reproduction was `mneme install` →
+/// B-AGENT-C-1 (v0.3.2): the reproduction was `mneme install` →
 /// (Claude Code, still running, auto-saves its in-memory settings.json,
 /// stripping mneme's entries) → `mneme doctor` reports `0/8` with no
 /// clue. The previous helper swallowed io / utf-8 / json failures and

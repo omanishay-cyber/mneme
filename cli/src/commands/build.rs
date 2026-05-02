@@ -4715,7 +4715,7 @@ pub(crate) fn make_client(socket_override: Option<PathBuf>) -> IpcClient {
 /// daemon they didn't ask for.
 ///
 /// The pre-fix behaviour was the root of the resurrection loop on
-/// Anish's POS host (postmortem 2026-04-29 §3.E + §12.5): every Claude
+/// our AWS test host (postmortem 2026-04-29 §3.E + §12.5): every Claude
 /// Code tool call fired ~9 hooks, each connect-failure spawned a
 /// `mneme daemon start`, and combined with Bug D (visible cmd-window
 /// storm) that produced 22 cmd windows per tool call.

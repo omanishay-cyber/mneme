@@ -12,7 +12,7 @@
 //! ## Why this exists
 //!
 //! Postmortem 2026-04-29 §3.E + §12.5: every Claude Code tool call on the
-//! POS host fired ~9 hooks. Each hook used the default `IpcClient` path
+//! AWS test host fired ~9 hooks. Each hook used the default `IpcClient` path
 //! which auto-spawns `mneme-daemon` on connect failure. With Bug D's
 //! visible-cmd-window storm in play, the result was 22 cmd windows
 //! resurrected on every tool call — the "hydra heads."

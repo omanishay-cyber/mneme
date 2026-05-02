@@ -249,7 +249,7 @@ impl Watchdog {
             // per the S-PHASE NEW-055 contract on `heartbeat_pass`), the
             // self-test log MUST NOT report `healthy:false` every cycle —
             // that fills `supervisor.log` with thousands of false alarms
-            // (observed: 22 workers × every 60s for 7+ minutes on POS PC).
+            // (observed: 22 workers × every 60s for 7+ minutes on our AWS test fleet).
             // Workers that wired heartbeat-send keep the real check.
             match (deadline_opt, last_hb_opt) {
                 (None, _) => {

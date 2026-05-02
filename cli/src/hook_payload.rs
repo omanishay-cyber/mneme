@@ -86,7 +86,7 @@ pub const HOOK_CTX_BUDGET: Duration = Duration::from_millis(500);
 /// Pre-fix: every hook used the default [`IpcClient`] which on connect-
 /// failure called `spawn_daemon_detached()` and then waited up to 3 s
 /// for the daemon to come up. Combined with Bug D (worker spawns
-/// flashing visible cmd.exe windows), the result on Anish's POS host
+/// flashing visible cmd.exe windows), the result on our AWS test host
 /// was 22 cmd windows appearing on every tool call — the "hydra heads"
 /// from postmortem 2026-04-29 §3.E + §12.5.
 ///

@@ -37,7 +37,7 @@ use scanners::{Finding, FindingsWriter, Severity};
 
 // B11.8 (v0.3.2, D:\Mneme Dome cycle, 2026-05-02): the outer wall-clock
 // (`AUDIT_SUBPROCESS_BUDGET` / `MNEME_AUDIT_TIMEOUT_SEC`, 300 s) was
-// removed. It killed slow-but-working scans on large projects (POS PC:
+// removed. It killed slow-but-working scans on large projects (a high-end AWS instance:
 // 30 min single-threaded scan got SIGKILLed at 5 min, losing 37,423
 // partial findings). The per-line read budget below is now the SOLE
 // hang guard — see `LINE_READ_BUDGET`. Combined with the streaming
@@ -81,7 +81,7 @@ fn audit_line_budget() -> Duration {
 /// timer fires — whichever comes first. This is the data-loss fix:
 /// before B12, the CLI accumulated EVERY finding from the entire scan
 /// in memory and bulk-inserted at end-of-stream; if the subprocess died
-/// (timeout, panic, kill) all findings were lost. POS PC hit this:
+/// (timeout, panic, kill) all findings were lost. Our AWS test fleet hit this:
 /// 37,423 partial findings → 0 persisted on a wall-clock kill.
 const FINDINGS_FLUSH_BUFFER: usize = 100;
 
@@ -252,7 +252,7 @@ pub(crate) async fn run_direct_subprocess_with_registry(
     // a single line of stdout, so the streaming loop can flush findings
     // incrementally. Pre-B12 the CLI accumulated every finding into a
     // Vec<Finding> and bulk-inserted at end-of-stream; if the subprocess
-    // died (panic, kill, timeout) all findings were lost. POS PC hit
+    // died (panic, kill, timeout) all findings were lost. Our AWS test fleet hit
     // this — 37,423 partial findings → 0 persisted on a wall-clock kill.
     let project_id = ProjectId::from_path(project)
         .map_err(|e| CliError::Other(format!("cannot hash project path: {e}")))?;
@@ -410,7 +410,7 @@ struct StreamOutcome {
 /// drain stderr, set `timed_out = true`, and return Ok so the caller can
 /// graceful-degrade. Pre-B11.8 a line-timeout was non-fatal and the outer
 /// wall-clock owned the kill decision; that decision lost work on
-/// slow-but-working scans (POS PC: 30 min single-threaded, killed at
+/// slow-but-working scans (our AWS test instance: 30 min single-threaded, killed at
 /// 5 min, 37k findings dropped). The scanner subprocess emits a
 /// `_progress` heartbeat every 25 files / 5 s (B-019), so any silence
 /// longer than `line_budget` (default 30 s) is a true wedge.
@@ -935,7 +935,7 @@ mod tests {
     // per-line read budget is now the SOLE hang guard for the scanner
     // subprocess streaming loop (B11.8 removed the outer wall-clock
     // because it killed slow-but-working scans on large projects, losing
-    // 37k partial findings on POS PC). The two tests below cover the
+    // 37k partial findings on our AWS test instance). The two tests below cover the
     // remaining states of the budget interaction:
     //
     //   1. Per-line fires → child killed immediately, graceful Ok outcome
@@ -998,7 +998,7 @@ mod tests {
     /// and continue the build instead of hanging for ~50 minutes the
     /// way EC2 2026-04-27 19:00 demonstrated. Pre-B11.8 this contract
     /// was owned by an outer wall-clock; that path killed slow-but-
-    /// working scans on large projects (POS PC) so we removed it.
+    /// working scans on large projects (observed on our AWS test instance) so we removed it.
     #[tokio::test]
     async fn audit_subprocess_timeout_kills_hung_child() {
         // Spawn a child that would sleep for 30s. Set the line budget

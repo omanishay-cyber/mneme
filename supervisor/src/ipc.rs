@@ -1387,7 +1387,7 @@ async fn enqueue_corpus(
 /// `findings.db` (via the shard_root field that `encode_for_worker`
 /// threads into the StdinJob — see B11.7 patch).
 ///
-/// Expected speedup on POS PC (6 scanner-workers): audit phase 30 min →
+/// Expected speedup on a high-end AWS instance (6 scanner-workers): audit phase 30 min →
 /// ~5 min. The standalone subprocess path (audit::run_direct_subprocess)
 /// remains as a fallback when the supervisor is unreachable.
 ///

@@ -9,8 +9,8 @@
  * magic comments at file head OR (future) git heuristics / LLM
  * inference.
  *
- * Why this matters: a 5,000-line file frozen-by-intent (e.g. Anish's
- * Lotto Calculator — verbatim from VBA) looks identical in the AST to
+ * Why this matters: a 5,000-line file frozen-by-intent (e.g. a legacy
+ * calculator ported verbatim from VBA) looks identical in the AST to
  * a 5,000-line file deferred-by-want-of-time. Every refactor planner,
  * `god_nodes` consumer, or AI agent should respect intent before
  * recommending action. This is the Phase A §J differentiator.

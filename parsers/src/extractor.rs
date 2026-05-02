@@ -301,8 +301,8 @@ impl Extractor {
             // edge per imported binding instead of one edge per
             // `import_statement`. The legacy behaviour ("one edge per
             // source file regardless of how many entities are
-            // imported") undercounted import edges by ~10x — Anish's
-            // own Orion repo had 1,157 edges across 1,120 files = 1.03
+            // imported") undercounted import edges by ~10x — a real
+            // TS+React app had 1,157 edges across 1,120 files = 1.03
             // imports/file when typical TS+React lands at 5–20.
             //
             // Strategy: walk the AST under the matched outer node and
