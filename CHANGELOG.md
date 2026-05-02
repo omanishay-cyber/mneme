@@ -5,6 +5,74 @@ All notable changes to mneme will be recorded here.
 Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [v0.3.2 hotfix] — 2026-05-02 — store-PC POS production install hardening
+
+22+ bugs caught during real-world store-PC POS production installs and Claude Code MCP testing on 2026-05-02. All fixes ship under the existing **v0.3.2** tag (re-uploaded zip + bootstrap on the v0.3.2 release page) — no version bump.
+
+### Fixed (install pipeline + plugin commands + diagnostic chain)
+
+- **B1 — `install.ps1` now runs `bun install --frozen-lockfile` after extract.** Without this, `~/.mneme/mcp/node_modules/` shipped empty (or missing `zod` / `@modelcontextprotocol/sdk` / `ajv`) and the MCP server crashed silently on first start with `error: ENOENT while resolving package 'zod' from 'C:\Users\POS\.mneme\mcp\src\types.ts'`. Claude Code's `/mcp` panel showed `mneme · failed`. Step 5b in `scripts/install.ps1` now invokes Bun, fails the install loud if exit code != 0, and reports `MCP node_modules installed` on success.
+- **B1.5 — Mneme plugin slash commands now register with Claude Code on install.** Pre-fix, after a clean install + `mneme: connected`, typing `/mn-build` (or `/mn-recall`, `/mn-why`, `/mn-resume`, etc.) in Claude Code showed `Unknown command`. The release zip's `plugin/commands/` subtree was dropped at `~/.mneme/plugin/` but never linked into Claude's plugin search path. Install step 7 now copies/symlinks the plugin into Claude's plugin directory so the slash commands surface in autocomplete.
+- **B2 — `stage-release-zip.ps1` refuses to ship broken zips.** Previously, the staging script blindly robocopied `mcp/` even if the source `node_modules/` was empty — producing a zip that crashed on first install. New pre-stage assertion: `mcp/node_modules/zod/package.json` MUST exist (auto-runs `bun install --frozen-lockfile` if missing); abort with `Fail "mcp/node_modules missing zod — refusing to stage broken zip"` otherwise. Mirror assertion for `@modelcontextprotocol/sdk`. Defense in depth with B1.
+- **B3 — `mneme doctor` MCP probe captures and echoes the child's stderr on failure.** Pre-fix, when the MCP server failed to start, doctor reported the unhelpful `could not probe MCP server — child closed stdout before response arrived` with no actionable diagnostic. The probe now captures stderr alongside stdout, prints the last 20 lines on probe failure, and includes the child's exit code. Users see the actual error (e.g. `ENOENT while resolving package 'zod'`) instead of guessing.
+- **B12 — Audit findings now stream to `findings.db` per-batch (no more 0-finding outcomes on timeout).** Pre-fix, `mneme-scanners` accumulated findings in process memory and only wrote them to `findings.db` at end-of-run. When the audit subprocess was killed by the wall-clock timeout (or any reason), the entire in-memory buffer (37,423 findings on Orion!) was lost. Build summary said "audit: ran" with `findings.db: 0` and the user had no idea their audit was binned. Scanners now `INSERT` into `findings.db` per-N-files (or every K seconds, whichever comes first) using SQLite WAL — partial findings persist even on hard kill.
+- **B13 — Audit fan-out uses idle scanner-workers from the supervisor pool.** Previously the audit phase spawned ONE single-threaded `mneme-scanners.exe` subprocess that walked all files sequentially while 6 idle `scanner-worker-N` daemon processes sat idle. Audit now becomes a typed job dispatched by the supervisor: file list is split into N batches, one batch per worker, results aggregated. **5–10× faster on multi-core machines** (POS 22-core: ~13 min audit drops to ~1–2 min on the same corpus).
+- **B14.5 — Heartbeat phase label now updates when audit starts.** Pre-fix, when the build pipeline transitioned from embed → audit, `cli/src/commands/build.rs` failed to call `heartbeat.set_phase("audit")`. The user saw stale `phase=embed processed=8003/8003` for 13+ minutes while audit was actually running — leaving the impression that embed had hung. Audit invocation now correctly sets phase + resets total/processed counters.
+- **B17 — All BGE / ORT inference pipeline now stable on Windows.** Bundled `onnxruntime.dll` bumped to **1.24.4** (matches what `ort 2.0.0-rc.12` expects on the API-24 ABI). Pre-fix, the Windows-shipped 1.20.x DLL would silently hang `RealBackend::try_new` on first BGE inference call — embedder fell back to hashing-trick without warning. Bundled DLL pinned via `ORT_DYLIB_PATH` so the in-tree version always wins over `System32`.
+
+### Fixed (cosmetic — Anish's "even small cosmetic has to be fixed")
+
+- **B4 — 41 spurious orphan-cleanup warnings on upgrade installs.** Pre-fix, `Remove-Item` on already-deleted manifest entries warned 41 times per upgrade. Now `Test-Path` guard before each `Remove-Item`; only real failures warn. Final summary `removed N orphan(s)` is the truth.
+- **B5 — PowerShell progress chatter (`Writing web request / Writing request stream`) silenced inside model downloads.** Inner `Get-Asset` function now sets `$ProgressPreference = 'SilentlyContinue'` locally instead of inheriting from the parent.
+- **B6 — Typo `re-open shell if  esseract not on PATH yet` (leading space + missing T) corrected.** Source had a backtick-t (PowerShell tab escape) where it should have had `Tesseract`. Now reads `re-open shell if Tesseract not on PATH yet`.
+- **B7 — Mojibake on Windows console: all `→` and `·` in user-facing prints replaced with ASCII `->` and `*`.** Windows console default code page (CP437/CP850) interpreted UTF-8 bytes as Latin-1, rendering `→` as `ΓåÆ` and `·` as `┬╖`. Workspace-wide grep + ASCII-ify pass on `cli/src/commands/models.rs` and other user-facing print sites. Box-drawing chars (`╔═╗║╚╝`) are CP437-safe and stay as-is.
+- **B8 — Tesseract install on winget now refreshes PATH in the current process** so the immediate post-install capability check passes (cosmetic — runtime fallback in `multimodal-bridge/src/image.rs` already worked).
+- **B9 — Step 5b header renamed** from misleading "Bun cache check (prevents stale-bytecode MCP failures)" to accurate "install MCP node_modules (bun install --frozen-lockfile)".
+- **B10 — `doctor --strict` no longer prints install hints for tools that ARE detected.** Hint list now filtered against detected status.
+
+### Added
+
+- **`mneme build --rebuild` flag.** Forces a clean rebuild from scratch — wipes `build-state.json`, ignores the resume cursor, optionally drops embeddings. Previously users had to manually `Remove-Item` shard files. `--full` retains its meaning of "force re-parse, keep DB"; `--rebuild` means "start over from zero".
+- **Hugging Face Hub model mirror** (`aaditya4u/mneme-models`). Primary download path for all 5 model files (~3.4 GB total). Cloudflare CDN, ~5× faster than GitHub Releases globally, no 2 GB asset cap. GitHub Releases stays as fallback for users in regions where HF is blocked.
+- **`x86-64-v3` baseline** (AVX2 / BMI2 / FMA). Workspace `.cargo/config.toml` now sets `target-cpu=x86-64-v3`. **2–4× faster** BGE inference, scanners, tree-sitter parsing, regex matching on Haswell-or-newer CPUs (Intel 2013+, AMD Excavator 2015+ — covers 99%+ of installed Windows PCs in 2026).
+- **Multi-architecture Windows support** (x64 today, ARM64 planned). Single bootstrap script auto-detects `$env:PROCESSOR_ARCHITECTURE` and downloads the right zip. Cross-OS scripts (`install-mac.sh`, `install-linux.sh`) coming soon — each auto-detects via `uname -m`.
+- **Pre-Haswell CPU refusal at install time** with a clear error (`This build requires AVX2/BMI2/FMA — Intel Haswell 2013+ or AMD Excavator 2015+`). Better than a cryptic SIGILL crash on first BGE inference.
+- **32-bit Windows refusal at install time** (`32-bit Windows is not supported (Bun runtime requires x64 or ARM64)`). Bun has never shipped x86 Windows builds and the team has explicitly declined to.
+
+### Changed
+
+- **ONNX Runtime DLL bumped to 1.24.4** (was 1.20.x bundled, or whatever happened to be on `System32` PATH). Matches the API-24 ABI that `ort 2.0.0-rc.12` requires. Fixes the silent BGE inference hang on Windows.
+- **Audit phase fan-out** now uses supervisor scanner-worker pool (B13). Same job, parallelized across cores.
+- **Audit findings stream-write** (B12). Per-batch INSERT into `findings.db` instead of buffer-until-end.
+- **Heartbeat phase labels** for ALL major phases audited and confirmed (B14.5). Previously audit was the worst offender — now every phase emits `set_phase("<name>")` before its work.
+- **Phi-3 model ships as a single 2.23 GB file** (no more part00/part01 split). HF Hub has no 2 GB asset cap so the merge code path is gone.
+- **Plugin commands now register on install by default**, no flag needed (B1.5).
+
+### Removed
+
+- **Phi-3 part-merge code path** in `cli/src/commands/models.rs::install_from_path_to_root` (the `merged 2 parts -> ...` branch). HF Hub hosts Phi-3 as a single file; the merge logic and the `merge-phi3-parts.ps1` helper are no longer needed.
+- **Outer wall-clock audit timeout** (B11.8). The per-line stall detector remains as the hang guard; if scanners produce SOME output every 30s they're alive and making progress. No more `MNEME_AUDIT_TIMEOUT_SEC` env var workaround for big projects.
+- **Tauri CLI install probe** noise removed (was build-time only — `cargo install tauri-cli` is dev-only and shouldn't surface in install output).
+- **Dead x86 PATH probes** in `multimodal-bridge/src/image.rs::locate_tesseract_exe` (`Program Files (x86)\Tesseract-OCR\`). Tesseract hasn't shipped x86 in 5+ years. (Exception: VS Installer detection at `Program Files (x86)\Microsoft Visual Studio\` stays — Microsoft still installs the VS Installer in the x86 path for legacy reasons even on x64 machines.)
+
+### Test gate (v0.3.2 hotfix VM checklist — mandatory before reupload)
+
+Lesson from POS install 2026-05-02: the prior VM test was too clean and missed bugs that any real user machine surfaced immediately. New VM gate now runs:
+
+1. Wipe ALL state before fresh install (`~/.mneme`, `$TEMP/mneme-bootstrap-v0.3.2`, `~/.bun/install/cache`, `~/.bun`)
+2. Run once fresh — verify clean install
+3. Run AGAIN on top — exercises orphan-cleanup path (B4)
+4. Run via LOCAL PowerShell terminal (not SSH) — captures real codepage behavior + console rendering (B5, B7)
+5. Open Claude Code in any project — verify `/mn-` autocomplete shows mneme commands; run `/mn-recall test query` end-to-end (B1.5)
+6. Pick a project with 1500+ files; run `mneme build .` with DEFAULT timeout — verify audit completes OR confirms B12 streaming prevents data loss (B12)
+7. Visual grep install + doctor output for `Γ ┬ ╖ Æ` — any survivor = mojibake fix incomplete (B7)
+8. Test on a machine with winget — exercises B8 PATH refresh
+9. Test on a machine with Windows Defender active — exercises B12 slower scanner traversal under AV
+
+Only after all 9 checks pass: clobber-upload zip + bootstrap to v0.3.2 release.
+
+---
+
 ## [0.3.2-v3-home] — 2026-04-30 — Wave 4: build UX + AI-DNA pace + doctor reliability
 
 ### Fixed (Wave 4 — 2026-04-30 office cycle)

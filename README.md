@@ -22,15 +22,29 @@ Mneme keeps what Claude learned about your project — survives context wipes, d
 <a href="https://github.com/omanishay-cyber/mneme/releases/tag/v0.3.2"><img src="https://img.shields.io/badge/Download%20v0.3.2-16a37c?style=for-the-badge&labelColor=0a0a0c" alt="Download v0.3.2"/></a>
 &nbsp;
 <a href="LICENSE"><img src="https://img.shields.io/badge/Apache%202.0-9a9a9a?style=for-the-badge&labelColor=0a0a0c" alt="Apache 2.0"/></a>
+&nbsp;
+<a href="https://huggingface.co/aaditya4u/mneme-models"><img src="https://img.shields.io/badge/models-Hugging%20Face-yellow?style=for-the-badge&labelColor=0a0a0c" alt="Models on Hugging Face"/></a>
 
 </div>
 
 ```powershell
-# Windows · one command · no admin
+# Windows · one command · no admin · auto-detects x64 / ARM64
 iex (irm https://github.com/omanishay-cyber/mneme/releases/download/v0.3.2/bootstrap-install.ps1)
 ```
 
-> **macOS / Linux:** see [INSTALL.md](INSTALL.md). Restart Claude after install. Verify with `mneme doctor` and `claude mcp list`.
+```bash
+# macOS (coming soon · auto-detects Intel / Apple Silicon)
+curl -fsSL https://github.com/omanishay-cyber/mneme/releases/download/v0.3.2/install-mac.sh | bash
+```
+
+```bash
+# Linux (coming soon · auto-detects x64 / ARM64)
+curl -fsSL https://github.com/omanishay-cyber/mneme/releases/download/v0.3.2/install-linux.sh | bash
+```
+
+> One command per OS — the script auto-detects your architecture and downloads the right binary archive. Restart Claude after install. Verify with `mneme doctor` and `claude mcp list`.
+>
+> **Requirements:** 64-bit OS (x64 or ARM64) · CPU with AVX2 / BMI2 / FMA (Intel Haswell 2013+ or AMD Excavator 2015+ — almost every PC sold since 2013 qualifies) · 5 GB free disk · no admin needed. 32-bit Windows is not supported (Bun runtime requirement).
 
 <!-- ==================================================================== -->
 <!--   Nav                                                                  -->
@@ -104,40 +118,25 @@ Every AI coding assistant has the same three flaws:
 
 ## ⚡ Quick start
 
-<table>
-<tr>
-<td width="33%" valign="top">
+**🪟 Windows** *(auto-detects x64 / ARM64)*
 
-**🐧 Linux / macOS**
-```bash
-curl -fsSL \
-  https://raw.githubusercontent.com/omanishay-cyber/mneme/main/scripts/install.sh \
-  | sh
-```
-
-</td>
-<td width="34%" valign="top">
-
-**🪟 Windows (PowerShell)**
 ```powershell
-iwr -useb `
-  https://raw.githubusercontent.com/omanishay-cyber/mneme/main/scripts/install.ps1 `
-  | iex
+iex (irm https://github.com/omanishay-cyber/mneme/releases/download/v0.3.2/bootstrap-install.ps1)
 ```
 
-</td>
-<td width="33%" valign="top">
+**🍎 macOS** *(coming soon · auto-detects Intel / Apple Silicon)*
 
-**🤖 Claude Code plugin**
-```
-/plugin marketplace add \
-  github:omanishay-cyber/mneme
-/plugin install mneme
+```bash
+curl -fsSL https://github.com/omanishay-cyber/mneme/releases/download/v0.3.2/install-mac.sh | bash
 ```
 
-</td>
-</tr>
-</table>
+**🐧 Linux** *(coming soon · auto-detects x64 / ARM64)*
+
+```bash
+curl -fsSL https://github.com/omanishay-cyber/mneme/releases/download/v0.3.2/install-linux.sh | bash
+```
+
+> Models (~3.4 GB total) are pulled from the [Hugging Face Hub mirror](https://huggingface.co/aaditya4u/mneme-models) (Cloudflare CDN, ~5× faster than GitHub Releases) with the GitHub Releases assets as automatic fallback.
 
 Then, in any project:
 
@@ -367,7 +366,7 @@ Full architecture deep-dive → [`ARCHITECTURE.md`](ARCHITECTURE.md) · Per-modu
 
 ## 🧭 v0.3 Known Limitations
 
-Honest inventory of surfaces that are partial, opt-in, or deferred in the current release. Mirrors the canonical table in [`CLAUDE.md`](CLAUDE.md) §"Known limitations in v0.3"; v0.3.2 fixes are reflected here.
+Honest inventory of surfaces that are partial, opt-in, or deferred in the current release. Mirrors the canonical table in [`CLAUDE.md`](CLAUDE.md) §"Known limitations in v0.3"; v0.3.2 fixes (incl. the 2026-05-02 hotfix) are reflected here.
 
 | Surface | Status | Notes |
 |---|---|---|
@@ -383,27 +382,45 @@ For the full v0.3 inventory see [`docs-and-memory/V0.3.0-WHATS-IN.md`](docs-and-
 
 ## 🚀 Install — in depth
 
-### Option 1 — Marketplace (recommended)
+### System requirements
 
-```bash
-# In any Claude Code project:
-/plugin marketplace add github:omanishay-cyber/mneme
-/plugin install mneme
+**CPU**: Mneme requires a CPU with AVX2 / BMI2 / FMA support (Intel Haswell 2013+ or AMD Excavator 2015+). Pre-2013 CPUs are not supported. The `v0.3.2` hotfix targets the `x86-64-v3` baseline workspace-wide for 2-4x speedup on BGE inference, Leiden community detection, tree-sitter parsing, and scanner regex matching. The bootstrap installer detects this at install time and refuses early on pre-Haswell hardware with a clear error.
+
+**RAM**: 4 GB minimum, 8 GB recommended for large-graph rebuilds.
+
+**Disk**: ~3.5 GB for the model bundle + a few hundred MB for shard databases (per project).
+
+### Option 1 — One-shot bootstrap (recommended)
+
+The bootstrap is what `iex (irm)` runs. It auto-detects everything (OS, architecture, CPU features, existing toolchains, disk space, elevation status) and gets out of your way — zero prompts, zero required flags.
+
+#### Windows
+
+```powershell
+iex (irm https://github.com/omanishay-cyber/mneme/releases/download/v0.3.2/bootstrap-install.ps1)
 ```
 
-Restart Claude Code. The `mneme` MCP server starts automatically.
-
-### Option 2 — One-shot bundle installer
+#### macOS *(coming soon)*
 
 ```bash
-# POSIX (macOS / Linux):
-curl -fsSL https://raw.githubusercontent.com/omanishay-cyber/mneme/main/scripts/install-bundle.sh | bash
-
-# PowerShell (Windows):
-iwr https://raw.githubusercontent.com/omanishay-cyber/mneme/main/scripts/install-bundle.ps1 | iex
+curl -fsSL https://github.com/omanishay-cyber/mneme/releases/download/v0.3.2/install-mac.sh | bash
 ```
 
-The bundle installer handles Rust, Bun, Python, Tesseract, ffmpeg, and the bge-small ONNX model if not already present.
+#### Linux *(coming soon)*
+
+```bash
+curl -fsSL https://github.com/omanishay-cyber/mneme/releases/download/v0.3.2/install-linux.sh | bash
+```
+
+Each script:
+
+1. Detects your OS + architecture (x64 / ARM64) and downloads the matching binary archive
+2. Verifies the CPU has AVX2 / BMI2 / FMA (refuses early on pre-Haswell hardware with a clear error)
+3. Installs Bun if missing, runs `bun install --frozen-lockfile` for the MCP server
+4. Pulls 5 model files from the [Hugging Face Hub mirror](https://huggingface.co/aaditya4u/mneme-models) (`bge-small-en-v1.5.onnx`, `tokenizer.json`, `qwen-embed-0.5b.gguf`, `qwen-coder-0.5b.gguf`, `phi-3-mini-4k.gguf` as a single 2.23 GB file — no part-merge anymore), with GitHub Releases as automatic fallback
+5. Adds Defender exclusions for `~/.mneme` and `~/.claude` (best-effort if not elevated)
+6. Registers the MCP server + Claude Code plugin commands (`/mn-build`, `/mn-recall`, `/mn-why`, …) + 8 hook entries
+7. Starts the daemon in the background and runs `mneme doctor` for a green-light verdict
 
 > **OCR caveat (v0.3.x).** The `mneme-multimodal` binary published with
 > `mneme install` runs **without** the `tesseract` feature compiled in,
@@ -415,17 +432,68 @@ The bundle installer handles Rust, Bun, Python, Tesseract, ffmpeg, and the bge-s
 > transcription) and ffmpeg (video) are similarly opt-in. v0.4 may
 > ship a fat build with Tesseract bundled; tracked in issues.md I-20.
 
-### Option 3 — From source
+### Option 2 — From source
 
 ```bash
 git clone https://github.com/omanishay-cyber/mneme
 cd mneme
 cargo build --release --workspace
-cd mcp && bun install
+cd mcp && bun install --frozen-lockfile
 mneme install
 ```
 
 See [INSTALL.md](INSTALL.md) for troubleshooting and platform-specific notes.
+
+## 🤗 Models
+
+Mneme ships against five locally-loaded models. As of the v0.3.2 hotfix (2026-05-02) the install pulls them from the **[Hugging Face Hub mirror](https://huggingface.co/aaditya4u/mneme-models)** (`aaditya4u/mneme-models`) — Cloudflare CDN, ~5× faster than GitHub Releases globally, and no asset cap. GitHub Releases remains a fallback if Hugging Face is unreachable.
+
+| File | Purpose | Size | Source |
+|---|---|---|---|
+| `bge-small-en-v1.5.onnx` | Semantic recall (384-dim BGE embeddings) | ~133 MB | [BAAI/bge-small-en-v1.5](https://huggingface.co/BAAI/bge-small-en-v1.5) |
+| `tokenizer.json` | BGE tokenizer | ~711 KB | BAAI |
+| `qwen-embed-0.5b.gguf` | Local embedding fallback | ~395 MB | [Qwen team](https://huggingface.co/Qwen) |
+| `qwen-coder-0.5b.gguf` | Local code-aware LLM | ~395 MB | [Qwen team](https://huggingface.co/Qwen) |
+| `phi-3-mini-4k.gguf` | Local 4k-ctx LLM (single file — no part-merge) | ~2.23 GB | [microsoft/Phi-3-mini-4k-instruct-gguf](https://huggingface.co/microsoft/Phi-3-mini-4k-instruct-gguf) |
+
+Total ~3.4 GB downloaded once. All inference runs on your CPU (no GPU required). Credit + thanks to BAAI, the Qwen team, and Microsoft for publishing these models openly.
+
+## 🆕 What's new in v0.3.2 hotfix (2026-05-02)
+
+The hotfix sweeps 22+ bugs caught during real-world store-PC POS production installs and rebuilds the v0.3.2 release zip in place (no version bump — same `v0.3.2` tag).
+
+**Install reliability**
+
+- `bun install --frozen-lockfile` now runs after extract — fixes the silent "MCP server crashed on startup" failure that hit users whose `mcp/node_modules` was missing `zod` / `@modelcontextprotocol/sdk`.
+- Plugin slash commands (`/mn-build`, `/mn-recall`, `/mn-why`, `/mn-resume`, …) now register with Claude Code on install.
+- Stage validation refuses to ship broken zips — a missing `mcp/node_modules/zod/package.json` aborts the build instead of producing a zip that crashes on first use.
+
+**Audit data integrity**
+
+- Audit findings now stream to `findings.db` per-batch instead of buffering until end-of-run — no more 0-finding outcomes when a long audit gets killed mid-pass.
+- Audit fan-out uses idle scanner-workers in the supervisor pool (5–10× faster on multi-core machines).
+- The wall-clock outer timeout is gone; the per-line stall detector remains as the hang guard, so big projects no longer need `MNEME_AUDIT_TIMEOUT_SEC` overrides.
+
+**Performance**
+
+- Workspace compiles for `x86-64-v3` baseline (AVX2 / BMI2 / FMA) — 2–4× faster BGE inference, scanners, and tree-sitter parsing on Haswell-or-newer CPUs.
+- ONNX Runtime DLL bumped to 1.24.4 (matches `ort 2.0.0-rc.12`) — fixes the silent BGE inference hang on Windows.
+
+**UX polish**
+
+- Heartbeat phase label updates correctly when audit starts — no more stale `phase=embed processed=8003/8003` for 13 minutes while audit was actually running.
+- `mneme build --rebuild` flag for forced clean rebuild without manual shard delete.
+- `doctor` MCP probe now echoes the child's stderr on failure (no more opaque "child closed stdout before response arrived").
+- All Unicode arrows (`→`) and middots (`·`) in user-facing console output replaced with ASCII (`->`, `*`) — fixes the `ΓåÆ` / `┬╖` mojibake on Windows console default code page.
+- Orphan-cleanup `Test-Path` guard — no more 41 spurious "could not remove orphan" warnings on upgrade installs.
+- PowerShell progress chatter (`Writing web request / Writing request stream`) silenced inside model downloads.
+
+**Architecture**
+
+- Cross-OS install commands per platform (Windows / macOS / Linux), each auto-detecting x64 vs ARM64. Windows ARM64 binary planned next.
+- Models migrated to Hugging Face Hub primary mirror (`aaditya4u/mneme-models`), Phi-3 ships as a single 2.23 GB file (no more part00/part01 split).
+
+Full per-bug detail in [`CHANGELOG.md`](CHANGELOG.md).
 
 ## 📚 What each tool looks like from Claude's side
 
@@ -452,9 +520,12 @@ See [INSTALL.md](INSTALL.md) for troubleshooting and platform-specific notes.
 /mn-why                   // Explain why a target exists (decisions + lineage)
 ```
 
-> Hooks are opt-in in v0.3.x — pass `--enable-hooks` to `mneme install`
-> if you want the harness to register Claude Code hooks. By default
-> `mneme install` writes only the MCP entry and per-platform manifest.
+> Hooks are **default-on in v0.3.2** (K1 fix) — `mneme install` writes the 8
+> hook entries under `~/.claude/settings.json::hooks` automatically so the
+> persistent-memory pipeline (history.db, tasks.db, tool_cache.db,
+> livestate.db) starts capturing data on first use. Pass `--no-hooks` /
+> `--skip-hooks` to opt out. Every hook binary reads STDIN JSON and exits 0
+> on internal error — a mneme bug can never block your tool calls.
 
 Full reference: [`docs/mcp-tools.md`](docs/mcp-tools.md).
 

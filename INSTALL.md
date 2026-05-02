@@ -1,12 +1,49 @@
-# INSTALL.md — mneme v0.3.2 home package
+# INSTALL.md — mneme v0.3.2 (hotfix 2026-05-02)
 
-Two ways to use this package: **install** (run pre-built mneme on your machine) or **work on it** (edit source). Same zip, both supported.
+Two ways to use mneme: **install from the public bootstrap** (one command per OS, recommended) or **install from the home zip** (offline-friendly, exact build artifact). Or **work on the source** (edit + build). All three are documented below.
 
 ---
 
-## Quick install (5 minutes, no admin)
+## Public bootstrap (one command per OS)
 
-The canonical install path uses `-LocalZip` so the installer never has to call out to GitHub Releases (which still serves v0.3.0 until v0.3.2 is published). Following the steps below verbatim is the supported, offline-friendly path.
+Each script auto-detects your architecture (x64 / ARM64), downloads the matching binary archive, pulls 5 model files (~3.4 GB) from the [Hugging Face Hub mirror](https://huggingface.co/aaditya4u/mneme-models) with GitHub Releases as automatic fallback, registers the MCP server + plugin commands + hooks, and starts the daemon.
+
+### Windows (x64 / ARM64)
+
+```powershell
+# PowerShell · no admin needed · auto-detects PROCESSOR_ARCHITECTURE
+iex (irm https://github.com/omanishay-cyber/mneme/releases/download/v0.3.2/bootstrap-install.ps1)
+```
+
+### macOS (Intel x64 / Apple Silicon arm64) — **coming soon**
+
+```bash
+# auto-detects via uname -m
+curl -fsSL https://github.com/omanishay-cyber/mneme/releases/download/v0.3.2/install-mac.sh | bash
+```
+
+### Linux (x64 / ARM64) — **coming soon**
+
+```bash
+# auto-detects via uname -m
+curl -fsSL https://github.com/omanishay-cyber/mneme/releases/download/v0.3.2/install-linux.sh | bash
+```
+
+### Requirements
+
+| Requirement | Detail |
+|---|---|
+| **OS** | 64-bit Windows 11 (arm64 planned), macOS 14+ (Intel + Apple Silicon, planned), Ubuntu 22.04+ / Debian / Fedora (planned) |
+| **CPU baseline** | x86-64-v3 — AVX2 / BMI2 / FMA. Intel Haswell (2013+) or AMD Excavator (2015+). Almost every PC sold since 2013 qualifies. The bootstrap refuses early on pre-Haswell hardware with a clear error. |
+| **Disk** | 5 GB free (binaries ~250 MB, models ~3.4 GB, room for first project's shards) |
+| **Privileges** | No admin needed. Defender exclusions are added best-effort if elevated; install proceeds without them otherwise. |
+| **32-bit Windows** | **Not supported.** Bun runtime requires x64 or ARM64. The bootstrap detects and refuses with `Fail "32-bit Windows is not supported (Bun runtime requires x64 or ARM64)..."`. |
+
+---
+
+## Offline / home-zip install
+
+Use this when you have the `mneme final` home zip and want to install the exact binary artifact from disk (no network call to GitHub Releases). Same outcome as the public bootstrap; just sourced from the local zip.
 
 ```powershell
 # 1. Open PowerShell (any user, no admin needed)
@@ -17,15 +54,19 @@ cd "$env:USERPROFILE\.mneme"
 .\scripts\install.ps1 -LocalZip "<extracted-path>\mneme final 2026-04-29\release\mneme-v0.3.2-windows-x64.zip"
 ```
 
-That's it. The installer:
+Either path — the installer:
 
-1. Stops any running mneme processes (3-pass kill ladder — graceful → taskkill → hard abort if locks remain)
-2. Verifies Bun is installed (installs it if missing)
-3. Adds `~/.mneme/bin` to user PATH
-4. Adds Defender exclusions for `~/.mneme` and `~/.claude` (best-effort if not elevated)
-5. Starts the mneme daemon in the background
-6. Registers the mneme MCP server with Claude Code: writes the `mcpServers.mneme` entry to `~/.claude.json` AND, by default (K1 fix in v0.3.2), writes the 8 mneme hook entries under `~/.claude/settings.json::hooks` so the persistent-memory pipeline (history.db, tasks.db, tool_cache.db, livestate.db) actually fills. Pass `--no-hooks` / `--skip-hooks` to opt out. Hook bodies are crash-safe: every hook binary reads STDIN JSON and exits 0 on any internal error, so a mneme bug can never block your tool calls.
-7. Verifies post-install: every required binary present, daemon responding
+1. Detects OS + architecture (x64 / ARM64) and refuses early if the CPU lacks AVX2 / BMI2 / FMA (pre-Haswell)
+2. Stops any running mneme processes (3-pass kill ladder — graceful then taskkill then hard abort if locks remain)
+3. Verifies Bun is installed (installs it if missing)
+4. **Runs `bun install --frozen-lockfile`** in `~/.mneme/mcp/` to populate `node_modules` (B1 hotfix 2026-05-02 — without this the MCP server crashed on first start with `ENOENT while resolving package 'zod'`)
+5. Adds `~/.mneme/bin` to user PATH
+6. Adds Defender exclusions for `~/.mneme` and `~/.claude` (best-effort if not elevated)
+7. Pulls 5 model files from the [Hugging Face Hub mirror](https://huggingface.co/aaditya4u/mneme-models) (`bge-small-en-v1.5.onnx` + `tokenizer.json` + `qwen-embed-0.5b.gguf` + `qwen-coder-0.5b.gguf` + `phi-3-mini-4k.gguf` as a single 2.23 GB file — no part-merge anymore), with GitHub Releases as automatic fallback
+8. Starts the mneme daemon in the background
+9. Registers the mneme MCP server with Claude Code: writes the `mcpServers.mneme` entry to `~/.claude.json` AND, by default (K1 fix in v0.3.2), writes the 8 mneme hook entries under `~/.claude/settings.json::hooks` so the persistent-memory pipeline (history.db, tasks.db, tool_cache.db, livestate.db) actually fills. Pass `--no-hooks` / `--skip-hooks` to opt out. Hook bodies are crash-safe: every hook binary reads STDIN JSON and exits 0 on any internal error, so a mneme bug can never block your tool calls.
+10. Registers the mneme **plugin slash commands** (`/mn-build`, `/mn-recall`, `/mn-why`, `/mn-resume`, `/mn-blast`, `/mn-doctor`, …) with Claude Code so they show up in autocomplete (B1.5 hotfix 2026-05-02)
+11. Verifies post-install: every required binary present, daemon responding, MCP probe green
 
 **To verify it worked:**
 
