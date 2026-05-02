@@ -226,13 +226,29 @@ impl Backend {
     fn load(model_path: &Path, tokenizer_path: &Path) -> Self {
         #[cfg(feature = "real-embeddings")]
         {
-            match RealBackend::try_new(model_path, tokenizer_path) {
-                Ok(b) => return Backend::Real(b),
-                Err(e) => {
-                    warn!(
-                        error = %e,
-                        "ort/BGE init failed — using hashing-trick fallback"
-                    );
+            // Bug-2026-05-02: runtime opt-out for BGE. Even when the
+            // `real-embeddings` feature is compiled in and `try_new`
+            // succeeds, `session.run()` can hang indefinitely on
+            // certain Windows environments (observed: WinDev2407 VM
+            // with onnxruntime.dll 1.20 + ort 2.0.0-rc.12). Setting
+            // MNEME_FORCE_HASH_EMBED=1 bypasses BGE entirely so the
+            // build always completes. Use this on any machine where
+            // `mneme build` reports `phase=embed processed=0/N` for
+            // more than a minute.
+            let force_hash = std::env::var("MNEME_FORCE_HASH_EMBED")
+                .map(|v| matches!(v.as_str(), "1" | "true" | "yes" | "on"))
+                .unwrap_or(false);
+            if force_hash {
+                warn!("MNEME_FORCE_HASH_EMBED=1 set — skipping BGE, using hashing-trick");
+            } else {
+                match RealBackend::try_new(model_path, tokenizer_path) {
+                    Ok(b) => return Backend::Real(b),
+                    Err(e) => {
+                        warn!(
+                            error = %e,
+                            "ort/BGE init failed — using hashing-trick fallback"
+                        );
+                    }
                 }
             }
         }
@@ -283,11 +299,56 @@ impl RealBackend {
             });
         }
 
-        // Dynamic ORT loading. Honors ORT_DYLIB_PATH if set; otherwise
-        // searches PATH / LD_LIBRARY_PATH for `onnxruntime.{dll,so,dylib}`.
+        // Bug-2026-05-02: pin ORT_DYLIB_PATH to the bundled onnxruntime.dll
+        // BEFORE Session::builder triggers the lazy ort::init().
         //
-        // We do NOT call `ort::init()` ourselves — the crate's global init
-        // is lazy and will pick up ORT_DYLIB_PATH on first session build.
+        // Background: ort 2.0.0-rc.12 is built against ONNX Runtime 1.24
+        // (default `api-24` feature). We bundle a matching 1.24.4 DLL in
+        // ~/.mneme/bin/onnxruntime.dll. But Windows DLL search order
+        // checks System32 BEFORE the application directory, and Windows
+        // 11 24H2 ships its OWN onnxruntime.dll in System32 (used by
+        // Copilot/WinML). That system DLL is typically a different
+        // version than what ort rc.12 expects, leading to a vtable
+        // mismatch on the first session.run() call — process hangs on
+        // EventPairLow with all threads in Wait state. Reproducible on
+        // 5 trivial files. See sherpa-onnx#3059 + onnxruntime#11799 for
+        // the same hijack class of bug.
+        //
+        // Resolution: set ORT_DYLIB_PATH to the absolute path of OUR
+        // bundled DLL before any Session is built. The `load-dynamic`
+        // feature in the ort crate honors this env var unconditionally
+        // and skips the default Windows search order entirely.
+        //
+        // We compute the bundled path as `<exe_dir>/onnxruntime.dll`
+        // because mneme.exe lives in ~/.mneme/bin/ and the install
+        // pipeline copies onnxruntime.dll alongside it (see
+        // scripts/test/stage-release-zip.ps1::stage bin/).
+        if std::env::var_os("ORT_DYLIB_PATH").is_none() {
+            if let Ok(exe) = std::env::current_exe() {
+                if let Some(dir) = exe.parent() {
+                    let candidate = dir.join("onnxruntime.dll");
+                    if candidate.exists() {
+                        // SAFETY: env::set_var is unsound across threads
+                        // but this runs on the brain init path, single-
+                        // threaded, before any other thread observes the
+                        // env. ort::init() reads it on first Session.
+                        unsafe {
+                            std::env::set_var("ORT_DYLIB_PATH", &candidate);
+                        }
+                        tracing::info!(
+                            ort_dylib_path = %candidate.display(),
+                            "pinned ORT_DYLIB_PATH to bundled onnxruntime.dll"
+                        );
+                    }
+                }
+            }
+        }
+
+        // Dynamic ORT loading. Honors ORT_DYLIB_PATH (set above on
+        // Windows) if present, otherwise searches PATH / LD_LIBRARY_PATH
+        // for `onnxruntime.{dll,so,dylib}`. We do NOT call `ort::init()`
+        // ourselves — the crate's global init is lazy and picks up
+        // ORT_DYLIB_PATH on first session build.
 
         let tokenizer = Tokenizer::from_file(tokenizer_path).map_err(|e| {
             BrainError::Tokenizer(format!("load {}: {e}", tokenizer_path.display()))
