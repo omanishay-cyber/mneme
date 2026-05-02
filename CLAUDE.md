@@ -128,7 +128,7 @@ When working on mneme itself, prefer these MCP tools over Grep/Read/Glob - that'
 
 ---
 
-## Coding rules inherited from Anish's global setup
+## Coding rules inherited from our global setup
 
 - Functional React only (vision/), no class components
 - Strict TypeScript, no `any`

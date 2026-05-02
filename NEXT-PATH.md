@@ -21,7 +21,7 @@ For the canonical issue catalogue, see `home/docs-and-memory/phase-a-issues.md`.
 Plus **4 new bugs discovered + fixed tonight**, not in the original 82:
 - forward-slash path bug (bash on Windows mangling `\U`/`\A`)
 - Bun cache stale bytecode (`$ZodTuple` not found)
-- mneme-on-POS2 service auto-spawn (my mistake; should have stayed on EC2)
+- mneme-on-AWS-instance service auto-spawn (should have stayed on EC2)
 - EC2 install path mangling
 
 Plus **4 new shards now populated by `mneme build .`**: findings (verified 2,426 rows), tests, git, deps.
@@ -221,7 +221,7 @@ If anything fails: file as new phase-B issue. Bundle re-cycle.
 
 ## Phase B6 - Verify K18+K19 uninstaller end-to-end
 
-K18 + K19 code is in but the `--all --purge-state` flag wasn't tested end-to-end this session (path-protection on POS2 blocked the rmdir). On EC2:
+K18 + K19 code is in but the `--all --purge-state` flag wasn't tested end-to-end this session (path-protection on our AWS build server blocked the rmdir). On EC2:
 
 1. Install fresh: `iwr install.ps1 | iex`
 2. Build a corpus: `mneme build .`
@@ -274,7 +274,7 @@ Don't push to public github until B5 (REAL-2) passes - per `feedback_mneme_relea
 
 ## When in doubt
 
-- **Test on EC2, not POS2.** That's exactly why the EC2 instance exists. Tonight I broke that rule once (running `mneme build .` on POS2 to verify P3.4 embeddings produced real numbers) and it auto-spawned a Windows service that respawned workers indefinitely.
+- **Test on EC2, not local hardware.** That's exactly why the EC2 instance exists. Tonight we broke that rule once (running `mneme build .` on the local AWS build server to verify P3.4 embeddings produced real numbers) and it auto-spawned a Windows service that respawned workers indefinitely.
 - **Use Haiku 4.5 + low effort** for any acceptance test (per `feedback_mneme_test_with_dumbest_model.md` - "lowest model, dumbest behavior" reveals real bugs that Sonnet/Opus mask via reasoning).
 - **Worktree isolation when dispatching parallel agents** (per `feedback_agent_dispatch_full_power.md`) - but verify the worktree's branch survives before integrating, or you can lose work like I did tonight with the C-section telemetry agent.
 - **Agent worktree files != main tree files** - diff them before cp. Tonight I cp'd a stale worktree's `build.rs` over main and reverted hours of work; restored from `home/source/` backup.

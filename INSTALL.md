@@ -354,7 +354,7 @@ mneme uninstall --all --purge-state
 - `docs-and-memory/V0.3.0-WHATS-IN.md` - full v0.3.0 feature catalog
 - `docs-and-memory/V0.3.1-PLUS-ROADMAP.md` - what's deferred / next-up
 - `docs-and-memory/issues.md` - issue tracker (closed + remaining)
-- `docs-and-memory/memory/` - Anish's memory files (preserve these on home machine)
+- `docs-and-memory/memory/` - maintainer memory files (preserve these on local machine)
 
 ---
 
