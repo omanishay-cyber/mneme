@@ -517,7 +517,7 @@ if ($NoModels) {
     # fails, that's a real failure the user must see and act on.
     if ($modelDownloads -gt 0) {
         Step "mneme models install --from-path $modelsDir"
-        # Bug-2026-05-02 (store PC POS install cycle): same root cause
+        # Bug-2026-05-02 (AWS install regression cycle): same root cause
         # as the schtasks fix in scripts/install.ps1 step 6. With the
         # script-global $ErrorActionPreference='Stop' (line 56), PS5.1
         # wraps any stderr line from `mneme models install` (the merge

@@ -363,7 +363,7 @@ fi
 # --- 1d. Optional dev-toolchain probes (G1-G10 from phase-a-issues.md) -----
 #
 # Beyond bun/node/git (already probed above), mneme integrates with a
-# longer dev-toolchain list per Anish's directive: rust, tauri-cli,
+# longer dev-toolchain list per our project directive: rust, tauri-cli,
 # python, sqlite3, java, tesseract, magick. We DO NOT auto-install any
 # of these from a piped-curl shell installer - that path should never
 # touch sudo. We probe, surface what's missing with one concrete fix

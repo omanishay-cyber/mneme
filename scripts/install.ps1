@@ -729,7 +729,7 @@ if ($NoToolchain) {
         }
     }
 
-    # G4: Tauri probe REMOVED (2026-05-02, store PC install cycle).
+    # G4: Tauri probe REMOVED (2026-05-02, AWS install regression cycle).
     # The release ships prebuilt `mneme-vision.exe` (Tauri-built binary)
     # inside the zip. End users do NOT build vision/tauri from source via
     # the live iex (irm) install path. Anyone rebuilding vision themselves
@@ -1526,8 +1526,8 @@ if (-not (Test-Path $MnemeBin)) {
             # We /Run it explicitly below so the daemon is up for the
             # current session without waiting for a logoff/logon cycle.
             #
-            # Bug-2026-05-02 (store PC POS install cycle): on a non-elevated
-            # standard user account (e.g. POS at the store), schtasks
+            # Bug-2026-05-02 (AWS install regression cycle): on a non-elevated
+            # standard user account (e.g. a non-admin user on the AWS test fleet), schtasks
             # /Create returns "Access is denied" + writes to stderr. With
             # the script-global $ErrorActionPreference='Stop' (line 95),
             # PS5.1's `2>&1` redirect on a native command wraps each stderr
