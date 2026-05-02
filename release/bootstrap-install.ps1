@@ -1,4 +1,4 @@
-﻿# bootstrap-install.ps1
+# bootstrap-install.ps1
 # ----------------------
 # One-liner Windows installer for mneme -- TRULY one-command, all included.
 #
@@ -30,25 +30,28 @@
 #
 # Apache-2.0. (c) 2026 Anish Trivedi & Kruti Trivedi.
 
-# NOTE: NO [CmdletBinding()] attribute on this script. The standard
-# install path is `iex (irm <url>)`, which feeds the script body to
-# Invoke-Expression as a STRING. Invoke-Expression rejects any
-# top-level [CmdletBinding()] / [Parameter()] / similar attributes
-# with "Unexpected attribute 'CmdletBinding'." A bare `param()` IS
-# accepted by iex (verified: PS 5.1 + PS 7+).
+# NOTE: this script is invoked via `iex (irm <url>)`. Invoke-Expression
+# evaluates the input as STATEMENTS in the calling scope -- NOT as a
+# script file. That means a top-level `param()` block does NOT work
+# (verified on PS 5.1 + PS 7: `param()` is parsed as a literal call to
+# a non-existent `param` cmdlet, and the `[switch]` defaults
+# concatenate into the next variable). We therefore read every
+# "parameter" from environment variables instead.
 #
-# To pass flags via the iex one-liner, wrap in scriptblock::Create:
-#   & ([scriptblock]::Create((irm <url>))) -NoMultimodal -NoModels
-# Or set MNEME_VERSION env var before iex:
-#   $env:MNEME_VERSION = 'v0.3.2'; iex (irm <url>)
-param(
-    [string]$Version = $(if ($env:MNEME_VERSION) { $env:MNEME_VERSION } else { 'v0.3.2' }),
-    [switch]$NoToolchain,
-    [switch]$NoMultimodal,
-    [switch]$NoModels,
-    [switch]$KeepDownload,
-    [switch]$SkipHashCheck
-)
+# To override defaults, set env vars BEFORE the iex line:
+#   $env:MNEME_VERSION = 'v0.3.3'
+#   $env:MNEME_NO_MULTIMODAL = '1'
+#   iex (irm https://github.com/omanishay-cyber/mneme/releases/download/v0.3.2/bootstrap-install.ps1)
+#
+# Or pass flags via the scriptblock pattern (rare):
+#   $sb = [scriptblock]::Create((irm <url>))
+#   & $sb
+$Version = if ($env:MNEME_VERSION) { $env:MNEME_VERSION } else { 'v0.3.2' }
+$NoToolchain   = [bool]$env:MNEME_NO_TOOLCHAIN
+$NoMultimodal  = [bool]$env:MNEME_NO_MULTIMODAL
+$NoModels      = [bool]$env:MNEME_NO_MODELS
+$KeepDownload  = [bool]$env:MNEME_KEEP_DOWNLOAD
+$SkipHashCheck = [bool]$env:MNEME_SKIP_HASH_CHECK
 
 $ErrorActionPreference = 'Stop'
 
