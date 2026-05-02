@@ -1,4 +1,4 @@
-# Mneme Benchmarks — Reproducible Results
+# Mneme Benchmarks - Reproducible Results
 
 > **Bug DOC-7 (2026-05-01):** these numbers were measured on the
 > v0.2.0 codebase with `bench_retrieval` v0.2. The current codebase
@@ -7,11 +7,11 @@
 > baseline against which v0.3.2 retrieval quality + latency can be
 > compared.
 
-Run date: **2026-04-23** (historical — pre-v0.3.0)
+Run date: **2026-04-23** (historical - pre-v0.3.0)
 Git SHA: `164948ccee36f74ee303ec25d0d67565fae0d96c`
 Harness version: `bench_retrieval` v0.2 (`benchmarks` crate, workspace v0.2.0 at the time of this run; current workspace is v0.3.2)
 Raw results: [`benchmarks/results/2026-04-23.csv`](benchmarks/results/2026-04-23.csv) + [`benchmarks/results/2026-04-23.json`](benchmarks/results/2026-04-23.json)
-Baseline: none — this is the **first recorded local run** of the full `bench-all` suite against the mneme repository itself.
+Baseline: none - this is the **first recorded local run** of the full `bench-all` suite against the mneme repository itself.
 
 ## Machine specification
 
@@ -34,12 +34,12 @@ cargo build --release -p benchmarks --bin bench_retrieval
 ```
 
 Total wall-clock from `bench-all` start to completion: **19 seconds** (including
-three full index rebuilds internally — once at the top of `bench-all`, once for
+three full index rebuilds internally - once at the top of `bench-all`, once for
 `bench-incremental`, and once for `bench-first-build`).
 
 ## Repository under test
 
-Mneme itself — the repo that contains this file.
+Mneme itself - the repo that contains this file.
 
 | Metric | Value |
 |---|---|
@@ -52,15 +52,15 @@ Mneme itself — the repo that contains this file.
 
 | Metric | Value | Notes |
 |---|---|---|
-| First build — cold (ms) | **4,970** | no shard on disk at start |
-| First build — warm (ms) | **5,557** | shard present, file mtimes unchanged; the harness re-parses + re-links so warm is not a pure cache hit |
-| Incremental inject — p50 (ms) | **0** | single-file inject pass, 100 samples |
-| Incremental inject — p95 (ms) | **0** | well below the 500 ms p95 target in `CHANGELOG.md` |
-| Incremental inject — mean (ms) | **0** | |
-| Incremental inject — max (ms) | **2** | |
-| Token-reduction ratio — mean | **1.338×** | `cold_total_tokens / mneme_total_tokens` across 10 golden queries |
-| Token-reduction ratio — p50 | **1.519×** | |
-| Token-reduction ratio — p95 | **3.542×** | |
+| First build - cold (ms) | **4,970** | no shard on disk at start |
+| First build - warm (ms) | **5,557** | shard present, file mtimes unchanged; the harness re-parses + re-links so warm is not a pure cache hit |
+| Incremental inject - p50 (ms) | **0** | single-file inject pass, 100 samples |
+| Incremental inject - p95 (ms) | **0** | well below the 500 ms p95 target in `CHANGELOG.md` |
+| Incremental inject - mean (ms) | **0** | |
+| Incremental inject - max (ms) | **2** | |
+| Token-reduction ratio - mean | **1.338×** | `cold_total_tokens / mneme_total_tokens` across 10 golden queries |
+| Token-reduction ratio - p50 | **1.519×** | |
+| Token-reduction ratio - p95 | **3.542×** | |
 | Precision\@10 | **10%** (2 / 19 expected hits across 10 queries) | see **Caveats** below |
 | Precision\@5 (compare suite) | 0% (mneme) vs 26% (cold grep) | see **Caveats** |
 | Token totals (compare suite) | mneme: 18,008 vs cold: 185,130 | ~10.3× reduction on the compare set |
@@ -72,16 +72,16 @@ Mneme itself — the repo that contains this file.
 
 | # | Query | Mneme top-1 | Mneme tokens | Mneme ms | Cold top-1 | Cold tokens | Cold ms | P\@5 |
 |---|---|---|---|---|---|---|---|---|
-| 1 | where is DbLayer defined | — | 0 | 18 | fixtures/golden.json | 804 | 23 | 0 |
-| 2 | callers of inject_file | — | 0 | 7 | fixtures/golden.json | 804 | 22 | 0 |
-| 3 | drift detection | — | 0 | 5 | design/2026-04-23-datatree-design.md | 28,735 | 23 | 0 |
-| 4 | blast radius implementation | — | 0 | 4 | fixtures/golden.json | 388 | 21 | 0 |
+| 1 | where is DbLayer defined | - | 0 | 18 | fixtures/golden.json | 804 | 23 | 0 |
+| 2 | callers of inject_file | - | 0 | 7 | fixtures/golden.json | 804 | 22 | 0 |
+| 3 | drift detection | - | 0 | 5 | design/2026-04-23-datatree-design.md | 28,735 | 23 | 0 |
+| 4 | blast radius implementation | - | 0 | 4 | fixtures/golden.json | 388 | 21 | 0 |
 | 5 | PathManager | src/lib.rs | 18,008 | 5 | design/2026-04-23-datatree-design.md | 44,243 | 22 | 0 |
-| 6 | build_or_migrate | — | 0 | 7 | src/lib.rs | 15,968 | 22 | 0 |
-| 7 | Store::new | — | 0 | 4 | src/federated.rs | 20,435 | 21 | 0 |
-| 8 | parser pool | — | 0 | 4 | commands/build.rs | 36,717 | 23 | 0 |
-| 9 | embedding store | — | 0 | 4 | fixtures/golden.json | 3,275 | 23 | 0 |
-| 10 | schema version | — | 0 | 4 | design/2026-04-23-datatree-design.md | 33,761 | 21 | 0 |
+| 6 | build_or_migrate | - | 0 | 7 | src/lib.rs | 15,968 | 22 | 0 |
+| 7 | Store::new | - | 0 | 4 | src/federated.rs | 20,435 | 21 | 0 |
+| 8 | parser pool | - | 0 | 4 | commands/build.rs | 36,717 | 23 | 0 |
+| 9 | embedding store | - | 0 | 4 | fixtures/golden.json | 3,275 | 23 | 0 |
+| 10 | schema version | - | 0 | 4 | design/2026-04-23-datatree-design.md | 33,761 | 21 | 0 |
 
 ## Token-reduction ratios, per query
 
@@ -116,7 +116,7 @@ invocation (exit code 0):
 
 None in the harness itself. Two non-fatal parser warnings surfaced during
 indexing and are documented here for completeness (they reduced the emitted CSV
-line count slightly because `tracing` leaked ANSI escapes into stdout — see
+line count slightly because `tracing` leaked ANSI escapes into stdout - see
 **Known issues**):
 
 | Warning | Source |
@@ -124,7 +124,7 @@ line count slightly because `tracing` leaked ANSI escapes into stdout — see
 | `query "functions" for "julia" failed to compile: Invalid node type short_function_definition` | `mneme_parsers::query_cache`, ABI mismatch in the bundled julia grammar |
 | `query "comments" for "zig" failed to compile: Invalid node type line_comment` | `mneme_parsers::query_cache`, ABI mismatch in the bundled zig grammar |
 
-Neither warning affected any metric above — no julia or zig files exist in the
+Neither warning affected any metric above - no julia or zig files exist in the
 mneme workspace.
 
 ## Benchmarks that were not run
@@ -141,22 +141,22 @@ mneme workspace.
    The cold baseline is a naive `walkdir` grep across the repo and frequently
    picks up the fixture file itself (`benchmarks/fixtures/golden.json`) because
    it literally contains the query text. Mneme's graph retrieval returned 0
-   files for 8 of 10 queries — the expected-top paths in `golden.json` still
+   files for 8 of 10 queries - the expected-top paths in `golden.json` still
    reference the *old* flat repo layout (`common/src/layer.rs`,
    `parsers/src/parser_pool.rs`, `store/src/schema.rs` etc.) but the workspace
    has moved those under nested crate paths. Updating `golden.json` to the
    current layout is a one-line follow-up; the harness itself is correct.
 2. **Token-reduction mean of 1.34×** is dragged down by the same
    zero-result queries. On queries where mneme returned any files, the
-   reduction ranged from **1.52× to 3.54×** — consistent with the
+   reduction ranged from **1.52× to 3.54×** - consistent with the
    `README.md` claim of ~3× on healthy queries.
-3. **Incremental p50 = p95 = 0 ms.** This is not a bug — the harness rounds
+3. **Incremental p50 = p95 = 0 ms.** This is not a bug - the harness rounds
    down to whole milliseconds and a single-file SQLite upsert on this machine
    is sub-millisecond. The `max_ms=2` confirms the worst single sample was
    2 ms, comfortably under the 500 ms p95 target in `CHANGELOG.md`.
 4. **Warm build is slightly slower than cold** (5,557 ms vs 4,970 ms). This
    is expected: the warm pass re-opens the existing shard, re-hashes every
-   file, and confirms no mtime changes — that's strictly *more* work than
+   file, and confirms no mtime changes - that's strictly *more* work than
    the cold path, which creates the shard from an empty file list.
 5. **Per-node cost of 1.08 KB and per-edge cost of 463 B** is dominated by
    SQLite page overhead on an 11 MB file. Graphs an order of magnitude
@@ -169,7 +169,7 @@ mneme workspace.
   non-TTY on Windows. The leaked lines appear at the top of
   `/tmp/mneme-bench-output.txt`; they were stripped before writing the
   committed CSV. A one-line fix is `with_writer(std::io::stderr)` in
-  `main()` — out of scope for this commit (source is read-only).
+  `main()` - out of scope for this commit (source is read-only).
 
 ## How to reproduce
 
@@ -207,7 +207,7 @@ Audited `benchmarks/fixtures/golden.json` to verify the expected-paths
 baseline against the current workspace layout and against what
 `bench_retrieval` actually returns per query.
 
-### Audit — every path in the fixture already exists at the stated location
+### Audit - every path in the fixture already exists at the stated location
 
 All 16 distinct expected paths across the 10 queries resolve to real files /
 directories in the current workspace (`common/src/layer.rs`,
@@ -216,7 +216,7 @@ directories in the current workspace (`common/src/layer.rs`,
 `cli/src/commands/drift.rs`, `cli/src/commands/blast.rs`,
 `benchmarks/src/lib.rs`, `parsers/src/parser_pool.rs`, `parsers/src/lib.rs`,
 `brain/src/embed_store.rs`, `brain/src/lib.rs`, `common/src/lib.rs`,
-`scanners/`). No `datatree/src/...` style pre-split paths were found — the
+`scanners/`). No `datatree/src/...` style pre-split paths were found - the
 fixture had already been migrated to the nested workspace layout before this
 refresh.
 
@@ -235,7 +235,7 @@ populates top-10.
 
 ### Fixture change applied
 
-Only one query was touched — `PathManager` — where `expected_top` was
+Only one query was touched - `PathManager` - where `expected_top` was
 expanded from 2 → 5 paths to reflect the verified top-10 overlap:
 
 | Query | Before | After |
@@ -257,7 +257,7 @@ No queries were deleted. No query strings or `kind` values were altered.
 | After refresh  | 5 | 22 | **22%** |
 
 Query-level hit rate (queries with ≥1 expected path in top-10) is **1 / 10**
-both before and after — expanding the one working query cannot raise query-
+both before and after - expanding the one working query cannot raise query-
 level coverage, and 8 of 10 queries return empty result sets from mneme's
 current retrieval primitive.
 
@@ -266,12 +266,12 @@ current retrieval primitive.
 | # | Query | Kind | Mneme top-10 | Hit? | Reason if miss |
 |---|---|---|---:|:---:|---|
 | 1 | where is DbLayer defined | recall | 0 files | no | natural-language phrase; substring LIKE can't match any single node name |
-| 2 | callers of inject_file | references(`inject`) | 0 files | no | no `edges.target_qualified LIKE '%inject%'` match — edges don't store function-name targets for `inject_file` |
+| 2 | callers of inject_file | references(`inject`) | 0 files | no | no `edges.target_qualified LIKE '%inject%'` match - edges don't store function-name targets for `inject_file` |
 | 3 | drift detection | recall | 0 files | no | 2-word phrase; no node name/qualified_name contains the literal substring |
 | 4 | blast radius implementation | recall | 0 files | no | 3-word phrase; no single node name matches literally |
 | 5 | PathManager | recall | 10 files | **yes (5/5)** | all expected paths present in top-10 |
 | 6 | build_or_migrate | references(`build_or_migrate`) | 0 files | no | no edges target `build_or_migrate`; recall-mode query does find `store/src/builder.rs` |
-| 7 | Store::new | recall | 0 files | no | `::` isn't how mneme stores `(qualified_name, name)` for `Store::new` — node has `name='new'`, `qualified_name` containing `Store`, so `%store::new%` never matches |
+| 7 | Store::new | recall | 0 files | no | `::` isn't how mneme stores `(qualified_name, name)` for `Store::new` - node has `name='new'`, `qualified_name` containing `Store`, so `%store::new%` never matches |
 | 8 | parser pool | recall | 0 files | no | 2-word phrase; no single node name contains `parser pool` |
 | 9 | embedding store | recall | 0 files | no | 2-word phrase; no single node name contains `embedding store` |
 | 10 | schema version | recall | 0 files | no | 2-word phrase; no single node name contains `schema version` |
@@ -301,14 +301,14 @@ Source of truth for this refresh:
 
 Head-to-head comparison between **Mneme v0.2.0** (this repo, Rust) and
 **code-review-graph v2.3.2** (`tirth8205/code-review-graph`, Python + tree-sitter
-+ networkx + SQLite), both indexing the same fixture — the mneme / datatree
++ networkx + SQLite), both indexing the same fixture - the mneme / datatree
 repository itself.
 
 ### Methodology
 
 - **Fixture**: `C:\Users\Anish\Desktop\crg\datatree` at SHA
   `164948ccee36f74ee303ec25d0d67565fae0d96c`. Mneme sees 359 files (its own
-  ignore rules), CRG sees 290 files (its own parser pack coverage — Rust, TOML,
+  ignore rules), CRG sees 290 files (its own parser pack coverage - Rust, TOML,
   MD, JSON, YAML).
 - **Machine**: AMD Ryzen AI 9 HX 370, 24 logical cores, 79.62 GB RAM, Windows
   11 Pro 26200. Same machine for both runs.
@@ -332,12 +332,12 @@ repository itself.
 
 | Metric | Mneme v0.2.0 | CRG v2.3.2 | Delta | Verdict |
 |---|---:|---:|---:|:---:|
-| First build — cold (ms) | **4,970** | **3,666** | +1,304 ms / +35.6% | 🐢 CRG faster (cold) |
-| First build — warm (ms) | **5,557** | — (not measured; CRG does no warm-reparse pass) | — | — |
-| Incremental update — p50 (ms) | **0** | **1,041** | −1,041 ms / ≈1,000× | ⚡ Mneme wins |
-| Incremental update — one-file touch (ms) | ≈**2** (p95, harness-measured) | **2,182** | −2,180 ms / ≈1,000× | ⚡ Mneme wins |
-| Search latency — p50 (ms) | 4–18 (observed, `compare` suite) | **0.412** | ≈10–40× slower | 🐢 CRG wins (FTS5) |
-| Search latency — p95 (ms) | ~23 (observed) | **0.925** | ≈25× slower | 🐢 CRG wins (FTS5) |
+| First build - cold (ms) | **4,970** | **3,666** | +1,304 ms / +35.6% | 🐢 CRG faster (cold) |
+| First build - warm (ms) | **5,557** | - (not measured; CRG does no warm-reparse pass) | - | - |
+| Incremental update - p50 (ms) | **0** | **1,041** | −1,041 ms / ≈1,000× | ⚡ Mneme wins |
+| Incremental update - one-file touch (ms) | ≈**2** (p95, harness-measured) | **2,182** | −2,180 ms / ≈1,000× | ⚡ Mneme wins |
+| Search latency - p50 (ms) | 4–18 (observed, `compare` suite) | **0.412** | ≈10–40× slower | 🐢 CRG wins (FTS5) |
+| Search latency - p95 (ms) | ~23 (observed) | **0.925** | ≈25× slower | 🐢 CRG wins (FTS5) |
 | `graph.db` size (MB) | **11.79** | **15.56** | −3.77 MB / −24% | ⚡ Mneme denser |
 | Bytes per node | **1,083** | **7,174** | ≈6.6× denser | ⚡ Mneme |
 | Bytes per edge | **463** | **951** | ≈2.1× denser | ⚡ Mneme |
@@ -351,23 +351,23 @@ repository itself.
 
 | # | Query | Mneme top-1 | CRG top-1 |
 |---|---|---|---|
-| 1 | where is DbLayer defined | — | — |
-| 2 | callers of inject_file | — | — |
-| 3 | drift detection | — | — |
-| 4 | blast radius implementation | — | — |
+| 1 | where is DbLayer defined | - | - |
+| 2 | callers of inject_file | - | - |
+| 3 | drift detection | - | - |
+| 4 | blast radius implementation | - | - |
 | 5 | PathManager | `src/lib.rs` | `common/src/paths.rs::PathManager` |
-| 6 | build_or_migrate | — | `store/src/builder.rs::DbBuilder.build_or_migrate` |
-| 7 | Store::new | — | `store/src/lib.rs::Store.new` |
-| 8 | parser pool | — | `parsers/src/incremental.rs::IncrementalParser.new` |
-| 9 | embedding store | — | — |
-| 10 | schema version | — | `store/src/schema.rs::version_table_sql` |
+| 6 | build_or_migrate | - | `store/src/builder.rs::DbBuilder.build_or_migrate` |
+| 7 | Store::new | - | `store/src/lib.rs::Store.new` |
+| 8 | parser pool | - | `parsers/src/incremental.rs::IncrementalParser.new` |
+| 9 | embedding store | - | - |
+| 10 | schema version | - | `store/src/schema.rs::version_table_sql` |
 
-CRG's hit rate (6 / 10) is the real signal here — not a metric-definition
+CRG's hit rate (6 / 10) is the real signal here - not a metric-definition
 artifact. CRG indexes at function / struct granularity with SQLite FTS5 over
 qualified names, so queries like `build_or_migrate`, `Store::new`, `parser
 pool`, `schema version`, and `PathManager` land on the exact symbol. Mneme's
 node table is 5× larger, but its search path is tuned for file-level recall
-against the golden fixture — which still references the pre-refactor flat
+against the golden fixture - which still references the pre-refactor flat
 layout (`common/src/layer.rs`, `parsers/src/parser_pool.rs`), so most queries
 return 0 files. Updating `benchmarks/fixtures/golden.json` to the nested
 workspace layout is the right fix on the mneme side (noted in the main
@@ -381,7 +381,7 @@ workspace layout is the right fix on the mneme side (noted in the main
   the no-op run, 57 in the one-touch run) and re-runs postprocessing (flows
   + communities + FTS rebuild) every time, landing at ~1–2 s per update.
 - **Storage density.** Mneme packs 11,417 nodes into 11.79 MB (1,083 B /
-  node). CRG packs 2,274 nodes into 15.56 MB (7,174 B / node) — 6.6× less
+  node). CRG packs 2,274 nodes into 15.56 MB (7,174 B / node) - 6.6× less
   dense, because CRG stores signatures, community IDs, per-node FTS content,
   and the flows table on the same physical file.
 
@@ -389,12 +389,12 @@ workspace layout is the right fix on the mneme side (noted in the main
 
 - **Search latency.** SQLite FTS5 with ranked matching lands at p50 = 0.41
   ms, p95 = 0.93 ms per query. Mneme's observed latencies on the `compare`
-  suite are 4–23 ms. Mneme doesn't currently expose FTS5 on the node table —
+  suite are 4–23 ms. Mneme doesn't currently expose FTS5 on the node table -
   adding an `nodes_fts` virtual table would close this gap without changing
   the data model.
 - **Hit rate on function-level queries.** CRG landed 6/10 on the shared
   golden set vs mneme's 2/10. The delta is not an apples-to-oranges
-  mismatch — both tools were given identical natural-language strings. The
+  mismatch - both tools were given identical natural-language strings. The
   gap is (a) stale fixture paths on the mneme side, and (b) CRG indexing at
   function/qualified-name granularity by default.
 - **Cold build.** 3,666 ms vs 4,970 ms. CRG wins by ~1.3 s on first build,
@@ -420,7 +420,7 @@ To make future runs directly comparable without post-hoc reconciliation:
    entirely FTS5. Adding `nodes_fts` (or a Tantivy sidecar) would flip the
    search-latency row without touching mneme's graph model.
 4. **Split "cold" vs "warm" reporting for CRG-parity.** CRG has no warm-
-   reparse pass — it either rebuilds everything (`build`) or does
+   reparse pass - it either rebuilds everything (`build`) or does
    incremental (`update`). Mneme's warm pass is extra work that CRG doesn't
    charge. For apples-to-apples cold-only reporting, pin the comparison at
    `first_build_cold_ms`, not the warm column.

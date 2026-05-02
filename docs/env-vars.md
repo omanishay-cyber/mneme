@@ -37,19 +37,18 @@ default, scope, and effect.
 | `MNEME_SUPERVISOR_SOCKET` | alias for MNEME_IPC | Older name; all three resolve to the same value. |
 | `MNEME_IPC_TIMEOUT_MS` | `120000` (CLI side) / `30000` (server side) | Override per-call IPC timeout. Bug B-017 reduced doctor's effective timeout to 3s by wrapping its specific call. |
 | `MNEME_SUPERVISOR_TIMEOUT_MS` | `2000` | Worker → supervisor `report_complete` timeout. |
-| `MNEME_IPC_MAX_CONNS` | `64` | Cap on concurrent IPC connections the supervisor accepts. |
+| `MNEME_IPC_MAX_CONNS` | `256` | Cap on concurrent IPC connections the supervisor accepts. (Wave 4 default bump from 64.) |
 
 ## Workers + scanning
 
 | Variable | Default | Effect |
 |---|---|---|
 | `MNEME_SCAN_WORKERS` | `num_cpus / 2` | Number of scanner-worker processes spawned. |
-| `MNEME_PARSE_RESULT_CHANNEL_CAP` | `1024` | Buffer size for parse-result channel between parser-worker and supervisor. |
+| `MNEME_PARSE_RESULT_CHANNEL_CAP` | `4096` | Buffer size for parse-result channel between parser-worker and supervisor. (Wave 4 default bump from 1024.) |
 | `MNEME_PARSE_WORKER_JOB_CHANNEL_CAP` | `256` | Buffer size for incoming-job channel per parser-worker. |
 | `MNEME_PARSE_TREE_CACHE` | `true` | Enable parser-pool tree-sitter cache reuse across files. |
-| `MNEME_WATCHER_MAX_PENDING` | `1024` | Cap on pending file-watch events the watcher buffers before backpressuring. |
-| `MNEME_AUDIT_TIMEOUT_SEC` | `300` | Outer timeout for `mneme audit` runs. |
-| `MNEME_AUDIT_LINE_TIMEOUT_SEC` | `30` | Per-file inner timeout for the audit scanner pipeline (Bug B-019). |
+| `MNEME_WATCHER_MAX_PENDING` | `65536` | Cap on pending file-watch events the watcher buffers before backpressuring. (Wave 4 default bump from 1024.) |
+| `MNEME_AUDIT_LINE_TIMEOUT_SEC` | `30` | Per-line stall detector for the audit scanner pipeline. The previous outer wall-clock `MNEME_AUDIT_TIMEOUT_SEC` was REMOVED in v0.3.2 (B11.8) - the per-line stall guard alone covers the hang case without binning long audits on big projects. |
 
 ## Logging
 
@@ -88,6 +87,6 @@ the chain in this order on every CLI/daemon boot:
 2. `dirs::home_dir().join(".mneme")` (the historical default)
 3. OS fallback: Unix `/var/lib/mneme`, Windows `%PROGRAMDATA%\mneme`
 
-If all three fail (extreme edge case — see Bug VIS-13 fix), the
+If all three fail (extreme edge case - see Bug VIS-13 fix), the
 daemon now panics with an actionable message instead of silently
 writing to a relative `./mneme` directory.

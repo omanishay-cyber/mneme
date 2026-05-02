@@ -70,6 +70,10 @@ function emptyHealth(): Output {
     p50_ms: 0,
     p95_ms: 0,
     p99_ms: 0,
+    // B15: human-friendly mirrors stay 0 in the empty case; renderers
+    // hide them when zero.
+    typical_response_ms: 0,
+    slow_response_ms: 0,
   };
 }
 
@@ -183,6 +187,8 @@ async function fromIpc(): Promise<Output | null> {
       typeof extras?.supervisor_uptime_s === "number"
         ? extras.supervisor_uptime_s
         : Math.floor(longest / 1000);
+    const p50ms = avg(p50s);
+    const p99ms = avg(p99s);
     return {
       status: overallStatus,
       uptime_seconds: uptimeSeconds,
@@ -190,9 +196,14 @@ async function fromIpc(): Promise<Output | null> {
       cache_hit_rate: extras?.cache_hit_rate ?? 0,
       disk_usage_mb: extras?.disk_usage_mb ?? 0,
       queue_depth: queueDepth,
-      p50_ms: avg(p50s),
+      p50_ms: p50ms,
       p95_ms: avg(p95s),
-      p99_ms: avg(p99s),
+      p99_ms: p99ms,
+      // B15 (2026-05-02): humanise. Same numbers as p50_ms / p99_ms
+      // rounded to whole ms because sub-millisecond resolution is
+      // noise to a human reader.
+      typical_response_ms: Math.round(p50ms),
+      slow_response_ms: Math.round(p99ms),
     };
   } catch (err) {
     if (err instanceof UnknownVerbError) {
@@ -266,6 +277,8 @@ async function fromHttp(): Promise<Output | null> {
     } catch {
       // ignore
     }
+    const p50ms = avg(p50s);
+    const p99ms = avg(p99s);
     return {
       status: overall,
       uptime_seconds: h.supervisor_uptime_s,
@@ -273,9 +286,12 @@ async function fromHttp(): Promise<Output | null> {
       cache_hit_rate: h.cache_hit_rate,
       disk_usage_mb: diskMb,
       queue_depth: queueDepth,
-      p50_ms: avg(p50s),
+      p50_ms: p50ms,
       p95_ms: avg(p95s),
-      p99_ms: avg(p99s),
+      p99_ms: p99ms,
+      // B15 (2026-05-02): humanise. Same numbers, friendlier names.
+      typical_response_ms: Math.round(p50ms),
+      slow_response_ms: Math.round(p99ms),
     };
   } catch {
     return null;

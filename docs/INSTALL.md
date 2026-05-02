@@ -93,7 +93,7 @@ Total install time on a fresh machine: roughly 60-90 seconds.
 `~/.claude/settings.json` is touched ONLY for the 8 hook entries
 under `hooks.{PreToolUse, PostToolUse, SessionStart, SessionEnd,
 UserPromptSubmit, PreCompact, Notification, Stop}`. Every other key
-in the file is left intact — backup snapshots are saved alongside
+in the file is left intact - backup snapshots are saved alongside
 under `~/.claude/settings.json.mneme-<timestamp>.bak` for rollback.
 The v0.3.0 install incident (see `mneme-install-report/`) was a
 hook-binary bug that blocked tool calls; v0.3.1+ rebuilt every hook
@@ -246,7 +246,7 @@ mneme daemon logs --lines 100  # see what happened
 ```
 
 Or just run `mneme doctor` - it diagnoses all three (supervisor, MCP bridge,
-and the 47 individual tools).
+and the 48 individual tools).
 
 ### Windows Defender flags mneme binaries
 

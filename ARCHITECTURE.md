@@ -69,7 +69,7 @@ of the pipeline (`parse` onward) per file as `.` events arrive.
 ### 2. `parse`
 
 - **Input**: `(PathBuf, Language, Hash)` records from `detect`.
-- **Process**: The `parsers` worker holds a `ParserPool` — `num_cpus * 4`
+- **Process**: The `parsers` worker holds a `ParserPool` - `num_cpus * 4`
   Tree-sitter parsers pre-seeded with the appropriate grammar. A queue
   distributes jobs across workers. `IncrementalCache` in
   `parsers/src/incremental.rs` short-circuits parsing when
@@ -94,7 +94,7 @@ of the pipeline (`parse` onward) per file as `.` events arrive.
 - **Input**: `Node`/`Edge` vectors from `extract`.
 - **Process**: The `store` worker's single-writer task for `graph.db`
   receives the batch, opens a transaction, runs prepared INSERTs, commits.
-  The schema is **append-only** — nodes get `created_at`/`superseded_at`
+  The schema is **append-only** - nodes get `created_at`/`superseded_at`
   columns, never deletes. Edges are likewise immutable.
 - **Output**: `graph.db` rows + an `IndexedFile` receipt sent back to the
   caller.
@@ -109,7 +109,7 @@ of the pipeline (`parse` onward) per file as `.` events arrive.
   `semantic.db` (table `node_vectors`, BLOB column) through the semantic
   single-writer task. As of v0.3.0, real **BGE-small-en-v1.5** ONNX
   embeddings are available via the `real-embeddings` feature flag on the
-  `brain` crate (`ort` `load-dynamic` — no ORT link at compile time);
+  `brain` crate (`ort` `load-dynamic` - no ORT link at compile time);
   enable it once you've staged the `.onnx` + `tokenizer.json` locally
   (see `mneme models install --from-path`).
 - **Output**: `semantic.db` populated; an in-memory `hnsw_rs` graph is
@@ -123,7 +123,7 @@ of the pipeline (`parse` onward) per file as `.` events arrive.
 - **Input**: the full node+edge graph.
 - **Process**: `brain` runs a Leiden community-detection pass
   (`brain::leiden`) producing `community_id` per node. The resulting
-  communities are treated as "concepts" — the mind-map view in Vision
+  communities are treated as "concepts" - the mind-map view in Vision
   renders them as colored hulls.
 - **Output**: `insights.db`::`communities` table + per-node
   `community_id` stamp in `graph.db`.
@@ -143,8 +143,8 @@ of the pipeline (`parse` onward) per file as `.` events arrive.
 
 - **Input**: the retrieval payload + the current Step Ledger snapshot.
 - **Process**: the `session-prime` hook or the `mn-step-resume` tool
-  composes a **resumption bundle** — verbatim goal, goal stack,
-  completed steps, current step, remaining steps, active constraints —
+  composes a **resumption bundle** - verbatim goal, goal stack,
+  completed steps, current step, remaining steps, active constraints -
   into the next MCP turn's system context. The budget is ~1-3k tokens
   for ordinary retrieval, up to ~5k tokens after a compaction event.
 - **Output**: Claude (or Codex, Cursor, etc.) sees the context as if it
@@ -174,7 +174,7 @@ hand-written spec, then reviewed and tuned.
 | `livebus/` | SSE + WebSocket push bus. Multi-agent pub/sub (one topic per project, one per subscriber). Consumed by the Vision app; also by any second Claude session that wants to see the first's updates. | agent-generated |
 | `md-ingest/` | Walks every `.md` in the project, parses headings/links/code-fences, extracts `Decision`/`Constraint`/`Todo` records, ships them to `memory.db`. Runs as a worker. | agent-generated |
 | `multimodal-bridge/` | Rust shim that spawns, health-checks, and routes msgpack jobs to the Python sidecar. Restarts the sidecar if it crashes or stops heartbeating. | hand-written |
-| `cli/` | `mneme` binary — `install`, `build`, `watch`, `audit`, `recall`, `step`, `daemon`, `doctor`. Talks to the supervisor over the control-plane IPC, not via the file system. | agent-generated |
+| `cli/` | `mneme` binary - `install`, `build`, `watch`, `audit`, `recall`, `step`, `daemon`, `doctor`. Talks to the supervisor over the control-plane IPC, not via the file system. | agent-generated |
 | `benchmarks/` | Criterion-based micro-benchmarks measured in [`BENCHMARKS.md`](benchmarks/BENCHMARKS.md) (1.338× mean / 3.542× p95 token reduction, 4,970 ms cold build on 359 files). | hand-written |
 
 ### Non-Rust workspaces
@@ -330,8 +330,8 @@ If you block mneme at your firewall, nothing breaks.
 
 Every writable SQLite shard has exactly one tokio task owning its
 connection. All writes are sent to that task over a bounded MPSC
-channel. Any reader — MCP server, Vision app, a second Claude session,
-`mneme` CLI — opens the shard directly in read-only mode. SQLite's WAL
+channel. Any reader - MCP server, Vision app, a second Claude session,
+`mneme` CLI - opens the shard directly in read-only mode. SQLite's WAL
 mode supports unlimited concurrent readers while a writer holds the
 write lock, so this pattern eliminates `SQLITE_BUSY`/database-locked
 errors entirely. The Rust code calls this the **Single-Writer Invariant**.
@@ -343,7 +343,7 @@ It is sacred. Bypass it and the next cold start will corrupt the shard.
 never drop or rename them. To rename a concept, add a new column, stop
 writing the old one, leave the old one in place. This makes rolling
 upgrades safe, lets older binaries read newer shards, and means
-downgrading is always OK — the old binary just ignores the new columns.
+downgrading is always OK - the old binary just ignores the new columns.
 
 ### 4. Hot-reload MCP tools
 
@@ -373,7 +373,7 @@ with 384 dimensions. Binary size impact: zero. Install friction: zero.
 Quality: sufficient for intra-project recall, which is what matters
 here. Users who want real embeddings can opt in by building `brain` with
 the `real-embeddings` feature and staging the model locally via
-`mneme models install --from-path <dir>` — `ort` is loaded dynamically at
+`mneme models install --from-path <dir>` - `ort` is loaded dynamically at
 runtime (`ORT_DYLIB_PATH`), so the compiled binary never links against
 ONNX Runtime. No network call involved either way.
 
@@ -424,7 +424,7 @@ supervisor boot.
 ~/.mneme/supervisor.sock
 ```
 
-No PID suffix needed — Unix lets us `unlink` stale sockets on boot.
+No PID suffix needed - Unix lets us `unlink` stale sockets on boot.
 Permissions are `0600` (owner-only). macOS launchd and Linux systemd
 user services create this path when starting the daemon.
 
@@ -432,7 +432,7 @@ user services create this path when starting the daemon.
 
 Both platforms, in order:
 
-1. `MNEME_SUPERVISOR_SOCKET` environment variable — absolute path, used
+1. `MNEME_SUPERVISOR_SOCKET` environment variable - absolute path, used
    by tests and power users.
 2. Platform default (`\\.\pipe\mneme-supervisor-<pid-from-pid-file>` /
    `~/.mneme/supervisor.sock`).
@@ -468,7 +468,7 @@ Every project has its own directory under `~/.mneme/projects/<sha>/`.
 | `contracts.db` | IPC type contracts (main <-> preload <-> renderer) | scanners -> store |
 | `insights.db` | Leiden communities, god-nodes, surprising connections | brain -> store |
 | `livestate.db` | Ephemeral live-bus session state (pruned on daemon restart) | livebus -> store |
-| `telemetry.db` | Local-only usage counters (file/lang/tool) — never leaves your machine | every worker |
+| `telemetry.db` | Local-only usage counters (file/lang/tool) - never leaves your machine | every worker |
 | `corpus.db` | Raw text corpus for conversation history search | md-ingest + mcp -> store |
 | `audit.db` | Audit-trail of every write-IPC received (who asked, when, what) | store itself |
 | `architecture.db` | Coupling matrix + betweenness centrality snapshots | brain -> store |
@@ -480,7 +480,7 @@ schema change a global migration, and every crash a blast radius. With
 22 narrow shards:
 
 - `graph.db` can be fully rewritten (`mneme rebuild`) while `tasks.db`
-  stays untouched — your Step Ledger survives a source-tree cleanup.
+  stays untouched - your Step Ledger survives a source-tree cleanup.
 - A corrupt `semantic.db` (e.g. disk full mid-write) costs you the
   embeddings, not the graph.
 - Scanners can run at full concurrency because each writes a different
@@ -528,7 +528,7 @@ the `graph.db` writer task, which:
 
 1. Opens an `IMMEDIATE` transaction.
 2. INSERTs nodes into `nodes` table (ON CONFLICT DO UPDATE `superseded_at`
-   — never DELETE).
+   - never DELETE).
 3. INSERTs edges into `edges` table with FK refs to node rowids.
 4. INSERTs a row in `files` with `(path, hash, parsed_at, node_count,
    edge_count)`.
@@ -542,7 +542,7 @@ The entire batch for one file is one SQLite transaction. Either all of
 that file's nodes + edges land in `graph.db`, or none of them do. If
 the transaction fails (disk full, permissions, panic in the writer
 task), the writer task is restarted by the supervisor and the next
-batch retries. The parser worker is never told "partial success" — it's
+batch retries. The parser worker is never told "partial success" - it's
 all or nothing.
 
 ### Read anywhere
@@ -558,7 +558,7 @@ invariant: no reader can ever observe a half-committed batch.
 The parsers -> store channel is bounded at 1024 messages. If store is
 slower than parsers (e.g. a huge project with tiny files), parsers
 block on `send`, which transparently throttles file reads. No memory
-bomb. No dropped batches. No reordering — SQLite's WAL preserves the
+bomb. No dropped batches. No reordering - SQLite's WAL preserves the
 order in which transactions committed.
 
 ---
@@ -574,18 +574,18 @@ but would:
 - Make crash recovery trivial for graphify (just rerun) but catastrophic
   for a long-running daemon that needs to survive across hours and
   multiple clients.
-- Force one language for everything — no Bun for fast MCP stdio, no
+- Force one language for everything - no Bun for fast MCP stdio, no
   Python for multimodal extraction.
 
 Mneme's multi-process shape buys:
 
-- **Fault isolation** — one crash = one restarted worker, not a cold
+- **Fault isolation** - one crash = one restarted worker, not a cold
   start.
-- **Language pragmatism** — Rust where it matters, Bun where stdio speed
+- **Language pragmatism** - Rust where it matters, Bun where stdio speed
   matters, Python where the ecosystem is irreplaceable.
-- **Parallel throughput** — parsers + scanners + brain all run
+- **Parallel throughput** - parsers + scanners + brain all run
   concurrently; only the per-shard writer tasks serialise.
-- **Hot-reload MCP surface** — tools can be edited and redeployed
+- **Hot-reload MCP surface** - tools can be edited and redeployed
   without killing the daemon.
 
 The cost is complexity. That cost is paid once, up front, and never

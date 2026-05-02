@@ -1,6 +1,6 @@
 # mneme MCP tools reference
 
-48 tools (48/48 wired to real data as of v0.3.2 — `file_intent` was added in the J7 phase after v0.3.0), grouped by category. Every tool is callable from Claude Code, Codex, Cursor, or any MCP-aware AI client once `mneme install` has registered the MCP server.
+48 tools (48/48 wired to real data as of v0.3.2 - `file_intent` was added in the J7 phase after v0.3.0), grouped by category. Every tool is callable from Claude Code, Codex, Cursor, or any MCP-aware AI client once `mneme install` has registered the MCP server.
 
 > **v0.3.2 status:** 48 of 48 tools wired to real data. Every tool either hits supervisor IPC (with graceful-degrade fallback when the verb isn't present) or reads live sqlite via `bun:sqlite`. See [`BENCHMARKS.md`](../benchmarks/BENCHMARKS.md) for the measured harness.
 
@@ -109,20 +109,20 @@ echo '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"blast_radi
 
 ## Schema contract
 
-Every tool's input and output is validated with `zod` at the MCP server boundary. Schemas live in [`mcp/src/types.ts`](../mcp/src/types.ts). They're the source of truth — the tables above are a summary.
+Every tool's input and output is validated with `zod` at the MCP server boundary. Schemas live in [`mcp/src/types.ts`](../mcp/src/types.ts). They're the source of truth - the tables above are a summary.
 
 If you want to add a new tool, the pattern is:
 
 1. Add the input/output Zod schema to `mcp/src/types.ts`
 2. Create `mcp/src/tools/your_tool.ts` following the pattern in [`mcp/src/tools/blast_radius.ts`](../mcp/src/tools/blast_radius.ts)
 3. Add a helper in `mcp/src/store.ts` if you need a new DB query shape
-4. The hot-reload watcher picks it up within 250 ms — no daemon restart needed
+4. The hot-reload watcher picks it up within 250 ms - no daemon restart needed
 
 ---
 
 ## Permissions
 
-Every MCP tool runs read-only against the project's SQLite shard. No tool can write to the graph, modify constraints, or change step ledger state — those go through the supervisor's single-writer IPC and aren't exposed to MCP clients.
+Every MCP tool runs read-only against the project's SQLite shard. No tool can write to the graph, modify constraints, or change step ledger state - those go through the supervisor's single-writer IPC and aren't exposed to MCP clients.
 
 ## Latency budgets
 
@@ -136,7 +136,7 @@ Expected response times for each tool (on a warm shard):
 | `audit_*` | 10 ms | 80 ms |
 | `step_*` | < 1 ms | 3 ms |
 | `health` | 3 ms (HTTP to supervisor) | 15 ms |
-| `graphify_corpus` | seconds (async; returns immediately, streams progress) | — |
+| `graphify_corpus` | seconds (async; returns immediately, streams progress) | - |
 
 ---
 

@@ -85,7 +85,7 @@ or unioned. Today shard == project_id == path hash.
 existing shards.
 
 ### Rule-test fixtures
-**Thought:** each scanner gets a fixture set — "this input must produce
+**Thought:** each scanner gets a fixture set - "this input must produce
 this finding count". Caught drift in our own drift detector.
 **Why defer:** first write 3 fixtures by hand, see if it catches
 anything, then decide if a framework is needed.
@@ -108,4 +108,4 @@ Just append to this file under "Idea inbox" with:
 **Why defer:** what would need to happen first.
 ```
 
-Don't write acceptance criteria here — that's for backlog promotion.
+Don't write acceptance criteria here - that's for backlog promotion.

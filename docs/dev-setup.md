@@ -14,15 +14,15 @@ You want to work on mneme itself (not just use it). Here's the ~20-minute setup.
 
 > **Bun on PATH is a hard prerequisite for `vision/server.ts` and Tauri dev
 > mode.** `vision/tauri/tauri.conf.json` declares
-> `"beforeDevCommand": "bun server.ts"` — Tauri unconditionally spawns
+> `"beforeDevCommand": "bun server.ts"` - Tauri unconditionally spawns
 > `bun` and waits. Without Bun on PATH it fails with no useful diagnostic.
 > Install Bun via the one-liner above before running `tauri dev` or any
 > `bun run` script under `vision/` or `mcp/`.
 
 Nice-to-haves:
-- **rust-analyzer** for your IDE — Rust inspection
-- **Bun extension** for VS Code — Bun-flavoured TS completions
-- **sqlite3** CLI — handy for inspecting shards
+- **rust-analyzer** for your IDE - Rust inspection
+- **Bun extension** for VS Code - Bun-flavoured TS completions
+- **sqlite3** CLI - handy for inspecting shards
 
 ## Clone
 
@@ -34,7 +34,7 @@ cd mneme
 ## One-time build
 
 ```bash
-# Rust workspace — 10 crates, 400+ transitive deps
+# Rust workspace - 10 crates, 400+ transitive deps
 cargo build --workspace            # debug build, ~5 min cold
 # or
 cargo build --workspace --release  # release build, ~10 min cold
@@ -86,7 +86,7 @@ cargo run --bin mneme-supervisor -- start
 ./target/debug/mneme-supervisor start       # macOS/Linux
 ```
 
-The supervisor spawns `1 (store) + num_cpus (parsers) + num_cpus/2 (scanners) + 1 (md-ingest) + 1 (brain) + 1 (livebus)` workers (~16 on an 8-core machine; ~9 on a 4-core machine — `supervisor/src/config.rs:104-180`) and binds `http://127.0.0.1:7777/health`. Hit it:
+The supervisor spawns `1 (store) + num_cpus (parsers) + num_cpus/2 (scanners) + 1 (md-ingest) + 1 (brain) + 1 (livebus)` workers (~16 on an 8-core machine; ~9 on a 4-core machine - `supervisor/src/config.rs:104-180`) and binds `http://127.0.0.1:7777/health`. Hit it:
 ```bash
 curl http://127.0.0.1:7777/health
 ```
@@ -110,9 +110,9 @@ cargo run --bin mneme -- build .
 ### Add a new MCP tool
 
 1. Add input/output Zod schemas to `mcp/src/types.ts`
-2. Create `mcp/src/tools/your_tool.ts` — follow the pattern in `mcp/src/tools/blast_radius.ts`
+2. Create `mcp/src/tools/your_tool.ts` - follow the pattern in `mcp/src/tools/blast_radius.ts`
 3. If you need a new DB query shape, add a helper to `mcp/src/store.ts`
-4. Drop the file into the tools folder while the daemon is running — hot-reload picks it up in 250 ms
+4. Drop the file into the tools folder while the daemon is running - hot-reload picks it up in 250 ms
 
 ### Add a new Tree-sitter language
 
@@ -126,24 +126,24 @@ cargo run --bin mneme -- build .
 
 ### Add a new scanner
 
-1. Create `scanners/src/scanners/your_rule.rs` — copy `theme.rs` as a template
+1. Create `scanners/src/scanners/your_rule.rs` - copy `theme.rs` as a template
 2. Implement the `Scanner` trait: `name()`, `applies_to(file)`, `scan(file, content, ast)`
 3. Register in `scanners/src/registry.rs`
 4. `cargo build -p mneme-scanners`
 
 ### Add a new vision view
 
-1. Create `vision/src/views/YourView.tsx` — copy `ForceGalaxy.tsx` as a template
+1. Create `vision/src/views/YourView.tsx` - copy `ForceGalaxy.tsx` as a template
 2. Add an entry to `vision/src/views/index.ts`
 3. The vision app needs **two** processes running side by side: the Vite SPA
    (port `5173`) and the Bun API server (port `7777`) that serves graph data.
    Open two terminals:
 
    ```bash
-   # Terminal 1 — Vite SPA (UI)
+   # Terminal 1 - Vite SPA (UI)
    cd vision && bun run dev
 
-   # Terminal 2 — Bun API server (graph data)
+   # Terminal 2 - Bun API server (graph data)
    cd vision && bun run serve
    ```
 
@@ -181,7 +181,7 @@ cd mcp && bun test
 cd workers/multimodal && pytest
 ```
 
-v0.3.0 ships with `cargo test --workspace` fully green (280+ tests, 0 failed, 0 ignored) — parsers, supervisor, store, scanners, brain, md-ingest, cli, livebus all pass (includes 30 new supervisor/common tests for the job-dispatch path, 4 new brain tests for the ONNX inference path, and 7 new scanner tests).
+v0.3.0 ships with `cargo test --workspace` fully green (280+ tests, 0 failed, 0 ignored) - parsers, supervisor, store, scanners, brain, md-ingest, cli, livebus all pass (includes 30 new supervisor/common tests for the job-dispatch path, 4 new brain tests for the ONNX inference path, and 7 new scanner tests).
 
 ## Debugging
 
@@ -202,10 +202,10 @@ cargo run --bin mneme -- daemon logs
 - Rust build + clippy + tests (Ubuntu / macOS / Windows)
 - MCP server `bun install` + `tsc --noEmit`
 - Vision app `bun install` + `tsc --noEmit`
-- Cargo audit (RUSTSEC) — **block-on-fail**
-- Cargo deny (license / bans / duplicates) — **block-on-fail**
-- Doctor cross-platform path tests — **block-on-fail**
-- E2E build + recall + blast on a real repo — **block-on-fail**
+- Cargo audit (RUSTSEC) - **block-on-fail**
+- Cargo deny (license / bans / duplicates) - **block-on-fail**
+- Doctor cross-platform path tests - **block-on-fail**
+- E2E build + recall + blast on a real repo - **block-on-fail**
 - LICENSE header check
 
 The remaining `continue-on-error: true` lines are intentional soft-fails (parsers-crate clippy warnings, mcp tsc strict-input lint, multimodal all-extractors lib check) and each is annotated with a "Soft-fail:" comment explaining why.
@@ -213,14 +213,14 @@ The remaining `continue-on-error: true` lines are intentional soft-fails (parser
 ## Code style
 
 See [CONTRIBUTING.md](../CONTRIBUTING.md) for the full rules. Summary:
-- **Rust** — `cargo fmt`, clippy warnings are errors, no `unwrap()` on user-input paths
-- **TypeScript** — strict mode, no `any`, zod at the boundary, named exports only
-- **Python** — strict type hints, pydantic at IPC boundaries, no blocking I/O
+- **Rust** - `cargo fmt`, clippy warnings are errors, no `unwrap()` on user-input paths
+- **TypeScript** - strict mode, no `any`, zod at the boundary, named exports only
+- **Python** - strict type hints, pydantic at IPC boundaries, no blocking I/O
 
 ## Where to ask
 
-- [GitHub Issues](https://github.com/omanishay-cyber/mneme/issues) — bugs
-- [GitHub Discussions](https://github.com/omanishay-cyber/mneme/discussions) — design questions, "is this a good idea?"
+- [GitHub Issues](https://github.com/omanishay-cyber/mneme/issues) - bugs
+- [GitHub Discussions](https://github.com/omanishay-cyber/mneme/discussions) - design questions, "is this a good idea?"
 
 ---
 

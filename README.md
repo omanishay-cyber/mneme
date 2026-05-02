@@ -3,7 +3,7 @@
 <a href="https://omanishay-cyber.github.io/mneme/">
   <picture>
     <source srcset="docs/og.svg" type="image/svg+xml"/>
-    <img src="docs/og.png" alt="Mneme — the persistent memory layer for AI coding" width="100%"/>
+    <img src="docs/og.png" alt="Mneme - the persistent memory layer for AI coding" width="100%"/>
   </picture>
 </a>
 
@@ -15,7 +15,7 @@
 
 Stop re-explaining your codebase to Claude every chat.
 
-Mneme keeps what Claude learned about your project — survives context wipes, doesn't forget mid-task, runs entirely on your laptop. No cloud, no telemetry, no subscription.
+Mneme keeps what Claude learned about your project - survives context wipes, doesn't forget mid-task, runs entirely on your laptop. No cloud, no telemetry, no subscription.
 
 <div align="center">
 
@@ -42,9 +42,9 @@ curl -fsSL https://github.com/omanishay-cyber/mneme/releases/download/v0.3.2/ins
 curl -fsSL https://github.com/omanishay-cyber/mneme/releases/download/v0.3.2/install-linux.sh | bash
 ```
 
-> One command per OS — the script auto-detects your architecture and downloads the right binary archive. Restart Claude after install. Verify with `mneme doctor` and `claude mcp list`.
+> One command per OS - the script auto-detects your architecture and downloads the right binary archive. Restart Claude after install. Verify with `mneme doctor` and `claude mcp list`.
 >
-> **Requirements:** 64-bit OS (x64 or ARM64) · CPU with AVX2 / BMI2 / FMA (Intel Haswell 2013+ or AMD Excavator 2015+ — almost every PC sold since 2013 qualifies) · 5 GB free disk · no admin needed. 32-bit Windows is not supported (Bun runtime requirement).
+> **Requirements:** 64-bit OS (x64 or ARM64) · CPU with AVX2 / BMI2 / FMA (Intel Haswell 2013+ or AMD Excavator 2015+ - almost every PC sold since 2013 qualifies) · 5 GB free disk · no admin needed. 32-bit Windows is not supported (Bun runtime requirement).
 
 <!-- ==================================================================== -->
 <!--   Nav                                                                  -->
@@ -71,7 +71,7 @@ curl -fsSL https://github.com/omanishay-cyber/mneme/releases/download/v0.3.2/ins
 
 ## Feature matrix vs CRG
 
-Honest head-to-head against the closest project in the AI-code-context space —
+Honest head-to-head against the closest project in the AI-code-context space -
 [CRG (code-review-graph)](https://github.com/tirth8205/code-review-graph). Wins
 and losses both.
 
@@ -81,7 +81,7 @@ and losses both.
 | **Drift detector enforcing CLAUDE.md rules live** | ✅ 11 scanners incl. drift + md-drift + secrets | partial (lint-style) | ❌ |
 | **Built-in scanners** | ✅ 11 (theme, types, security, a11y, perf, drift, ipc, md-drift, secrets, refactor, architecture) | 1 (review-oriented) | ❌ |
 | **Tree-sitter grammars** | ✅ 27 (18 Tier-1 + 8 Tier-2 + more via extension-only) | 23 | 5-ish (per-input) |
-| **MCP tools** | ✅ 47 (47 wired to real data, full `mcp/src/tools/` surface) | 24 | n/a (not an MCP) |
+| **MCP tools** | ✅ 48 (48 wired to real data, full `mcp/src/tools/` surface) | 24 | n/a (not an MCP) |
 | **Multi-process Rust supervisor** | ✅ watchdog + WAL + restart + health HTTP | ❌ (single-process Python) | ❌ (single-process Python) |
 | **Real local embeddings** | ✅ pure-Rust hashing-trick default, opt-in bge-small from local path | ❌ | partial (sentence-transformers, network-pullable) |
 | **Storage layers** | ✅ 22 sharded SQLite DBs + global meta.db | 1 | 1-2 JSON + HTML |
@@ -91,7 +91,7 @@ and losses both.
 | **100% local, zero unsolicited network** | ✅ enforced across Rust / TS / Python | ✅ | ⚠️ model downloads + Whisper prompts |
 | **License** | ✅ Apache-2.0 | MIT | MIT |
 | **19 AI tools supported out of the box** | ✅ (Claude Code, Codex, Cursor, Windsurf, Zed, VS Code, +13 more) | 2 (Claude Code, VS Code ext) | 1 (manual integration) |
-| — | — | — | — |
+| - | - | - | - |
 | **One-shot `pip install`** | ❌ (Rust + Bun toolchain install) | ✅ `pip install crg` | ✅ `pip install graphify` |
 | **VS Code extension** | ❌ (coming) | ✅ first-class | ❌ |
 | **Whisper with locale prompt tuning for non-English audio** | ❌ (generic Whisper) | n/a | ✅ (specialised locale prompts) |
@@ -110,9 +110,9 @@ AI superbrain that lives on your machine for years and never forgets, use Mneme.
 
 Every AI coding assistant has the same three flaws:
 
-1. **Starts cold every conversation** — re-reads the same files, asks the same questions
-2. **Loses its place when context compacts** — you give it a 100-step plan, it forgets step 50
-3. **Drifts from your rules** — CLAUDE.md says "no hardcoded colors"; 5 prompts later it hardcodes one
+1. **Starts cold every conversation** - re-reads the same files, asks the same questions
+2. **Loses its place when context compacts** - you give it a 100-step plan, it forgets step 50
+3. **Drifts from your rules** - CLAUDE.md says "no hardcoded colors"; 5 prompts later it hardcodes one
 
 **mneme fixes all three.** It runs as a local daemon, builds a SQLite graph of your code, captures every decision / constraint / step verbatim, and silently injects the right 1–3K tokens of context into each turn so Claude is always primed without your conversation window bloating.
 
@@ -152,10 +152,10 @@ mneme doctor                       # verify everything's wired (prints all 48 MC
 
 ### Using the workflow codewords
 
-Inside any AI coding tool (Claude Code, Cursor, etc.) — drop a codeword into your next message:
+Inside any AI coding tool (Claude Code, Cursor, etc.) - drop a codeword into your next message:
 
 ```
-User: firestart — let's refactor the auth middleware
+User: firestart - let's refactor the auth middleware
 
 AI (with mneme):
   1. [skill-prescription] fireworks-refactor + fireworks-architect loaded
@@ -166,10 +166,10 @@ AI (with mneme):
                           ...
 ```
 
-Want minimal engagement? `coldstart` — AI only observes, drafts a plan, does NOT touch code.
-Want normal discipline? `hotstart` — numbered roadmap, verify after each step, no skipping.
-Max loadout? `firestart` — all 19 fireworks skills + mneme graph priming + ledger.
-Visual context? `CHS` — AI reads the latest screenshot in your Pictures folder.
+Want minimal engagement? `coldstart` - AI only observes, drafts a plan, does NOT touch code.
+Want normal discipline? `hotstart` - numbered roadmap, verify after each step, no skipping.
+Max loadout? `firestart` - all 19 fireworks skills + mneme graph priming + ledger.
+Visual context? `CHS` - AI reads the latest screenshot in your Pictures folder.
 
 ---
 
@@ -189,7 +189,7 @@ Visual context? `CHS` — AI reads the latest screenshot in your Pictures folder
 >
 > **Claude**: Got it. Should I put the new option in `authStore.ts`?
 >
-> **You**: No, it goes in `crypto/kdf.rs` — we refactored last week.
+> **You**: No, it goes in `crypto/kdf.rs` - we refactored last week.
 >
 > **Claude**: I don't have that context. Can you show me `crypto/kdf.rs`?
 >
@@ -202,9 +202,9 @@ Visual context? `CHS` — AI reads the latest screenshot in your Pictures folder
 
 > **You**: Add Argon2id as an option alongside PBKDF2.
 >
-> **Claude (via Mneme context)**: Per Session #67, PBKDF2 lives in `crypto/kdf.rs`. The `KdfAlgorithm` enum is ready to extend. Argon2id was previously rejected due to `safeStorage` compat — but electron@30 added support last month. Adding to `kdf.rs` now. Tests go in `kdf.test.ts`. 3 files affected.
+> **Claude (via Mneme context)**: Per Session #67, PBKDF2 lives in `crypto/kdf.rs`. The `KdfAlgorithm` enum is ready to extend. Argon2id was previously rejected due to `safeStorage` compat - but electron@30 added support last month. Adding to `kdf.rs` now. Tests go in `kdf.test.ts`. 3 files affected.
 >
-> *(the difference is felt in the first 30 seconds — that's the sell)*
+> *(the difference is felt in the first 30 seconds - that's the sell)*
 
 </td>
 </tr>
@@ -212,7 +212,7 @@ Visual context? `CHS` — AI reads the latest screenshot in your Pictures folder
 
 ---
 
-## 🎯 The killer feature — compaction-resilient Step Ledger
+## 🎯 The killer feature - compaction-resilient Step Ledger
 
 > You give Claude a 100-step task. Context compacts at step 50.
 > Without Mneme: Claude restarts from step 30 or re-reads every doc.
@@ -241,7 +241,7 @@ The **Step Ledger** is a numbered, verification-gated plan that lives in SQLite.
 - 🔜 Remaining steps with acceptance checks
 - 🛡️ Active constraints (must-honor rules)
 
-**No other MCP does this.** CRG, Cursor memory, Claude Projects — all three lose state at compaction. Mneme is the only system that survives it architecturally.
+**No other MCP does this.** CRG, Cursor memory, Claude Projects - all three lose state at compaction. Mneme is the only system that survives it architecturally.
 
 ## 📊 Benchmarks
 
@@ -249,13 +249,13 @@ Measured against [code-review-graph](https://github.com/tirth8205/code-review-gr
 
 | | CRG (the current SoTA) | **mneme (measured)** | What it means |
 |---|---|---|---|
-| AI context size for code review | 6.8× smaller | **typical query saves ~34%, best 5% save 71%** | mneme hand-picks what AI sees instead of dumping every file — fewer tokens means cheaper + faster AI responses |
+| AI context size for code review | 6.8× smaller | **typical query saves ~34%, best 5% save 71%** | mneme hand-picks what AI sees instead of dumping every file - fewer tokens means cheaper + faster AI responses |
 | AI context size for live coding | 14.1× smaller | **measurement coming in v0.4** | Per-turn corpus harness still in development |
 | First time indexing a project | 10 seconds for 500 files | **under 5 seconds for 359 files** (with 11k nodes + 27k edges in the graph) | Cold-start build of the full code graph |
-| Updating after you save a file | under 2 seconds | **finishes faster than you can blink — never more than 2 milliseconds** | Roughly **1000× faster than CRG** at staying in sync with your edits |
+| Updating after you save a file | under 2 seconds | **finishes faster than you can blink - never more than 2 milliseconds** | Roughly **1000× faster than CRG** at staying in sync with your edits |
 | Visualization ceiling | ~5 000 nodes | **100 000+** (design, not yet benchmarked) | Tauri WebGL renderer |
 | Storage layers | 1 | **22** | Sharded SQLite, see [`docs/architecture.md`](docs/architecture.md) |
-| MCP tools | 24 | **47** | 47 wired to real data; counted from `mcp/src/tools/*.ts` at HEAD |
+| MCP tools | 24 | **48** | 48 wired to real data; counted from `mcp/src/tools/*.ts` at HEAD |
 | Visualization views | 1 (D3 force) | **14** (WebGL) | `vision/src/views/*.tsx` |
 | Languages | 23 | **28** | counted from `parsers/src/language.rs` Language enum |
 | Platforms supported | 10 | **19** | counted from `cli/src/platforms/mod.rs` Platform enum |
@@ -290,29 +290,29 @@ One `mneme install` command configures every AI tool it detects:
 | Trae / Trae-CN | `AGENTS.md` + `mcp.json` | Task tool |
 | Kiro | `.kiro/steering/*.md` + MCP | Kiro hooks |
 | Qoder | `QODER.md` + `.qoder/mcp.json` | Full hooks |
-| OpenClaw | `CLAUDE.md` + `.mcp.json` | — |
+| OpenClaw | `CLAUDE.md` + `.mcp.json` | - |
 | Hermes | `AGENTS.md` + MCP | Claude-compatible |
-| Qwen Code | `QWEN.md` + `settings.json` | — |
+| Qwen Code | `QWEN.md` + `settings.json` | - |
 | VS Code (extension) | `.vscode/mcp.json` + `mneme-vscode` extension | Tasks + commands |
 
 </div>
 
 ## 🏗️ Architecture
 
-Every arrow is **bidirectional** — MCP is JSON-RPC (request/response), supervisor IPC uses the same socket for replies, SQLite reads return rows, livebus pushes back via SSE/WS. A tool call completes the full round-trip in **one diagram hop**.
+Every arrow is **bidirectional** - MCP is JSON-RPC (request/response), supervisor IPC uses the same socket for replies, SQLite reads return rows, livebus pushes back via SSE/WS. A tool call completes the full round-trip in **one diagram hop**.
 
 ```
   ┌────────────────────────────────────────────────────────────────────────┐
   │  Claude Code · Codex · Cursor · Windsurf · Zed · Gemini · 12 more…    │
   └─────────────────────────▲──────────────────────────────────────────────┘
-                            │        MCP — JSON-RPC over stdio
+                            │        MCP - JSON-RPC over stdio
                     request │ ▲ response
                             ▼ │  (tool_result / error / resource)
   ┌────────────────────────────────────────────────────────────────────────┐
-  │   MCP SERVER (Bun TS) — 48 tools, hot-reload, zod-validated            │
+  │   MCP SERVER (Bun TS) - 48 tools, hot-reload, zod-validated            │
   │   Resolves request → fans out to workers → aggregates → replies        │
   └─────────────────────────▲──────────────────────────────────────────────┘
-                            │        IPC — named pipe (Windows) / unix sock
+                            │        IPC - named pipe (Windows) / unix sock
                     request │ ▲ response
                             ▼ │  (typed IpcResponse with payload + metrics)
   ┌────────────────────────────────────────────────────────────────────────┐
@@ -337,7 +337,7 @@ Every arrow is **bidirectional** — MCP is JSON-RPC (request/response), supervi
      wiki.db · architecture.db · multimodal.db localhost:7777
 ```
 
-**One concrete round-trip — `blast_radius("handleLogin")`:**
+**One concrete round-trip - `blast_radius("handleLogin")`:**
 
 ```
   Claude           MCP server          Supervisor        Store         Brain
@@ -356,7 +356,7 @@ Every arrow is **bidirectional** — MCP is JSON-RPC (request/response), supervi
     │                 │                     │              │             │
 ```
 
-Total hops: 2 network-free IPCs + 1 in-process SQL read + 1 in-process embedding lookup. **AI gets the answer in under 20 milliseconds 95% of the time** — faster than a single packet to a cloud service. No cloud, no network, no API key.
+Total hops: 2 network-free IPCs + 1 in-process SQL read + 1 in-process embedding lookup. **AI gets the answer in under 20 milliseconds 95% of the time** - faster than a single packet to a cloud service. No cloud, no network, no API key.
 
 > **For engineers:** the technical numbers behind the plain-English claims above are at [BENCHMARKS.md](benchmarks/BENCHMARKS.md). Distributions: token reduction = 1.338× mean / 1.519× p50 / 3.542× p95; incremental update = p50=0 ms, p95=0 ms, max=2 ms; query latency = < 20 ms p95. CSVs in [`bench-history.csv`](bench-history.csv).
 
@@ -375,12 +375,12 @@ Honest inventory of surfaces that are partial, opt-in, or deferred in the curren
 | Voice navigation (`/api/voice`) | ⚠️ stub | Endpoint returns `{enabled: false, phase: "stub"}`. No voice recognition wired. |
 | Per-worker `rss_mb` on Windows | ✅ resolved in v0.3.2 (C1) | Supervisor SLA snapshot now reports real `rss_mb` values on Windows via `GetProcessMemoryInfo`. |
 | Tesseract OCR (image text) | ⚠️ opt-in, off by default | Shipped `mneme-multimodal` binary built without `tesseract` feature. Images record dimensions + EXIF only. Enable via `cargo build -p mneme-multimodal --features tesseract` (requires libtesseract + leptonica). Tracked as I-20. |
-| Real BGE-small ONNX embeddings | ⚠️ opt-in via `mneme models install` | Default install uses pure-Rust hashing-trick embedder (works, lower recall). Run `mneme models install --from-path <dir>` to enable real embeddings — `.onnx` + tokenizer aren't bundled. |
-| Claude Code hooks | ✅ default-on in v0.3.2 (K1) | `mneme install` writes the 8 hook entries under `~/.claude/settings.json::hooks` by default — without them history.db/tasks.db/tool_cache.db/livestate.db stay empty. Pass `--no-hooks` to skip. Every hook binary reads STDIN JSON and exits 0 on internal error, so a mneme bug can never block the user's tool calls. |
+| Real BGE-small ONNX embeddings | ⚠️ opt-in via `mneme models install` | Default install uses pure-Rust hashing-trick embedder (works, lower recall). Run `mneme models install --from-path <dir>` to enable real embeddings - `.onnx` + tokenizer aren't bundled. |
+| Claude Code hooks | ✅ default-on in v0.3.2 (K1) | `mneme install` writes the 8 hook entries under `~/.claude/settings.json::hooks` by default - without them history.db/tasks.db/tool_cache.db/livestate.db stay empty. Pass `--no-hooks` to skip. Every hook binary reads STDIN JSON and exits 0 on internal error, so a mneme bug can never block the user's tool calls. |
 
 For the full v0.3 inventory see [`docs-and-memory/V0.3.0-WHATS-IN.md`](docs-and-memory/V0.3.0-WHATS-IN.md); for phase-A categorisation of remaining issues see [`docs-and-memory/phase-a-issues.md`](docs-and-memory/phase-a-issues.md).
 
-## 🚀 Install — in depth
+## 🚀 Install - in depth
 
 ### System requirements
 
@@ -390,9 +390,9 @@ For the full v0.3 inventory see [`docs-and-memory/V0.3.0-WHATS-IN.md`](docs-and-
 
 **Disk**: ~3.5 GB for the model bundle + a few hundred MB for shard databases (per project).
 
-### Option 1 — One-shot bootstrap (recommended)
+### Option 1 - One-shot bootstrap (recommended)
 
-The bootstrap is what `iex (irm)` runs. It auto-detects everything (OS, architecture, CPU features, existing toolchains, disk space, elevation status) and gets out of your way — zero prompts, zero required flags.
+The bootstrap is what `iex (irm)` runs. It auto-detects everything (OS, architecture, CPU features, existing toolchains, disk space, elevation status) and gets out of your way - zero prompts, zero required flags.
 
 #### Windows
 
@@ -417,7 +417,7 @@ Each script:
 1. Detects your OS + architecture (x64 / ARM64) and downloads the matching binary archive
 2. Verifies the CPU has AVX2 / BMI2 / FMA (refuses early on pre-Haswell hardware with a clear error)
 3. Installs Bun if missing, runs `bun install --frozen-lockfile` for the MCP server
-4. Pulls 5 model files from the [Hugging Face Hub mirror](https://huggingface.co/aaditya4u/mneme-models) (`bge-small-en-v1.5.onnx`, `tokenizer.json`, `qwen-embed-0.5b.gguf`, `qwen-coder-0.5b.gguf`, `phi-3-mini-4k.gguf` as a single 2.23 GB file — no part-merge anymore), with GitHub Releases as automatic fallback
+4. Pulls 5 model files from the [Hugging Face Hub mirror](https://huggingface.co/aaditya4u/mneme-models) (`bge-small-en-v1.5.onnx`, `tokenizer.json`, `qwen-embed-0.5b.gguf`, `qwen-coder-0.5b.gguf`, and `phi-3-mini-4k.gguf` as a single 2.23 GB file). GitHub Releases is the automatic fallback if HF is unreachable - phi-3 falls back to two parts (`.part00` + `.part01`) there because GitHub caps individual release assets at 2 GB; the bootstrap concatenates them client-side before install.
 5. Adds Defender exclusions for `~/.mneme` and `~/.claude` (best-effort if not elevated)
 6. Registers the MCP server + Claude Code plugin commands (`/mn-build`, `/mn-recall`, `/mn-why`, …) + 8 hook entries
 7. Starts the daemon in the background and runs `mneme doctor` for a green-light verdict
@@ -425,14 +425,14 @@ Each script:
 > **OCR caveat (v0.3.x).** The `mneme-multimodal` binary published with
 > `mneme install` runs **without** the `tesseract` feature compiled in,
 > so image OCR is opt-in only. When a `.png` / `.jpg` / `.tiff` is
-> indexed, the ImageExtractor records dimensions and EXIF only — no
+> indexed, the ImageExtractor records dimensions and EXIF only - no
 > OCR text. To enable OCR, build from source with
 > `cargo build -p mneme-multimodal --features tesseract` after
 > installing libtesseract + leptonica system packages. Whisper (audio
 > transcription) and ffmpeg (video) are similarly opt-in. v0.4 may
 > ship a fat build with Tesseract bundled; tracked in issues.md I-20.
 
-### Option 2 — From source
+### Option 2 - From source
 
 ```bash
 git clone https://github.com/omanishay-cyber/mneme
@@ -446,7 +446,7 @@ See [INSTALL.md](INSTALL.md) for troubleshooting and platform-specific notes.
 
 ## 🤗 Models
 
-Mneme ships against five locally-loaded models. As of the v0.3.2 hotfix (2026-05-02) the install pulls them from the **[Hugging Face Hub mirror](https://huggingface.co/aaditya4u/mneme-models)** (`aaditya4u/mneme-models`) — Cloudflare CDN, ~5× faster than GitHub Releases globally, and no asset cap. GitHub Releases remains a fallback if Hugging Face is unreachable.
+Mneme ships against five locally-loaded models. As of the v0.3.2 hotfix (2026-05-02) the install pulls them from the **[Hugging Face Hub mirror](https://huggingface.co/aaditya4u/mneme-models)** (`aaditya4u/mneme-models`) - Cloudflare CDN, ~5× faster than GitHub Releases globally, and no asset cap. GitHub Releases remains a fallback if Hugging Face is unreachable.
 
 | File | Purpose | Size | Source |
 |---|---|---|---|
@@ -454,44 +454,44 @@ Mneme ships against five locally-loaded models. As of the v0.3.2 hotfix (2026-05
 | `tokenizer.json` | BGE tokenizer | ~711 KB | BAAI |
 | `qwen-embed-0.5b.gguf` | Local embedding fallback | ~395 MB | [Qwen team](https://huggingface.co/Qwen) |
 | `qwen-coder-0.5b.gguf` | Local code-aware LLM | ~395 MB | [Qwen team](https://huggingface.co/Qwen) |
-| `phi-3-mini-4k.gguf` | Local 4k-ctx LLM (single file — no part-merge) | ~2.23 GB | [microsoft/Phi-3-mini-4k-instruct-gguf](https://huggingface.co/microsoft/Phi-3-mini-4k-instruct-gguf) |
+| `phi-3-mini-4k.gguf` | Local 4k-ctx LLM (single file from HF; split into `.part00` + `.part01` on the GitHub Releases fallback because of the 2 GB asset cap there) | ~2.23 GB | [microsoft/Phi-3-mini-4k-instruct-gguf](https://huggingface.co/microsoft/Phi-3-mini-4k-instruct-gguf) |
 
 Total ~3.4 GB downloaded once. All inference runs on your CPU (no GPU required). Credit + thanks to BAAI, the Qwen team, and Microsoft for publishing these models openly.
 
 ## 🆕 What's new in v0.3.2 hotfix (2026-05-02)
 
-The hotfix sweeps 22+ bugs caught during real-world store-PC POS production installs and rebuilds the v0.3.2 release zip in place (no version bump — same `v0.3.2` tag).
+The hotfix sweeps 22+ bugs caught during real-world store-PC POS production installs and rebuilds the v0.3.2 release zip in place (no version bump - same `v0.3.2` tag).
 
 **Install reliability**
 
-- `bun install --frozen-lockfile` now runs after extract — fixes the silent "MCP server crashed on startup" failure that hit users whose `mcp/node_modules` was missing `zod` / `@modelcontextprotocol/sdk`.
+- `bun install --frozen-lockfile` now runs after extract - fixes the silent "MCP server crashed on startup" failure that hit users whose `mcp/node_modules` was missing `zod` / `@modelcontextprotocol/sdk`.
 - Plugin slash commands (`/mn-build`, `/mn-recall`, `/mn-why`, `/mn-resume`, …) now register with Claude Code on install.
-- Stage validation refuses to ship broken zips — a missing `mcp/node_modules/zod/package.json` aborts the build instead of producing a zip that crashes on first use.
+- Stage validation refuses to ship broken zips - a missing `mcp/node_modules/zod/package.json` aborts the build instead of producing a zip that crashes on first use.
 
 **Audit data integrity**
 
-- Audit findings now stream to `findings.db` per-batch instead of buffering until end-of-run — no more 0-finding outcomes when a long audit gets killed mid-pass.
+- Audit findings now stream to `findings.db` per-batch instead of buffering until end-of-run - no more 0-finding outcomes when a long audit gets killed mid-pass.
 - Audit fan-out uses idle scanner-workers in the supervisor pool (5–10× faster on multi-core machines).
 - The wall-clock outer timeout is gone; the per-line stall detector remains as the hang guard, so big projects no longer need `MNEME_AUDIT_TIMEOUT_SEC` overrides.
 
 **Performance**
 
-- Workspace compiles for `x86-64-v3` baseline (AVX2 / BMI2 / FMA) — 2–4× faster BGE inference, scanners, and tree-sitter parsing on Haswell-or-newer CPUs.
-- ONNX Runtime DLL bumped to 1.24.4 (matches `ort 2.0.0-rc.12`) — fixes the silent BGE inference hang on Windows.
+- Workspace compiles for `x86-64-v3` baseline (AVX2 / BMI2 / FMA) - 2–4× faster BGE inference, scanners, and tree-sitter parsing on Haswell-or-newer CPUs.
+- ONNX Runtime DLL bumped to 1.24.4 (matches `ort 2.0.0-rc.12`) - fixes the silent BGE inference hang on Windows.
 
 **UX polish**
 
-- Heartbeat phase label updates correctly when audit starts — no more stale `phase=embed processed=8003/8003` for 13 minutes while audit was actually running.
+- Heartbeat phase label updates correctly when audit starts - no more stale `phase=embed processed=8003/8003` for 13 minutes while audit was actually running.
 - `mneme build --rebuild` flag for forced clean rebuild without manual shard delete.
 - `doctor` MCP probe now echoes the child's stderr on failure (no more opaque "child closed stdout before response arrived").
-- All Unicode arrows (`→`) and middots (`·`) in user-facing console output replaced with ASCII (`->`, `*`) — fixes the `ΓåÆ` / `┬╖` mojibake on Windows console default code page.
-- Orphan-cleanup `Test-Path` guard — no more 41 spurious "could not remove orphan" warnings on upgrade installs.
+- All Unicode arrows (`→`) and middots (`·`) in user-facing console output replaced with ASCII (`->`, `*`) - fixes the `ΓåÆ` / `┬╖` mojibake on Windows console default code page.
+- Orphan-cleanup `Test-Path` guard - no more 41 spurious "could not remove orphan" warnings on upgrade installs.
 - PowerShell progress chatter (`Writing web request / Writing request stream`) silenced inside model downloads.
 
 **Architecture**
 
 - Cross-OS install commands per platform (Windows / macOS / Linux), each auto-detecting x64 vs ARM64. Windows ARM64 binary planned next.
-- Models migrated to Hugging Face Hub primary mirror (`aaditya4u/mneme-models`), Phi-3 ships as a single 2.23 GB file (no more part00/part01 split).
+- Models migrated to Hugging Face Hub primary mirror (`aaditya4u/mneme-models`); Phi-3 ships as a single 2.23 GB file there. The GitHub Releases fallback still uses `.part00` + `.part01` (concatenated client-side) because GitHub caps individual release assets at 2 GB.
 
 Full per-bug detail in [`CHANGELOG.md`](CHANGELOG.md).
 
@@ -500,10 +500,10 @@ Full per-bug detail in [`CHANGELOG.md`](CHANGELOG.md).
 ```typescript
 // Claude calls these from within any conversation:
 
-/mn-view                  // Open the vision app — Tauri shell + 14 dashboard views (live data via daemon /api/*)
+/mn-view                  // Open the vision app - Tauri shell + 14 dashboard views (live data via daemon /api/*)
 /mn-audit                 // Runs every scanner, returns findings
 /mn-recall "auth flow"    // Semantic recall across code + docs + decisions
-/mn-blast login.ts        // Blast radius — what breaks if this changes
+/mn-blast login.ts        // Blast radius - what breaks if this changes
 /mn-step status           // Current position in the numbered plan
 /mn-step resume           // Emit the resumption bundle after compaction
 /mn-godnodes              // Top-10 most-connected concepts
@@ -520,19 +520,19 @@ Full per-bug detail in [`CHANGELOG.md`](CHANGELOG.md).
 /mn-why                   // Explain why a target exists (decisions + lineage)
 ```
 
-> Hooks are **default-on in v0.3.2** (K1 fix) — `mneme install` writes the 8
+> Hooks are **default-on in v0.3.2** (K1 fix) - `mneme install` writes the 8
 > hook entries under `~/.claude/settings.json::hooks` automatically so the
 > persistent-memory pipeline (history.db, tasks.db, tool_cache.db,
 > livestate.db) starts capturing data on first use. Pass `--no-hooks` /
 > `--skip-hooks` to opt out. Every hook binary reads STDIN JSON and exits 0
-> on internal error — a mneme bug can never block your tool calls.
+> on internal error - a mneme bug can never block your tool calls.
 
 Full reference: [`docs/mcp-tools.md`](docs/mcp-tools.md).
 
 ## 🧠 20 Expert Skills + 4 Workflow Codewords (v0.3.1+)
 
 Mneme ships 19 **fireworks skills** + a **codewords skill** that give Claude instant expertise on
-whatever you're doing — and four single-word verbs that switch how Claude engages:
+whatever you're doing - and four single-word verbs that switch how Claude engages:
 
 **Codewords:**
 
@@ -541,7 +541,7 @@ whatever you're doing — and four single-word verbs that switch how Claude enga
 | `coldstart` | Pause. Observe only. Read context, draft a plan, do not touch code. |
 | `hotstart` | Resume with discipline. Numbered roadmap, `step_verify` after each step. |
 | `firestart` | Maximum loadout. Load all fireworks skills + prime mneme graph + hotstart. |
-| `CHS` | "Check my screenshot" — read the latest file in your Screenshots folder. |
+| `CHS` | "Check my screenshot" - read the latest file in your Screenshots folder. |
 
 **Fireworks skills (auto-dispatched by keyword):**
 
@@ -549,16 +549,16 @@ whatever you're doing — and four single-word verbs that switch how Claude enga
 `flutter` · `patterns` · `performance` · `react` · `refactor` · `research` · `review` ·
 `security` · `taskmaster` · `test` · `vscode` · `workflow`
 
-Each skill is a full package — `SKILL.md` (trigger rules + protocol) plus a `references/`
+Each skill is a full package - `SKILL.md` (trigger rules + protocol) plus a `references/`
 folder of deep how-to docs. Skills are keyword-gated: a Rust task never fires the React skill.
 They sleep until relevant, then activate automatically.
 
 ## 🎯 Philosophy
 
-1. **100% local** — no cloud, no telemetry, no API keys. Every model runs on your CPU.
-2. **Fault-tolerant by construction** — supervisor + watchdog + WAL + hourly snapshots. One worker crashes, the daemon stays up.
-3. **Sugar in drink** — installs invisibly; Claude sees mneme's context without you typing a single MCP call.
-4. **Drinks `.md` like Claude drinks CLAUDE.md** — your rules, memories, specs, READMEs all become first-class context.
+1. **100% local** - no cloud, no telemetry, no API keys. Every model runs on your CPU.
+2. **Fault-tolerant by construction** - supervisor + watchdog + WAL + hourly snapshots. One worker crashes, the daemon stays up.
+3. **Sugar in drink** - installs invisibly; Claude sees mneme's context without you typing a single MCP call.
+4. **Drinks `.md` like Claude drinks CLAUDE.md** - your rules, memories, specs, READMEs all become first-class context.
 5. **Compaction is solved at the architecture level, not the prompt level.**
 
 ## 🙌 Contributing
@@ -567,16 +567,16 @@ Bug reports, feature requests, and PRs are welcome. See [CONTRIBUTING.md](CONTRI
 
 This project is **Apache-2.0** licensed (see [LICENSE](LICENSE)). In plain English:
 
-- ✅ Use it — at work, at home, however you like
+- ✅ Use it - at work, at home, however you like
 - ✅ Modify it for yourself or for a product you ship
 - ✅ Redistribute (including commercially, bundled into your own product)
-- ✅ Sublicense — include in products under other compatible licenses
-- ✅ Patent grant — Apache-2.0 gives you an explicit patent license
+- ✅ Sublicense - include in products under other compatible licenses
+- ✅ Patent grant - Apache-2.0 gives you an explicit patent license
 - Just keep the copyright notice and don't claim Mneme endorses your fork.
 
 ## 📄 License
 
-[Apache-2.0](LICENSE) — permissive open-source. Commercial use, redistribution, and hosted derivatives all permitted.
+[Apache-2.0](LICENSE) - permissive open-source. Commercial use, redistribution, and hosted derivatives all permitted.
 
 Copyright © 2026 **Anish Trivedi**.
 
@@ -607,7 +607,7 @@ Copyright © 2026 **Anish Trivedi**.
 <br/><br/>
 
 <em>"Memory is the engine of creativity."</em><br/>
-<sub>— the idea behind Mneme, named after the Greek muse of memory</sub>
+<sub>- the idea behind Mneme, named after the Greek muse of memory</sub>
 
 <br/><br/>
 
@@ -617,11 +617,11 @@ Copyright © 2026 **Anish Trivedi**.
 
 ## 💬 Contact
 
-- **GitHub Issues** — bug reports, feature requests, commercial licensing inquiries
+- **GitHub Issues** - bug reports, feature requests, commercial licensing inquiries
   → [github.com/omanishay-cyber/mneme/issues](https://github.com/omanishay-cyber/mneme/issues)
-- **GitHub Discussions** — architecture questions, use cases, "is this a good idea?"
+- **GitHub Discussions** - architecture questions, use cases, "is this a good idea?"
   → [github.com/omanishay-cyber/mneme/discussions](https://github.com/omanishay-cyber/mneme/discussions)
-- **Security advisories** — private vulnerability reports
+- **Security advisories** - private vulnerability reports
   → [github.com/omanishay-cyber/mneme/security/advisories/new](https://github.com/omanishay-cyber/mneme/security/advisories/new)
 
 ---

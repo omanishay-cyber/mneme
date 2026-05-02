@@ -3,12 +3,12 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>mneme — Claude never starts cold. Claude never loses its place.</title>
-  <meta name="description" content="Claude remembers your codebase across sessions. Survives context wipe. No re-explaining the same architecture every chat. 100% local — your code stays on your machine. Works with Claude Code, Cursor, Codex and 16 more AI tools." />
+  <title>mneme - Claude never starts cold. Claude never loses its place.</title>
+  <meta name="description" content="Claude remembers your codebase across sessions. Survives context wipe. No re-explaining the same architecture every chat. 100% local - your code stays on your machine. Works with Claude Code, Cursor, Codex and 16 more AI tools." />
 
   <meta property="og:type" content="website" />
-  <meta property="og:title" content="mneme — Claude remembers your code" />
-  <meta property="og:description" content="The persistent memory layer for AI coding. Indexes once, stays indexed. Survives compaction. 100% local — runs on your laptop, not someone's cloud. Works with 19 AI tools out of the box." />
+  <meta property="og:title" content="mneme - Claude remembers your code" />
+  <meta property="og:description" content="The persistent memory layer for AI coding. Indexes once, stays indexed. Survives compaction. 100% local - runs on your laptop, not someone's cloud. Works with 19 AI tools out of the box." />
   <meta property="og:url" content="https://omanishay-cyber.github.io/mneme/" />
   <meta property="og:image" content="https://omanishay-cyber.github.io/mneme/og.png" />
   <meta property="og:image:type" content="image/png" />
@@ -22,7 +22,7 @@
 
   <style>
     :root {
-      /* LIGHT PREMIUM PALETTE — Linear/Notion vibe.
+      /* LIGHT PREMIUM PALETTE - Linear/Notion vibe.
          Warm off-white surfaces, strong contrast text, soft borders. */
       --bg: #fafaf7;          /* warm off-white, not pure white */
       --bg-2: #f4f3ee;        /* slightly tinted for section bands */
@@ -30,12 +30,12 @@
       --bg-elev: #ffffff;     /* elevated card */
       --text: #1c1d1f;        /* near-black, slight warmth */
       --text-strong: #0a0a0c; /* darkest for big titles */
-      --muted: #4a4a4e;       /* secondary text — darker for readability on light bg */
-      --muted-2: #7a7a80;     /* tertiary — slightly darker too */
+      --muted: #4a4a4e;       /* secondary text - darker for readability on light bg */
+      --muted-2: #7a7a80;     /* tertiary - slightly darker too */
       --line: #e8e7e2;        /* warm hairline border */
       --line-strong: #d4d3cc; /* hover-state borders */
 
-      /* Accents — brand gradient kept, magenta for punctuation, amber/red for state */
+      /* Accents - brand gradient kept, magenta for punctuation, amber/red for state */
       --accent-blue:     #2a7ed3;   /* slightly darker for light bg readability */
       --accent-green:    #16a37c;   /* deeper green for contrast on light */
       --accent-cyan:     #0698b8;   /* deeper cyan */
@@ -77,7 +77,7 @@
       overflow-x: hidden;
     }
 
-    /* very subtle grain (warm) — premium feel, not heavy */
+    /* very subtle grain (warm) - premium feel, not heavy */
     body::before {
       content: "";
       position: fixed;
@@ -89,7 +89,7 @@
       mix-blend-mode: multiply;
     }
 
-    /* ambient warm-tinted background mesh — soft, premium, not flashy */
+    /* ambient warm-tinted background mesh - soft, premium, not flashy */
     body::after {
       content: "";
       position: fixed;
@@ -128,7 +128,7 @@
     }
 
     /* ============================================================ */
-    /*  HERO — split layout, wordmark + terminal demo                */
+    /*  HERO - split layout, wordmark + terminal demo                */
     /* ============================================================ */
     .hero {
       max-width: 1280px;
@@ -269,7 +269,7 @@
     }
 
     /* ============================================================ */
-    /*  TERMINAL DEMO — right side of hero                           */
+    /*  TERMINAL DEMO - right side of hero                           */
     /* ============================================================ */
     .terminal {
       background: #0c0d10;
@@ -330,7 +330,7 @@
       from { opacity: 0; transform: translateY(4px); }
       to { opacity: 1; transform: translateY(0); }
     }
-    /* Terminal demo text — explicit colors for readability on dark terminal bg.
+    /* Terminal demo text - explicit colors for readability on dark terminal bg.
        Don't inherit light-theme --text / --muted (those are dark-on-light). */
     .terminal-body, .terminal-body .terminal-line { color: #e6e8ec; }
     .t-prompt { color: #41E1B5; }
@@ -404,7 +404,7 @@
     }
 
     /* ============================================================ */
-    /*  SECTIONS — reveal on scroll                                   */
+    /*  SECTIONS - reveal on scroll                                   */
     /* ============================================================ */
     section {
       max-width: 1180px;
@@ -442,7 +442,7 @@
     }
 
     /* ============================================================ */
-    /*  FEATURE CARDS — glass with colored left border per card      */
+    /*  FEATURE CARDS - glass with colored left border per card      */
     /* ============================================================ */
     .features {
       display: grid;
@@ -489,7 +489,7 @@
     }
 
     /* ============================================================ */
-    /*  BENCH TABLE — animated bars                                  */
+    /*  BENCH TABLE - animated bars                                  */
     /* ============================================================ */
     .bench-table {
       width: 100%;
@@ -987,7 +987,7 @@
       </div>
       <h1 class="wordmark"><span class="gradient-text">mneme</span></h1>
       <p class="tagline">Claude remembers your code.<br/>Even when you don't.</p>
-      <p class="subtag">Stop re-explaining your codebase every chat. Mneme keeps what Claude learned about your project — survives context wipes, doesn't forget mid-task, runs entirely on your machine. No cloud. No telemetry. No subscription.</p>
+      <p class="subtag">Stop re-explaining your codebase every chat. Mneme keeps what Claude learned about your project - survives context wipes, doesn't forget mid-task, runs entirely on your machine. No cloud. No telemetry. No subscription.</p>
 
       <div class="cta-row">
         <a class="cta cta-primary" href="https://github.com/omanishay-cyber/mneme/releases/tag/v0.3.2">Download v0.3.2 →</a>
@@ -1014,9 +1014,9 @@
         <div class="terminal-body">
           <div class="terminal-line l1"><span class="t-prompt">$</span> mneme recall <span class="t-str">"auth flow"</span></div>
           <div class="terminal-line l2"><span class="t-dim">→ 3 hits from graph (resumption-ready)</span></div>
-          <div class="terminal-line l3"><span class="t-match">auth/login.ts<span class="t-dim"> — email+password, OAuth, JWT rotation</span> <span class="t-score">0.94</span></span></div>
-          <div class="terminal-line l4"><span class="t-match">auth/middleware.ts<span class="t-dim"> — bearer check, role gate</span> <span class="t-score">0.88</span></span></div>
-          <div class="terminal-line l5"><span class="t-match">docs/AUTH.md<span class="t-dim"> — threat model, 14 step ledger entries</span> <span class="t-score">0.81</span></span></div>
+          <div class="terminal-line l3"><span class="t-match">auth/login.ts<span class="t-dim"> - email+password, OAuth, JWT rotation</span> <span class="t-score">0.94</span></span></div>
+          <div class="terminal-line l4"><span class="t-match">auth/middleware.ts<span class="t-dim"> - bearer check, role gate</span> <span class="t-score">0.88</span></span></div>
+          <div class="terminal-line l5"><span class="t-match">docs/AUTH.md<span class="t-dim"> - threat model, 14 step ledger entries</span> <span class="t-score">0.81</span></span></div>
           <div class="terminal-line l6"><span class="t-dim">  injected 2.3K tokens · 0 ms network · 1.8 ms SQLite</span></div>
           <div class="terminal-line l7"><span class="t-prompt">$</span><span class="t-caret" aria-hidden="true"></span></div>
         </div>
@@ -1025,21 +1025,21 @@
   </div>
 
   <!-- ============================================================ -->
-  <!--  MEASURED-WIN RIBBON — human-voice user outcomes              -->
+  <!--  MEASURED-WIN RIBBON - human-voice user outcomes              -->
   <!-- ============================================================ -->
   <div class="ribbon">
     <div class="ribbon-inner reveal">
       <div class="ribbon-stat">
         <span class="num g1">resume</span>
-        <span class="label">where you left off — Claude picks up mid-task even after context wipes</span>
+        <span class="label">where you left off - Claude picks up mid-task even after context wipes</span>
       </div>
       <div class="ribbon-stat">
         <span class="num g2">recall</span>
-        <span class="label">across your whole codebase — by meaning, not just keywords</span>
+        <span class="label">across your whole codebase - by meaning, not just keywords</span>
       </div>
       <div class="ribbon-stat">
         <span class="num g3">local</span>
-        <span class="label">your code never leaves your machine — no telemetry, no API keys</span>
+        <span class="label">your code never leaves your machine - no telemetry, no API keys</span>
       </div>
     </div>
   </div>
@@ -1065,7 +1065,7 @@
   <!-- ============================================================ -->
   <section class="reveal">
     <h2>The <span class="accent">three flaws</span> every AI assistant has</h2>
-    <p class="lead">Mneme fixes all three at the architecture level — not the prompt level.</p>
+    <p class="lead">Mneme fixes all three at the architecture level - not the prompt level.</p>
 
     <div class="features">
       <div class="card c-a">
@@ -1081,7 +1081,7 @@
       <div class="card c-c">
         <span class="icon" aria-hidden="true">🎯</span>
         <h3>Drifts from your rules</h3>
-        <p>CLAUDE.md says "no hardcoded colors" — five prompts later it hardcodes one. Mneme's drift detector enforces every rule in real time.</p>
+        <p>CLAUDE.md says "no hardcoded colors" - five prompts later it hardcodes one. Mneme's drift detector enforces every rule in real time.</p>
       </div>
     </div>
   </section>
@@ -1090,7 +1090,7 @@
   <!--  KILLER FEATURE                                                -->
   <!-- ============================================================ -->
   <section class="reveal">
-    <h2>The <span class="accent">killer feature</span> — compaction resilience</h2>
+    <h2>The <span class="accent">killer feature</span> - compaction resilience</h2>
 
     <div class="quote">
       You give Claude a 100-step task. Context compacts at step 50.<br/>
@@ -1102,11 +1102,11 @@
   </section>
 
   <!-- ============================================================ -->
-  <!--  BENCHMARKS — UNIFIED 4-WAY COMPARISON                         -->
+  <!--  BENCHMARKS - UNIFIED 4-WAY COMPARISON                         -->
   <!-- ============================================================ -->
   <section class="reveal">
     <h2>How mneme stacks up</h2>
-    <p class="lead">Real comparison against every tool in the AI-code-context space — measured numbers where we have them, honest "yes / partial / no" where we don't. Both wins and losses included.</p>
+    <p class="lead">Real comparison against every tool in the AI-code-context space - measured numbers where we have them, honest "yes / partial / no" where we don't. Both wins and losses included.</p>
 
     <!-- Speed callout strip -->
     <div class="speed-strip">
@@ -1144,22 +1144,22 @@
         <tbody>
           <tr>
             <td class="cmp-q">Survives Claude's context-wipe (compaction)?</td>
-            <td class="cmp-mneme"><span class="cmp-yes">YES</span> — Step Ledger resumes mid-task</td>
+            <td class="cmp-mneme"><span class="cmp-yes">YES</span> - Step Ledger resumes mid-task</td>
             <td><span class="cmp-no">No</span></td>
             <td><span class="cmp-no">No</span></td>
             <td><span class="cmp-na">N/A</span> (parser only)</td>
           </tr>
           <tr>
             <td class="cmp-q">Catches Claude breaking your CLAUDE.md rules live?</td>
-            <td class="cmp-mneme"><span class="cmp-yes">YES</span> — 11 scanners (theme, security, a11y, perf, drift, ipc, secrets, refactor + 3 more)</td>
+            <td class="cmp-mneme"><span class="cmp-yes">YES</span> - 11 scanners (theme, security, a11y, perf, drift, ipc, secrets, refactor + 3 more)</td>
             <td><span class="cmp-mid">Partial</span> (lint-style review)</td>
             <td><span class="cmp-no">No</span></td>
             <td><span class="cmp-na">N/A</span></td>
           </tr>
           <tr>
             <td class="cmp-q">Plugs into Claude Code, Cursor, etc. as MCP server?</td>
-            <td class="cmp-mneme"><span class="cmp-yes">YES</span> — 48 tools, 19 AI platforms supported</td>
-            <td><span class="cmp-mid">Partial</span> — 24 tools, 2 platforms</td>
+            <td class="cmp-mneme"><span class="cmp-yes">YES</span> - 48 tools, 19 AI platforms supported</td>
+            <td><span class="cmp-mid">Partial</span> - 24 tools, 2 platforms</td>
             <td><span class="cmp-no">No</span> (not an MCP server)</td>
             <td><span class="cmp-no">No</span></td>
           </tr>
@@ -1172,28 +1172,28 @@
           </tr>
           <tr>
             <td class="cmp-q">Updating after you save a file?</td>
-            <td class="cmp-mneme"><span class="cmp-yes">Faster than you can blink</span> — usually 0 ms, never &gt; 2 ms</td>
+            <td class="cmp-mneme"><span class="cmp-yes">Faster than you can blink</span> - usually 0 ms, never &gt; 2 ms</td>
             <td>~2 seconds</td>
             <td>seconds</td>
             <td>fast (you wrap it)</td>
           </tr>
           <tr>
             <td class="cmp-q">Smart semantic search (not just keyword)?</td>
-            <td class="cmp-mneme"><span class="cmp-yes">YES</span> — pure-Rust hashing default, BGE embeddings opt-in</td>
+            <td class="cmp-mneme"><span class="cmp-yes">YES</span> - pure-Rust hashing default, BGE embeddings opt-in</td>
             <td><span class="cmp-no">No</span> (keyword only)</td>
-            <td><span class="cmp-mid">Partial</span> — pulls models from network</td>
+            <td><span class="cmp-mid">Partial</span> - pulls models from network</td>
             <td><span class="cmp-no">No</span></td>
           </tr>
           <tr>
-            <td class="cmp-q">100% local — no internet calls during normal use?</td>
-            <td class="cmp-mneme"><span class="cmp-yes">YES</span> — enforced across Rust + TS + Python</td>
+            <td class="cmp-q">100% local - no internet calls during normal use?</td>
+            <td class="cmp-mneme"><span class="cmp-yes">YES</span> - enforced across Rust + TS + Python</td>
             <td><span class="cmp-yes">Yes</span></td>
             <td><span class="cmp-mid">Partial</span> (model downloads, Whisper prompts)</td>
             <td><span class="cmp-yes">Yes</span></td>
           </tr>
           <tr>
             <td class="cmp-q">Multimodal (indexes PDFs, images, audio)?</td>
-            <td class="cmp-mneme"><span class="cmp-yes">YES</span> — Python sidecar, fault-isolated</td>
+            <td class="cmp-mneme"><span class="cmp-yes">YES</span> - Python sidecar, fault-isolated</td>
             <td><span class="cmp-no">No</span></td>
             <td><span class="cmp-mid">Partial</span> (text only by default)</td>
             <td><span class="cmp-no">No</span></td>
@@ -1214,7 +1214,7 @@
           </tr>
           <tr>
             <td class="cmp-q">Live push updates (SSE / WebSocket bus)?</td>
-            <td class="cmp-mneme"><span class="cmp-yes">YES</span> — livebus worker, multi-agent pubsub</td>
+            <td class="cmp-mneme"><span class="cmp-yes">YES</span> - livebus worker, multi-agent pubsub</td>
             <td><span class="cmp-no">No</span></td>
             <td><span class="cmp-no">No</span></td>
             <td><span class="cmp-no">No</span></td>
@@ -1240,13 +1240,13 @@
             <td>MIT</td>
             <td>MIT</td>
           </tr>
-          <tr class="cmp-divider"><td colspan="5"><em>Where the others win — honest losses:</em></td></tr>
+          <tr class="cmp-divider"><td colspan="5"><em>Where the others win - honest losses:</em></td></tr>
           <tr>
             <td class="cmp-q">One-shot install (`pip install`)?</td>
             <td class="cmp-mneme"><span class="cmp-no">No</span> (Rust + Bun toolchain)</td>
-            <td><span class="cmp-yes">Yes</span> — `pip install crg`</td>
-            <td><span class="cmp-yes">Yes</span> — `pip install graphify`</td>
-            <td><span class="cmp-yes">Yes</span> — `npm install`</td>
+            <td><span class="cmp-yes">Yes</span> - `pip install crg`</td>
+            <td><span class="cmp-yes">Yes</span> - `pip install graphify`</td>
+            <td><span class="cmp-yes">Yes</span> - `npm install`</td>
           </tr>
           <tr>
             <td class="cmp-q">VS Code extension?</td>
@@ -1274,11 +1274,11 @@
     </div>
 
     <p class="lead" style="font-size:0.92rem; color: var(--muted); margin-top: 24px;">
-      <strong>The shape of it:</strong> mneme is the heaviest tool in the space — a multi-process Rust supervisor that runs between your AI sessions, survives compaction at the architecture level, enforces your rules in real time, and gives every AI tool you use the same memory. The others are lighter and easier to install but stop short of the persistent-memory + drift + 47-tool MCP surface.
+      <strong>The shape of it:</strong> mneme is the heaviest tool in the space - a multi-process Rust supervisor that runs between your AI sessions, survives compaction at the architecture level, enforces your rules in real time, and gives every AI tool you use the same memory. The others are lighter and easier to install but stop short of the persistent-memory + drift + 48-tool MCP surface.
     </p>
 
     <details class="for-engineers">
-      <summary>For engineers — the technical numbers behind these claims</summary>
+      <summary>For engineers - the technical numbers behind these claims</summary>
       <div class="for-engineers-body">
         <p>Token reduction (code review): mneme = 1.338× mean / 1.519× p50 / 3.542× p95. CRG = 6.8× single-figure claim from their README.</p>
         <p>Incremental update latency: mneme = p50 = 0 ms, p95 = 0 ms, max = 2 ms across 100 samples (v0.2.3 harness on this repo). CRG = &lt; 2 s claimed.</p>
@@ -1351,13 +1351,13 @@ python run_crg_bench.py</code></pre>
     <h2>20 expert skills + 4 workflow <span class="accent">codewords</span></h2>
     <p class="lead">Mneme ships a full skill arsenal. Claude auto-loads the right expert for the task. Four single-word verbs switch how Claude engages.</p>
 
-    <h3 class="cmp-h3">Four codewords — one-word session control</h3>
+    <h3 class="cmp-h3">Four codewords - one-word session control</h3>
     <p class="lead" style="font-size: 14px; max-width: 640px;">Type one of these as a single word and Claude switches modes instantly. No prompt engineering. No ceremony. Just a verb.</p>
 
     <div class="codewords-grid">
       <div class="codeword-card cw-cold">
         <div class="word">coldstart</div>
-        <div class="desc">Pause. Observe only. Claude reads context, drafts a plan, and waits — no code changes until you say go.</div>
+        <div class="desc">Pause. Observe only. Claude reads context, drafts a plan, and waits - no code changes until you say go.</div>
       </div>
       <div class="codeword-card cw-hot">
         <div class="word">hotstart</div>
@@ -1404,11 +1404,11 @@ python run_crg_bench.py</code></pre>
   </section>
 
   <!-- ============================================================ -->
-  <!--  47 MCP TOOLS — CATEGORIZED                                    -->
+  <!--  48 MCP TOOLS - CATEGORIZED                                    -->
   <!-- ============================================================ -->
   <section class="reveal">
     <h2>The <span class="accent">48-tool</span> MCP surface, by category</h2>
-    <p class="lead">Every tool is typed (zod-validated input/output), hot-reloadable, and talks to the Rust daemon over IPC. AI doesn't need to know where data lives — it just calls the tool.</p>
+    <p class="lead">Every tool is typed (zod-validated input/output), hot-reloadable, and talks to the Rust daemon over IPC. AI doesn't need to know where data lives - it just calls the tool.</p>
     <div class="tools-grid">
       <div class="tools-cat">
         <h4>// recall &amp; search</h4>
@@ -1454,7 +1454,7 @@ python run_crg_bench.py</code></pre>
           <li><strong>/mn-view</strong> launch dashboard (browser)</li>
           <li><strong>/mn-godnodes graph</strong> WebGL force layout</li>
           <li><strong>/mn-treemap</strong> file-size heatmap</li>
-          <li>14 views total — one tool per view</li>
+          <li>14 views total - one tool per view</li>
         </ul>
       </div>
       <div class="tools-cat">
@@ -1494,16 +1494,16 @@ python run_crg_bench.py</code></pre>
   <!--  ARCHITECTURE                                                  -->
   <!-- ============================================================ -->
   <section class="reveal">
-    <h2><span class="accent">Architecture</span> — multi-process, fault-tolerant, 100% local</h2>
+    <h2><span class="accent">Architecture</span> - multi-process, fault-tolerant, 100% local</h2>
 <pre><code>Marketplace plugin (global / user / project scope)
 └─ SUPERVISOR (Rust, Windows service / launchd / systemd)
    ├─ STORE           22-layer SQLite sharded per project + WAL
-   ├─ MCP server      Bun TS, 47 tools, JSON-RPC stdio
+   ├─ MCP server      Bun TS, 48 tools, JSON-RPC stdio
    ├─ PARSERS         Tree-sitter, 27 languages, num_cpus×4
    ├─ SCANNERS        Theme / security / a11y / perf / drift
    ├─ MD-INGEST       Drinks every .md like CLAUDE.md
    ├─ BRAIN           Pure-Rust embeddings + Leiden clustering
-   ├─ MULTIMODAL      Python sidecar — PDF / Whisper / OCR
+   ├─ MULTIMODAL      Python sidecar - PDF / Whisper / OCR
    ├─ LIVE BUS        SSE/WebSocket push channel
    ├─ VISION          14-view WebGL desktop+web app
    └─ HEALTH          60 s self-test, SLA dashboard</code></pre>
@@ -1521,7 +1521,7 @@ python run_crg_bench.py</code></pre>
       <a href="https://github.com/omanishay-cyber/mneme/issues">Issues</a>
       <a href="https://github.com/omanishay-cyber/mneme/discussions">Discussions</a>
     </div>
-    <p>© 2026 <strong>Anish Trivedi</strong>. Apache-2.0 — open-source, free to use, commercial restrictions apply.</p>
+    <p>© 2026 <strong>Anish Trivedi</strong>. Apache-2.0 - open-source, free to use, commercial restrictions apply.</p>
     <p style="margin-top:8px;opacity:0.6;">🌳 Named after Mneme, the Greek muse of memory.</p>
   </footer>
 

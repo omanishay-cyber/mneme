@@ -4,7 +4,7 @@ The 10-minute read on how mneme is built, in plain English, without exposing the
 
 ## Mental model in one paragraph
 
-mneme is a **local daemon** that **indexes your project into a SQLite graph** and **feeds Claude exactly the right slice of that graph at every turn**. The daemon runs as a supervisor that spawns worker processes for parsing, scanning, pushing live events, and bridging Python. An MCP server speaks JSON-RPC to Claude (or Codex, Cursor, etc.) and hits the graph via direct `bun:sqlite` reads or through the supervisor for writes. A Step Ledger stored in the graph is what lets Claude survive context compaction — it's just numbered rows in SQLite with verification commands attached.
+mneme is a **local daemon** that **indexes your project into a SQLite graph** and **feeds Claude exactly the right slice of that graph at every turn**. The daemon runs as a supervisor that spawns worker processes for parsing, scanning, pushing live events, and bridging Python. An MCP server speaks JSON-RPC to Claude (or Codex, Cursor, etc.) and hits the graph via direct `bun:sqlite` reads or through the supervisor for writes. A Step Ledger stored in the graph is what lets Claude survive context compaction - it's just numbered rows in SQLite with verification commands attached.
 
 ## The 10 moving parts
 
@@ -55,13 +55,13 @@ The Rust code calls this the **Single-Writer Invariant**. Do not bypass it.
 
 ### 2. Fault domains are OS processes
 
-Each worker (parsers, scanners, brain, livebus, store, md-ingest) runs as a separate OS process supervised by the root daemon. When one crashes, the supervisor captures a log entry and restarts it without affecting the others. The MCP server you talk to via Claude is a *different* process from the supervisor — if you only want the MCP server, it runs perfectly well without the daemon.
+Each worker (parsers, scanners, brain, livebus, store, md-ingest) runs as a separate OS process supervised by the root daemon. When one crashes, the supervisor captures a log entry and restarts it without affecting the others. The MCP server you talk to via Claude is a *different* process from the supervisor - if you only want the MCP server, it runs perfectly well without the daemon.
 
 ### 3. 100% local
 
-No outbound network calls in the hot path. By default, embeddings are computed by a pure-Rust hashing-trick embedder that ships with the binaries — no ONNX native DLL, no Hugging Face download, no API key, no telemetry. As of v0.3.0, real BGE-small-en-v1.5 ONNX embeddings are available as an opt-in build (`brain` crate `real-embeddings` feature) using dynamic ORT loading — still local, still no network call. If you block mneme at the firewall, it keeps working.
+No outbound network calls in the hot path. By default, embeddings are computed by a pure-Rust hashing-trick embedder that ships with the binaries - no ONNX native DLL, no Hugging Face download, no API key, no telemetry. As of v0.3.0, real BGE-small-en-v1.5 ONNX embeddings are available as an opt-in build (`brain` crate `real-embeddings` feature) using dynamic ORT loading - still local, still no network call. If you block mneme at the firewall, it keeps working.
 
-The only exception is `mneme models install --from-path <local-mirror>` which copies pre-downloaded model files from a path you specify — still local.
+The only exception is `mneme models install --from-path <local-mirror>` which copies pre-downloaded model files from a path you specify - still local.
 
 ### 4. Marker-based idempotent injection
 
@@ -71,7 +71,7 @@ When `mneme install` writes to your `CLAUDE.md`, `AGENTS.md`, `.cursorrules`, `.
 
 `store/src/schema.rs` is append-only. Columns get added; they never get dropped or renamed. To rename something conceptually, add the new column, stop writing the old one, and leave the old column in place forever. This makes rolling upgrades safe and means downgrading is always OK.
 
-## Data flow — "what happens when I run `mneme build`"
+## Data flow - "what happens when I run `mneme build`"
 
 1. **CLI walks the project** with `walkdir`, respecting `.gitignore` + common ignore patterns
 2. For each file with a supported language:
@@ -79,11 +79,11 @@ When `mneme install` writes to your `CLAUDE.md`, `AGENTS.md`, `.cursorrules`, `.
    - **Parse** via the Tree-sitter parser pool (one `tree_sitter::Parser` per worker, cached query patterns)
    - **Extract** `Node` + `Edge` records via the extractor (function defs, class defs, imports, calls, decorators, comments)
 3. **Write** every node and edge into `graph.db` through the store's single-writer channel
-4. Done — the shard is now queryable by any MCP tool or any other client
+4. Done - the shard is now queryable by any MCP tool or any other client
 
 Incremental rebuilds reuse cached Tree-sitter trees keyed by file content hash (blake3). Unchanged files are zero-cost on subsequent builds.
 
-## Data flow — "what happens when Claude calls `blast_radius()`"
+## Data flow - "what happens when Claude calls `blast_radius()`"
 
 1. Claude's MCP client sends `{"jsonrpc":"2.0","method":"tools/call","params":{"name":"blast_radius","arguments":{"target":"src/auth/login.ts","depth":2}}}` over stdio to the `mneme mcp stdio` process
 2. The MCP server validates the input with zod
@@ -92,7 +92,7 @@ Incremental rebuilds reuse cached Tree-sitter trees keyed by file content hash (
 5. It transforms the result into the schema the MCP client expects and sends it back
 6. Total time: **<5 ms on a warm shard**
 
-## Data flow — "what happens during context compaction"
+## Data flow - "what happens during context compaction"
 
 This is the killer feature. Simplified:
 
@@ -109,22 +109,22 @@ This is the killer feature. Simplified:
    - Active constraints
 6. Claude's next turn receives this bundle as context and resumes at the correct step
 
-No prompt engineering. No "remember the rules". The state lives in SQLite — it can't be forgotten.
+No prompt engineering. No "remember the rules". The state lives in SQLite - it can't be forgotten.
 
 ## Language choices, briefly
 
-- **Rust** for the supervisor, store, parsers, scanners, livebus, brain — everything that must be fast, fault-tolerant, and statically linkable. Single binary per worker, ~5–20 MB each.
-- **Bun + TypeScript** for the MCP server and vision app — hot-reloadable tool definitions, fast cold start, zod at the boundary. `bun:sqlite` is the fastest SQLite binding in any runtime.
-- **Python** for the multimodal sidecar — the ecosystem around PDF extraction (PyMuPDF), OCR (Tesseract), and speech-to-text (faster-whisper) is irreplaceable.
+- **Rust** for the supervisor, store, parsers, scanners, livebus, brain - everything that must be fast, fault-tolerant, and statically linkable. Single binary per worker, ~5–20 MB each.
+- **Bun + TypeScript** for the MCP server and vision app - hot-reloadable tool definitions, fast cold start, zod at the boundary. `bun:sqlite` is the fastest SQLite binding in any runtime.
+- **Python** for the multimodal sidecar - the ecosystem around PDF extraction (PyMuPDF), OCR (Tesseract), and speech-to-text (faster-whisper) is irreplaceable.
 
-The three languages talk over msgpack or JSON on Unix-domain sockets / Windows named pipes — no shared memory, no dynamic linking across language boundaries.
+The three languages talk over msgpack or JSON on Unix-domain sockets / Windows named pipes - no shared memory, no dynamic linking across language boundaries.
 
 ## Where to go next
 
-- [`INSTALL.md`](../INSTALL.md) — install paths + troubleshooting
-- [`docs/mcp-tools.md`](mcp-tools.md) — reference for every MCP tool
-- [`docs/faq.md`](faq.md) — common questions
-- [`CONTRIBUTING.md`](../CONTRIBUTING.md) — how to add a scanner, language, view, or MCP tool
+- [`INSTALL.md`](../INSTALL.md) - install paths + troubleshooting
+- [`docs/mcp-tools.md`](mcp-tools.md) - reference for every MCP tool
+- [`docs/faq.md`](faq.md) - common questions
+- [`CONTRIBUTING.md`](../CONTRIBUTING.md) - how to add a scanner, language, view, or MCP tool
 
 ---
 

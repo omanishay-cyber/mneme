@@ -6,17 +6,17 @@
 
 Every AI coding assistant has the same three flaws:
 
-1. **Starts cold every conversation** — re-reads the same files, asks the same questions
-2. **Loses its place when context compacts** — you give Claude a 100-step plan and at step 50 the conversation compresses; Claude forgets and starts over
-3. **Drifts from your rules** — your `CLAUDE.md` says "no hardcoded colors", but five prompts later Claude hardcodes one
+1. **Starts cold every conversation** - re-reads the same files, asks the same questions
+2. **Loses its place when context compacts** - you give Claude a 100-step plan and at step 50 the conversation compresses; Claude forgets and starts over
+3. **Drifts from your rules** - your `CLAUDE.md` says "no hardcoded colors", but five prompts later Claude hardcodes one
 
 mneme fixes all three at the architecture level (not the prompt level) by externalising the memory into a local SQLite graph that gets silently fed back into Claude's context each turn.
 
 ### Is this just another RAG system?
 
-No. RAG chunks your documents and does embedding lookup when you ask a question. mneme is doing the opposite: it tracks **structured state** (numbered steps, decisions, constraints, verbatim conversation turns, file-by-file graph edges) and **proactively injects** the correct slice into every turn — before Claude has even thought to ask.
+No. RAG chunks your documents and does embedding lookup when you ask a question. mneme is doing the opposite: it tracks **structured state** (numbered steps, decisions, constraints, verbatim conversation turns, file-by-file graph edges) and **proactively injects** the correct slice into every turn - before Claude has even thought to ask.
 
-mneme does have an embeddings store and supports semantic recall, but that's one tool among 47. The headline feature is the Step Ledger, which is not RAG at all — it's a verified state machine.
+mneme does have an embeddings store and supports semantic recall, but that's one tool among 48. The headline feature is the Step Ledger, which is not RAG at all - it's a verified state machine.
 
 ### Do you send my code to a server?
 
@@ -25,7 +25,7 @@ No. mneme runs **100% locally**. No cloud, no telemetry, no API keys, no "phone 
 ### How is this different from code-review-graph or graphify?
 
 - **code-review-graph** (CRG) is the state-of-the-art deterministic code graph. mneme's structural graph builds on the same idea (Tree-sitter AST → SQLite) but adds 21 more storage layers, compaction resilience, and the Step Ledger. Measured p95 token reduction is 3.5× (see [BENCHMARKS.md](../benchmarks/BENCHMARKS.md)); CRG comparison pending a Linux CI run.
-- **graphify** is a multimodal knowledge-graph builder that uses LLM subagents to extract concepts from PDFs/audio/video. mneme absorbs graphify's multimodal pipeline as one of its workers — they're complementary, not competing.
+- **graphify** is a multimodal knowledge-graph builder that uses LLM subagents to extract concepts from PDFs/audio/video. mneme absorbs graphify's multimodal pipeline as one of its workers - they're complementary, not competing.
 
 See the README's benchmark table for a feature-by-feature comparison.
 
@@ -37,30 +37,30 @@ See the README's benchmark table for a feature-by-feature comparison.
 
 Each is used for what it's best at:
 
-- **Rust** — supervisor, storage, parsers, scanners. Must be fast, fault-tolerant, and statically linkable.
-- **Bun + TypeScript** — MCP server and vision app. Hot-reloadable tool definitions; `bun:sqlite` is the fastest SQLite binding in any runtime.
-- **Python** — multimodal sidecar. PDF/OCR/Whisper ecosystems are irreplaceable here.
+- **Rust** - supervisor, storage, parsers, scanners. Must be fast, fault-tolerant, and statically linkable.
+- **Bun + TypeScript** - MCP server and vision app. Hot-reloadable tool definitions; `bun:sqlite` is the fastest SQLite binding in any runtime.
+- **Python** - multimodal sidecar. PDF/OCR/Whisper ecosystems are irreplaceable here.
 
-v0.2.0+ releases ship prebuilt binaries via GitHub Actions, so you don't need the toolchains yourself — just the runtimes.
+v0.2.0+ releases ship prebuilt binaries via GitHub Actions, so you don't need the toolchains yourself - just the runtimes.
 
 ### Install failed. What do I check?
 
 Walk down [`INSTALL.md`'s troubleshooting section](../INSTALL.md#troubleshooting). The most common causes:
 
-1. **Rust not on PATH** — reopen your terminal after installing Rust
-2. **Build tools missing on Windows** — `winget install Microsoft.VisualStudio.2022.BuildTools`
-3. **Bun not found** — `winget install Oven-sh.Bun`
-4. **Python too old** — need 3.10+ for the multimodal sidecar
+1. **Rust not on PATH** - reopen your terminal after installing Rust
+2. **Build tools missing on Windows** - `winget install Microsoft.VisualStudio.2022.BuildTools`
+3. **Bun not found** - `winget install Oven-sh.Bun`
+4. **Python too old** - need 3.10+ for the multimodal sidecar
 
 ### Where is my data stored?
 
 Everything lives under `~/.mneme/`:
 
-- `~/.mneme/projects/<sha>/` — per-project shards (one folder per project)
-- `~/.mneme/snapshots/` — hourly rolling snapshots of each shard
-- `~/.mneme/cache/` — embedding cache, docs cache, multimodal cache
-- `~/.mneme/bin/` — the worker binaries
-- `~/.mneme/logs/` — supervisor + worker logs
+- `~/.mneme/projects/<sha>/` - per-project shards (one folder per project)
+- `~/.mneme/snapshots/` - hourly rolling snapshots of each shard
+- `~/.mneme/cache/` - embedding cache, docs cache, multimodal cache
+- `~/.mneme/bin/` - the worker binaries
+- `~/.mneme/logs/` - supervisor + worker logs
 
 Remove the folder and mneme is gone. Nothing lives anywhere else.
 
@@ -134,11 +134,11 @@ It depends. Building *a tool whose primary value proposition is mneme* (another 
 
 ### Can I host mneme as a paid service?
 
-**No** — that's specifically prohibited. Commercial hosting requires a separate license.
+**No** - that's specifically prohibited. Commercial hosting requires a separate license.
 
 ### Can I modify mneme locally?
 
-**Yes.** Modify for your own use, write custom MCP tools, add scanners, tweak prompts — all allowed. You can't redistribute the modified version.
+**Yes.** Modify for your own use, write custom MCP tools, add scanners, tweak prompts - all allowed. You can't redistribute the modified version.
 
 ### What if I find a bug and want to send a fix?
 
@@ -166,15 +166,15 @@ Idle daemon: 30–80 MB. Peak during active indexing of a 10k-file project: ~500
 
 ### Where do I report a bug?
 
-[GitHub Issues](https://github.com/omanishay-cyber/mneme/issues) — please include OS, Rust version, Bun version, and the output of `mneme --verbose doctor`.
+[GitHub Issues](https://github.com/omanishay-cyber/mneme/issues) - please include OS, Rust version, Bun version, and the output of `mneme --verbose doctor`.
 
 ### Where do I ask a question?
 
-[GitHub Discussions](https://github.com/omanishay-cyber/mneme/discussions) — any "how would I" or architectural-design question is welcome.
+[GitHub Discussions](https://github.com/omanishay-cyber/mneme/discussions) - any "how would I" or architectural-design question is welcome.
 
 ### Security vulnerability?
 
-Please **do not** file a public issue. Open an Issue with `[SECURITY]` in the title and say "please contact me privately" — a maintainer will reach out via GitHub DM to continue in confidence.
+Please **do not** file a public issue. Open an Issue with `[SECURITY]` in the title and say "please contact me privately" - a maintainer will reach out via GitHub DM to continue in confidence.
 
 ---
 

@@ -282,10 +282,37 @@ pub async fn run(args: DoctorArgs, socket_override: Option<PathBuf>) -> CliResul
             } else {
                 "-".to_string()
             };
+            // B15 (2026-05-02): humanise per-worker latency.
+            // p50_us / p99_us in the wire snapshot are nullable; render
+            // ONLY when both are present AND non-zero (zero is "no
+            // samples yet" - showing it would be more confusing than
+            // hiding it). Format: `typical=12ms slow_tail=43ms`.
+            let p50_us = child.get("p50_us").and_then(|v| v.as_u64()).unwrap_or(0);
+            let p99_us = child.get("p99_us").and_then(|v| v.as_u64()).unwrap_or(0);
+            let latency_suffix = if p50_us > 0 || p99_us > 0 {
+                format!(
+                    "  typical={}ms  slow_tail={}ms",
+                    p50_us / 1000,
+                    p99_us / 1000
+                )
+            } else {
+                String::new()
+            };
+            // Queue depth: hide when zero (most workers idle most of the
+            // time; printing `queue=0` everywhere is noise).
+            let queue_depth = child
+                .get("queue_depth")
+                .and_then(|v| v.as_u64())
+                .unwrap_or(0);
+            let queue_suffix = if queue_depth > 0 {
+                format!("  queue={queue_depth}")
+            } else {
+                String::new()
+            };
             line(
                 &format!("{mark} {name}"),
                 &format!(
-                    "status={status:<9}  pid={pid:<6}  uptime={uptime_str:<6}  restarts={restarts}  dropped={dropped}"
+                    "status={status:<9}  pid={pid:<6}  uptime={uptime_str:<6}  restarts={restarts}  dropped={dropped}{queue_suffix}{latency_suffix}"
                 ),
             );
         }

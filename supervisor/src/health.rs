@@ -95,6 +95,14 @@ pub struct SlaSnapshot {
     pub p95_us: u64,
     /// Aggregate p99 of per-worker job latency, microseconds.
     pub p99_us: u64,
+    /// B15 (2026-05-02): human-friendly mirror of `p50_us`, in whole
+    /// milliseconds. Same value, friendlier unit + name. UI clients
+    /// should prefer this; raw `*_us` fields stay for back-compat with
+    /// scripts that already parse them.
+    pub typical_response_ms: u64,
+    /// B15 (2026-05-02): human-friendly mirror of `p99_us`, in whole
+    /// milliseconds. "Slow tail" = the worst 1% of requests.
+    pub slow_response_ms: u64,
     /// File watcher percentiles (save-to-graph latency, ms).
     pub watcher: WatcherMetrics,
 }
@@ -555,6 +563,13 @@ async fn build_snapshot(state: &AppState) -> Result<SlaSnapshot, SupervisorError
         p99_ms: ws.p99_ms,
     };
 
+    // B15 (2026-05-02): humanise the percentiles. `p50_us` is the
+    // typical response time (median); `p99_us` is the slow-tail. Both
+    // are integer division by 1000 so a 23 000 us value becomes 23 ms.
+    // Zero stays zero - the renderer hides zero-values entirely.
+    let typical_response_ms = p50_us / 1000;
+    let slow_response_ms = p99_us / 1000;
+
     let snap = SlaSnapshot {
         timestamp: Utc::now(),
         supervisor_uptime_s,
@@ -567,6 +582,8 @@ async fn build_snapshot(state: &AppState) -> Result<SlaSnapshot, SupervisorError
         p50_us,
         p95_us,
         p99_us,
+        typical_response_ms,
+        slow_response_ms,
         watcher,
     };
     {

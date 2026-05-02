@@ -1,6 +1,6 @@
 # Mneme Roadmap
 
-Public milestones. Current version: **v0.3.1**. Updated 2026-04-24.
+Public milestones. Current version: **v0.3.2** (hotfix 2026-05-02). Updated 2026-05-02.
 
 Detailed engineering backlog lives in [`docs/dev/v0.4-backlog.md`](docs/dev/v0.4-backlog.md).
 
@@ -8,13 +8,23 @@ Detailed engineering backlog lives in [`docs/dev/v0.4-backlog.md`](docs/dev/v0.4
 
 ## Shipped
 
-### v0.3.1 — install hardening + skill arsenal (2026-04-24)
+### v0.3.2 hotfix - store-PC POS production install hardening (2026-05-02)
+
+- 22+ install + audit + UX bugs fixed in place under the v0.3.2 tag (no version bump).
+- Cross-OS install commands per platform (Windows / macOS / Linux), each auto-detecting x64 vs ARM64.
+- Models migrated to a Hugging Face Hub primary mirror (`aaditya4u/mneme-models`); GitHub Releases stays as the fallback.
+- Workspace compiles for the `x86-64-v3` baseline (AVX2 / BMI2 / FMA) - 2-4x faster BGE inference, scanners, and tree-sitter parsing.
+- Audit findings now stream to `findings.db` per-batch and the audit phase fans out across the supervisor's scanner-worker pool (5-10x faster).
+- ONNX Runtime DLL bumped to 1.24.4 - fixes the silent BGE inference hang on Windows.
+- See [`CHANGELOG.md`](CHANGELOG.md) for the full per-bug breakdown.
+
+### v0.3.1 - install hardening + skill arsenal (2026-04-24)
 
 - Install script never touches `~/.claude/settings.json`. All 8 hook
   binaries now read STDIN JSON. Architecturally impossible to re-trigger
   the v0.3.0 install catastrophe.
 - `mneme rollback` with per-install receipts + sha256 drift detection.
-- `mneme doctor` per-MCP-tool probe — lists all 46 live tools with ✓/✗.
+- `mneme doctor` per-MCP-tool probe - lists all 48 live tools with ✓/✗.
 - `mneme history`, `mneme snap`, `mneme update`, `mneme recall`,
   `mneme blast`, `mneme godnodes` all use direct-DB fast path.
 - 19 fireworks skills + `mneme-codewords` shipped in `plugin/skills/`.
@@ -27,30 +37,30 @@ Detailed engineering backlog lives in [`docs/dev/v0.4-backlog.md`](docs/dev/v0.4
   Step 0 stop-daemon-before-extract.
 - UTF-8 BOM tolerance on every JSON read path.
 
-### v0.3.0 — 47 MCP tools (2026-04-24)
+### v0.3.0 - 47 MCP tools (2026-04-24)
 
-- 47 MCP tools wired. ONNX embeddings (shipped, but require
-  `mneme models install --from-path <dir>` — `.onnx` + tokenizer not
+- 47 MCP tools wired (the 48th, `file_intent`, was added later in the J7 phase). ONNX embeddings (shipped, but require
+  `mneme models install --from-path <dir>` - `.onnx` + tokenizer not
   bundled; default falls back to hashing-trick). FTS5 search.
   PDF pipeline (shipped; OCR / Whisper / ffmpeg are opt-in feature
-  flags — see `docs-and-memory/phase-a-issues.md` and ROADMAP I-20).
+  flags - see `docs-and-memory/phase-a-issues.md` and ROADMAP I-20).
   Supervised multi-process architecture.
-- Known critical install bugs — see CHANGELOG entry for v0.3.1.
+- Known critical install bugs - see CHANGELOG entry for v0.3.1.
 - Known v0.3 limitations (vision app, voice nav stub, livebus prod gap,
   Windows `rss_mb`): see `docs-and-memory/phase-a-issues.md` and the
   "Known limitations in v0.3" section in `CLAUDE.md`.
 
-### v0.2.x — initial wave (2026-04-23)
+### v0.2.x - initial wave (2026-04-23)
 
 - 40 tools with partial wiring.
 - Leiden clustering. 14-view vision app (shipped, but see
-  `docs-and-memory/phase-a-issues.md §A1-A12` — Tauri binary not in v0.3
+  `docs-and-memory/phase-a-issues.md §A1-A12` - Tauri binary not in v0.3
   release, frontend missing production data layer, `mneme view` exits
   gracefully). Multi-platform adapters.
 
 ---
 
-## In progress — v0.4 (target 2026-05-22)
+## In progress - v0.4 (target 2026-05-22)
 
 Driven primarily by user feedback once Stage 1 testers surface. The list
 below is the *starting* set; Stage 1 DM responses will reorder.
@@ -64,9 +74,9 @@ below is the *starting* set; Stage 1 DM responses will reorder.
   reimplement the 17 `/api/graph/*` endpoints as `#[tauri::command]`
   invocations so the Tauri shell has a production data layer. Ship
   `mneme-vision.exe` in the `~/.mneme/bin/` payload.
-  (A5 macos-private-api cfg gate: already DONE in v0.3.2 home cycle —
+  (A5 macos-private-api cfg gate: already DONE in v0.3.2 home cycle -
   `vision/tauri/Cargo.toml:13` declares `features = []`. A12 vision/dist
-  artifact: already DONE — `~/.mneme/static/vision/` ships index.html +
+  artifact: already DONE - `~/.mneme/static/vision/` ships index.html +
   37 assets and the daemon serves them via `supervisor/src/health.rs::resolve_static_dir()`.)
 - **Supervisor IPC verbs** for `Recall` / `Blast` / `GodNodes` / `History`.
   CLI tries IPC first, falls back to direct-DB. Enables query caching +
@@ -76,14 +86,14 @@ below is the *starting* set; Stage 1 DM responses will reorder.
   `last_job_duration_ms` + `last_job_status` per worker.
 - **Cross-platform doctor tests.** Linux + macOS path discovery validated
   with integration tests.
-- **Reproducible benchmarks** — `BENCHMARKS-results.md` with raw
+- **Reproducible benchmarks** - `BENCHMARKS-results.md` with raw
   `bench_retrieval` stdout + hardware spec + rustc version. Reproducible
   by any reader.
-- **Marketplace listings** — submissions to `awesome-mcp-servers`,
+- **Marketplace listings** - submissions to `awesome-mcp-servers`,
   Cursor gallery, smithery, mcp.so.
-- **CLAUDE.md / AGENTS.md template updates** — ship the codewords block
+- **CLAUDE.md / AGENTS.md template updates** - ship the codewords block
   via the install manifest so every downstream platform gets them.
-- **Per-language fireworks skills** — `fireworks-go`, `fireworks-python`,
+- **Per-language fireworks skills** - `fireworks-go`, `fireworks-python`,
   `fireworks-rust`.
 - **install.sh / uninstall parity** with the Windows one-liner.
 

@@ -629,9 +629,15 @@ export const HealthOutput = z.object({
   cache_hit_rate: z.number().min(0).max(1),
   disk_usage_mb: z.number(),
   queue_depth: z.number().int(),
+  // Raw percentiles in milliseconds. Kept for back-compat with any
+  // dashboard / script that already parses them.
   p50_ms: z.number(),
   p95_ms: z.number(),
   p99_ms: z.number(),
+  // B15 (2026-05-02): human-friendly mirrors. Same numbers as p50_ms /
+  // p99_ms with friendlier names. UIs should prefer these.
+  typical_response_ms: z.number(),
+  slow_response_ms: z.number(),
 });
 
 export const DoctorInput = z.object({}).default({});

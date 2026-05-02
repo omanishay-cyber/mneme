@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1280 640" width="1280" height="640" role="img" aria-labelledby="ogTitle ogDesc">
-  <title id="ogTitle">Mneme — the persistent memory layer for AI coding</title>
-  <desc id="ogDesc">Animated banner: gradient Mneme wordmark, pulsing graph background, measured-stats ribbon (1000× faster incremental reindex, 47/47 MCP tools wired, 0 network calls), feature chips, and install command with blinking caret.</desc>
+  <title id="ogTitle">Mneme - the persistent memory layer for AI coding</title>
+  <desc id="ogDesc">Animated banner: gradient Mneme wordmark, pulsing graph background, measured-stats ribbon (1000x faster incremental reindex, 48/48 MCP tools wired, 0 network calls), feature chips, and install command with blinking caret.</desc>
 
   <defs>
     <style>
@@ -187,9 +187,9 @@
 
     <line x1="448" y1="14" x2="448" y2="40" stroke="#475569" stroke-width="1"/>
 
-    <!-- Stat 2: 47/47 MCP tools wired -->
+    <!-- Stat 2: 48/48 MCP tools wired -->
     <text x="470" y="35" font-family="JetBrains Mono, SF Mono, ui-monospace, Menlo, monospace"
-          font-size="24" font-weight="800" fill="#22D3EE">47/47</text>
+          font-size="24" font-weight="800" fill="#22D3EE">48/48</text>
     <text x="562" y="34" font-family="-apple-system, BlinkMacSystemFont, Segoe UI, Roboto, sans-serif"
           font-size="16" font-weight="500" fill="#cbd5e1">MCP tools wired · 27 langs · 14 views</text>
 

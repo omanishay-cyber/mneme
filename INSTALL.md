@@ -1,4 +1,4 @@
-# INSTALL.md — mneme v0.3.2 (hotfix 2026-05-02)
+# INSTALL.md - mneme v0.3.2 (hotfix 2026-05-02)
 
 Two ways to use mneme: **install from the public bootstrap** (one command per OS, recommended) or **install from the home zip** (offline-friendly, exact build artifact). Or **work on the source** (edit + build). All three are documented below.
 
@@ -15,14 +15,14 @@ Each script auto-detects your architecture (x64 / ARM64), downloads the matching
 iex (irm https://github.com/omanishay-cyber/mneme/releases/download/v0.3.2/bootstrap-install.ps1)
 ```
 
-### macOS (Intel x64 / Apple Silicon arm64) — **coming soon**
+### macOS (Intel x64 / Apple Silicon arm64) - **coming soon**
 
 ```bash
 # auto-detects via uname -m
 curl -fsSL https://github.com/omanishay-cyber/mneme/releases/download/v0.3.2/install-mac.sh | bash
 ```
 
-### Linux (x64 / ARM64) — **coming soon**
+### Linux (x64 / ARM64) - **coming soon**
 
 ```bash
 # auto-detects via uname -m
@@ -34,7 +34,7 @@ curl -fsSL https://github.com/omanishay-cyber/mneme/releases/download/v0.3.2/ins
 | Requirement | Detail |
 |---|---|
 | **OS** | 64-bit Windows 11 (arm64 planned), macOS 14+ (Intel + Apple Silicon, planned), Ubuntu 22.04+ / Debian / Fedora (planned) |
-| **CPU baseline** | x86-64-v3 — AVX2 / BMI2 / FMA. Intel Haswell (2013+) or AMD Excavator (2015+). Almost every PC sold since 2013 qualifies. The bootstrap refuses early on pre-Haswell hardware with a clear error. |
+| **CPU baseline** | x86-64-v3 - AVX2 / BMI2 / FMA. Intel Haswell (2013+) or AMD Excavator (2015+). Almost every PC sold since 2013 qualifies. The bootstrap refuses early on pre-Haswell hardware with a clear error. |
 | **Disk** | 5 GB free (binaries ~250 MB, models ~3.4 GB, room for first project's shards) |
 | **Privileges** | No admin needed. Defender exclusions are added best-effort if elevated; install proceeds without them otherwise. |
 | **32-bit Windows** | **Not supported.** Bun runtime requires x64 or ARM64. The bootstrap detects and refuses with `Fail "32-bit Windows is not supported (Bun runtime requires x64 or ARM64)..."`. |
@@ -54,15 +54,15 @@ cd "$env:USERPROFILE\.mneme"
 .\scripts\install.ps1 -LocalZip "<extracted-path>\mneme final 2026-04-29\release\mneme-v0.3.2-windows-x64.zip"
 ```
 
-Either path — the installer:
+Either path - the installer:
 
 1. Detects OS + architecture (x64 / ARM64) and refuses early if the CPU lacks AVX2 / BMI2 / FMA (pre-Haswell)
-2. Stops any running mneme processes (3-pass kill ladder — graceful then taskkill then hard abort if locks remain)
+2. Stops any running mneme processes (3-pass kill ladder - graceful then taskkill then hard abort if locks remain)
 3. Verifies Bun is installed (installs it if missing)
-4. **Runs `bun install --frozen-lockfile`** in `~/.mneme/mcp/` to populate `node_modules` (B1 hotfix 2026-05-02 — without this the MCP server crashed on first start with `ENOENT while resolving package 'zod'`)
+4. **Runs `bun install --frozen-lockfile`** in `~/.mneme/mcp/` to populate `node_modules` (B1 hotfix 2026-05-02 - without this the MCP server crashed on first start with `ENOENT while resolving package 'zod'`)
 5. Adds `~/.mneme/bin` to user PATH
 6. Adds Defender exclusions for `~/.mneme` and `~/.claude` (best-effort if not elevated)
-7. Pulls 5 model files from the [Hugging Face Hub mirror](https://huggingface.co/aaditya4u/mneme-models) (`bge-small-en-v1.5.onnx` + `tokenizer.json` + `qwen-embed-0.5b.gguf` + `qwen-coder-0.5b.gguf` + `phi-3-mini-4k.gguf` as a single 2.23 GB file — no part-merge anymore), with GitHub Releases as automatic fallback
+7. Pulls 5 model files from the [Hugging Face Hub mirror](https://huggingface.co/aaditya4u/mneme-models) (`bge-small-en-v1.5.onnx` + `tokenizer.json` + `qwen-embed-0.5b.gguf` + `qwen-coder-0.5b.gguf` + `phi-3-mini-4k.gguf` as a single 2.23 GB file - no part-merge anymore), with GitHub Releases as automatic fallback
 8. Starts the mneme daemon in the background
 9. Registers the mneme MCP server with Claude Code: writes the `mcpServers.mneme` entry to `~/.claude.json` AND, by default (K1 fix in v0.3.2), writes the 8 mneme hook entries under `~/.claude/settings.json::hooks` so the persistent-memory pipeline (history.db, tasks.db, tool_cache.db, livestate.db) actually fills. Pass `--no-hooks` / `--skip-hooks` to opt out. Hook bodies are crash-safe: every hook binary reads STDIN JSON and exits 0 on any internal error, so a mneme bug can never block your tool calls.
 10. Registers the mneme **plugin slash commands** (`/mn-build`, `/mn-recall`, `/mn-why`, `/mn-resume`, `/mn-blast`, `/mn-doctor`, …) with Claude Code so they show up in autocomplete (B1.5 hotfix 2026-05-02)
@@ -100,7 +100,7 @@ If any of these print sensible output, you're set.
 
 ---
 
-## Cache management (NEW in v0.3.0 — basic ops, ship-blocker)
+## Cache management (NEW in v0.3.0 - basic ops, ship-blocker)
 
 The `~/.mneme/projects/<id>/` shards grow with each indexed project. To reclaim space:
 
@@ -151,7 +151,7 @@ The home zip ships with `mcp/node_modules` (~100 MB, needed for MCP to run pre-b
 
 The CLI command `mneme view` launches `mneme-vision.exe` from
 `~/.mneme/bin/`. The browser fallback at `http://127.0.0.1:7777/` serves
-the dashboard from `~/.mneme/static/vision/index.html` — see the
+the dashboard from `~/.mneme/static/vision/index.html` - see the
 "v0.3 Known Limitations" table below for the full status matrix.
 
 ### Prerequisites for vision dev
@@ -161,18 +161,18 @@ must be on PATH:
 
 | Prerequisite | Why required | Install |
 |---|---|---|
-| **Bun 1.3+** | `tauri.conf.json` declares `"beforeDevCommand": "bun server.ts"` — `tauri dev` invokes Bun to start the dev API server. Production builds also need Bun to run `vite build`. | Windows: `irm bun.sh/install.ps1 \| iex` · macOS/Linux: `curl -fsSL https://bun.sh/install \| bash` |
+| **Bun 1.3+** | `tauri.conf.json` declares `"beforeDevCommand": "bun server.ts"` - `tauri dev` invokes Bun to start the dev API server. Production builds also need Bun to run `vite build`. | Windows: `irm bun.sh/install.ps1 \| iex` · macOS/Linux: `curl -fsSL https://bun.sh/install \| bash` |
 | **Rust 1.78+ + cargo** | Tauri shell compiles with `cargo build --release` inside `vision/tauri/` | Standard `rustup` install |
-| **Platform Tauri deps** | Windows: WebView2 (preinstalled on Win 11) + MSVC Build Tools · macOS: Xcode CLT · Linux: `webkit2gtk-4.1`, `libsoup-3.0`, `libgtk-3` | Per-platform — see [tauri.app/start/prerequisites](https://tauri.app/start/prerequisites/) |
+| **Platform Tauri deps** | Windows: WebView2 (preinstalled on Win 11) + MSVC Build Tools · macOS: Xcode CLT · Linux: `webkit2gtk-4.1`, `libsoup-3.0`, `libgtk-3` | Per-platform - see [tauri.app/start/prerequisites](https://tauri.app/start/prerequisites/) |
 
 Without Bun on PATH, `tauri dev` fails cryptically (the `beforeDevCommand`
 errors before Tauri reports a useful diagnostic). Production `tauri build`
-shipped binaries do **not** need Bun at runtime — Bun is a dev-only tool.
+shipped binaries do **not** need Bun at runtime - Bun is a dev-only tool.
 
 ### Bun install (vision dev)
 
 The Tauri config (`vision/tauri/tauri.conf.json`) has
-`"beforeDevCommand": "bun server.ts"` — `tauri dev` will fail cryptically
+`"beforeDevCommand": "bun server.ts"` - `tauri dev` will fail cryptically
 without Bun on PATH. Install Bun 1.3+ first:
 
 ```powershell
@@ -215,7 +215,7 @@ or an online ICO generator (multi-size: 16/32/48/64/128/256).
    `workspace.exclude` at the root.
 
 2. **Hardcoded `"url": "http://127.0.0.1:7777"` in `tauri.conf.json`
-   window config.** When Tauri opens, the window loads the daemon root —
+   window config.** When Tauri opens, the window loads the daemon root -
    which 404s. The bundled `frontendDist: "../dist"` is never used. Fix:
    remove the `url` field; Tauri 2.0 will then load `index.html` from
    `frontendDist` via the `tauri://` custom protocol.
@@ -228,10 +228,10 @@ or an online ICO generator (multi-size: 16/32/48/64/128/256).
    relative fetches resolve to `tauri://localhost/api/graph/*`, which
    Tauri's custom-protocol handler answers with the bundled `index.html`
    (SPA fallback). Result: `Unexpected token '<', "<!DOCTYPE "... is not
-   valid JSON` — empty dashboard. The frontend was designed to talk to
+   valid JSON` - empty dashboard. The frontend was designed to talk to
    the Bun server in `vision/server.ts`; in production nothing spawns it.
 
-4. **Vision Bun server defaults to port 7777 — collides with the mneme
+4. **Vision Bun server defaults to port 7777 - collides with the mneme
    daemon.** `vision/server.ts` reads `process.env.VISION_PORT ?? 7777`.
    The daemon's HTTP `/health` is also on 7777. To run the dev server
    alongside the daemon, set `VISION_PORT=7782` (or anything not 7777).
@@ -247,7 +247,7 @@ For now, **prefer the CLI + MCP surface**. The 48 MCP tools cover the same
 data the views would render.
 
 ```powershell
-# 6. (skip — vision is not shippable in v0.3)
+# 6. (skip - vision is not shippable in v0.3)
 # When v0.4 lands, this section will become:
 #   cd vision
 #   bun install
@@ -256,7 +256,7 @@ data the views would render.
 #   cargo build --release
 ```
 
-`.git/` is included so you can `git log`, branch, commit, and push (you have 63 commits ahead of `origin/main` — `git push origin main` from this checkout pushes all of v0.3.0).
+`.git/` is included so you can `git log`, branch, commit, and push (you have 63 commits ahead of `origin/main` - `git push origin main` from this checkout pushes all of v0.3.0).
 
 ---
 
@@ -272,7 +272,7 @@ Mirrors the canonical table in [`CLAUDE.md`](CLAUDE.md) §"Known limitations in 
 | Per-worker `rss_mb` on Windows | resolved (C1 in v0.3.2) | Supervisor SLA snapshot now reports real `rss_mb` values on Windows via `GetProcessMemoryInfo`. Previously always `0`. |
 | Tesseract OCR (image text) | opt-in, off by default | Shipped `mneme-multimodal` binary built without `tesseract` feature. Indexed images record dimensions + EXIF only. To enable: `cargo build -p mneme-multimodal --features tesseract` after installing libtesseract + leptonica. Tracked as I-20. |
 | Real BGE-small ONNX embeddings | opt-in via `mneme models install` | Default install runs pure-Rust hashing-trick embedder (works, lower recall). Real embeddings require `mneme models install --from-path <dir>` because `.onnx` + tokenizer aren't bundled. |
-| Claude Code hooks | default-on (K1 fix in v0.3.2) | `mneme install` now writes the 8 hook entries under `~/.claude/settings.json::hooks` by default. Without hooks the persistent-memory pipeline (history.db, tasks.db, tool_cache.db, livestate.db) stays empty. To skip, pass `--no-hooks` / `--skip-hooks`. Every hook binary reads STDIN JSON and exits 0 on internal error — a mneme bug can never block the user's tool calls. |
+| Claude Code hooks | default-on (K1 fix in v0.3.2) | `mneme install` now writes the 8 hook entries under `~/.claude/settings.json::hooks` by default. Without hooks the persistent-memory pipeline (history.db, tasks.db, tool_cache.db, livestate.db) stays empty. To skip, pass `--no-hooks` / `--skip-hooks`. Every hook binary reads STDIN JSON and exits 0 on internal error - a mneme bug can never block the user's tool calls. |
 
 For the full list of what shipped, see `docs-and-memory/V0.3.0-WHATS-IN.md`. For phase-A categorisation of remaining issues, see `docs-and-memory/phase-a-issues.md`.
 
@@ -310,20 +310,20 @@ mneme uninstall --all --purge-state
 - If that fails: `irm bun.sh/install.ps1 | iex` manually, then rerun mneme installer
 
 **Daemon won't start:**
-- `mneme daemon logs --lines 500` — check for panic / config error
-- `mneme doctor` — Windows: ensure MSVC Build Tools probe doesn't show MISSING
+- `mneme daemon logs --lines 500` - check for panic / config error
+- `mneme doctor` - Windows: ensure MSVC Build Tools probe doesn't show MISSING
 - Check `~/.mneme/run/daemon.pid` exists; if stale, `mneme daemon stop` then `mneme daemon start`
 
 **`mneme build .` is slow:**
-- First run on a large repo (>50K LOC) takes minutes — parsing every file via tree-sitter
+- First run on a large repo (>50K LOC) takes minutes - parsing every file via tree-sitter
 - Watch progress: `mneme daemon logs --lines 100` (look for `worker=parsers status=running`)
 - Subsequent runs use the incremental cache (~10× faster)
 
 **Disk filling up:**
-- `mneme cache du` — see breakdown
-- `mneme cache prune --older-than 30d` — drop old snapshots
-- `mneme cache gc` — VACUUM shards (typical 20-40% reduction)
-- `mneme cache drop <project>` — nuke a project entirely
+- `mneme cache du` - see breakdown
+- `mneme cache prune --older-than 30d` - drop old snapshots
+- `mneme cache gc` - VACUUM shards (typical 20-40% reduction)
+- `mneme cache drop <project>` - nuke a project entirely
 
 ---
 
@@ -343,18 +343,18 @@ mneme uninstall --all --purge-state
 │   ├── meta.db                 # global metadata
 │   └── supervisor.pipe         # IPC socket name
 └── .claude\
-    └── (existing Claude config — mneme adds only mcpServers.mneme entry)
+    └── (existing Claude config - mneme adds only mcpServers.mneme entry)
 ```
 
 ---
 
 ## Related docs in this package
 
-- `docs-and-memory/SESSION-2026-04-25-FINAL.md` — what got built today
-- `docs-and-memory/V0.3.0-WHATS-IN.md` — full v0.3.0 feature catalog
-- `docs-and-memory/V0.3.1-PLUS-ROADMAP.md` — what's deferred / next-up
-- `docs-and-memory/issues.md` — issue tracker (closed + remaining)
-- `docs-and-memory/memory/` — Anish's memory files (preserve these on home machine)
+- `docs-and-memory/SESSION-2026-04-25-FINAL.md` - what got built today
+- `docs-and-memory/V0.3.0-WHATS-IN.md` - full v0.3.0 feature catalog
+- `docs-and-memory/V0.3.1-PLUS-ROADMAP.md` - what's deferred / next-up
+- `docs-and-memory/issues.md` - issue tracker (closed + remaining)
+- `docs-and-memory/memory/` - Anish's memory files (preserve these on home machine)
 
 ---
 

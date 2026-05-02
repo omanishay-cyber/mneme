@@ -3,7 +3,7 @@
 ## The rules, in one paragraph
 
 Be kind. Be specific. Assume good faith. When you disagree, disagree with
-the idea, not the person. When you review code, suggest — don't command.
+the idea, not the person. When you review code, suggest - don't command.
 When you open an issue, do the work to make it reproducible. When you ask
 for help, remember that everyone here is doing this in their spare time.
 No harassment, no bigotry, no dismissive snark. Ship code, not drama.
@@ -30,4 +30,4 @@ Applies in the GitHub repo, Discussions, Issues, PRs, any mneme-branded
 chat room, and at any event (online or in-person) where you're representing
 mneme.
 
-— Anish Trivedi
+- Anish Trivedi

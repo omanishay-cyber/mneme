@@ -79,7 +79,7 @@ following kinds of data may end up in its SQLite files:
 **Mneme never uploads any of this.** It has no network code in the hot path;
 the only network call the installer makes is to github.com for the release
 asset. If you see mneme making unexpected outbound connections, that IS a
-vulnerability — report it via the flow above.
+vulnerability - report it via the flow above.
 
 ## Hardening tips
 
