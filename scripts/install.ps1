@@ -722,36 +722,14 @@ if ($NoToolchain) {
         }
     }
 
-    # G4: Tauri CLI -- DETECT-ONLY (B-031, D:\Mneme Dome cycle, 2026-05-01).
-    #
-    # tauri-cli is a build-time tool. Mneme ships a prebuilt
-    # `mneme-vision-tauri.exe` (renamed `mneme-vision.exe`) inside the
-    # release zip. End users running the live `iex (irm ...)` one-liner
-    # never need to BUILD vision/tauri themselves; they just run the
-    # bundled binary. Auto-installing tauri-cli wasted 3-5 min + 35 MB
-    # of crate downloads on every fresh install for zero runtime benefit.
-    #
-    # New behaviour: detect-only. Warn if missing, point at install
-    # command, never invoke `cargo install tauri-cli` automatically.
-    # Anyone building vision/tauri from source can install it themselves.
-    $cargoExe = Get-Command cargo -ErrorAction SilentlyContinue
-    if ($cargoExe) {
-        $tauriPresent = $false
-        $tauriBin = Get-Command tauri -ErrorAction SilentlyContinue
-        if ($tauriBin) { $tauriPresent = $true }
-        else {
-            # cargo subcommand check via the safe probe.
-            $tauriProbe = Invoke-NativeProbe -ExePath $cargoExe.Source -ProbeArgs @('tauri','--version')
-            if ($tauriProbe.Success) { $tauriPresent = $true }
-        }
-        if ($tauriPresent) {
-            Write-OK "[G4] Tauri CLI present (build-time only; not required at runtime)"
-        } else {
-            Write-Info "[G4] Tauri CLI not detected -- SKIPPED (build-time only, prebuilt mneme-vision.exe ships in release zip)"
-            Write-Info "      To build vision/tauri from source manually: cargo install tauri-cli --locked --version '^2.0'"
-        }
-    }
-    # If cargo is missing entirely, no point mentioning Tauri.
+    # G4: Tauri probe REMOVED (2026-05-02, store PC install cycle).
+    # The release ships prebuilt `mneme-vision.exe` (Tauri-built binary)
+    # inside the zip. End users do NOT build vision/tauri from source via
+    # the live iex (irm) install path. Anyone rebuilding vision themselves
+    # can run `cargo install tauri-cli` on their own. Probing here added a
+    # confusing "SKIPPED" line in install output that suggested Tauri was a
+    # missing dependency, when in reality nothing in the install path or
+    # runtime path needs it.
 
     # G7: sqlite3 CLI. Optional but valuable for shard diagnostics.
     #
@@ -1506,15 +1484,51 @@ if (-not (Test-Path $MnemeBin)) {
             #     start` themselves.
             # We /Run it explicitly below so the daemon is up for the
             # current session without waiting for a logoff/logon cycle.
+            #
+            # Bug-2026-05-02 (store PC POS install cycle): on a non-elevated
+            # standard user account (e.g. POS at the store), schtasks
+            # /Create returns "Access is denied" + writes to stderr. With
+            # the script-global $ErrorActionPreference='Stop' (line 95),
+            # PS5.1's `2>&1` redirect on a native command wraps each stderr
+            # line as a NativeCommandError object, which Stop turns into a
+            # TERMINATING exception BEFORE the if-LASTEXITCODE-ne-0 check
+            # runs. Result: install bombs out at step 6 with "FAIL: inner
+            # installer failed with exit code 1" instead of falling through
+            # to the Start-Process fallback. The fix: wrap the whole
+            # schtasks block in try/catch and run it with a *local*
+            # $ErrorActionPreference='Continue' so LASTEXITCODE drives the
+            # fallback, not exception flow. Schtasks failure is non-fatal
+            # by design here (Start-Process fallback handles current-session
+            # daemon start; ONLOGON auto-respawn is a nice-to-have).
             $tr = ('"{0}" daemon start' -f $MnemeBin)
-            $createOut = & schtasks.exe /Create /TN $taskName /TR $tr /SC ONLOGON /F /IT 2>&1 | Out-String
-            if ($LASTEXITCODE -ne 0) {
-                Write-Warn ("schtasks /Create failed (will fall back to Start-Process): {0}" -f $createOut.Trim())
+            try {
+                $prevEAP = $ErrorActionPreference
+                $ErrorActionPreference = 'Continue'
+                $createOut = & schtasks.exe /Create /TN $taskName /TR $tr /SC ONLOGON /F /IT 2>&1 | Out-String
+                $createExit = $LASTEXITCODE
+            } catch {
+                $createOut = $_.Exception.Message
+                $createExit = 1
+            } finally {
+                $ErrorActionPreference = $prevEAP
+            }
+            if ($createExit -ne 0) {
+                Write-Warn ("schtasks /Create failed (Access denied on non-elevated user is normal; falling back to Start-Process): {0}" -f $createOut.Trim())
                 $useSchTask = $false
             } else {
                 Write-OK ("scheduled task '{0}' registered (auto-start at user logon)" -f $taskName)
-                $runOut = & schtasks.exe /Run /TN $taskName 2>&1 | Out-String
-                if ($LASTEXITCODE -ne 0) {
+                try {
+                    $prevEAP = $ErrorActionPreference
+                    $ErrorActionPreference = 'Continue'
+                    $runOut = & schtasks.exe /Run /TN $taskName 2>&1 | Out-String
+                    $runExit = $LASTEXITCODE
+                } catch {
+                    $runOut = $_.Exception.Message
+                    $runExit = 1
+                } finally {
+                    $ErrorActionPreference = $prevEAP
+                }
+                if ($runExit -ne 0) {
                     Write-Warn ("schtasks /Run failed: {0}" -f $runOut.Trim())
                     Write-Warn "falling back to Start-Process daemon spawn"
                     $useSchTask = $false
