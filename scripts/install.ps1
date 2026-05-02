@@ -1367,7 +1367,7 @@ function Test-BunCacheHasOtherProjects {
 }
 
 if (-not $NoBunCacheClear) {
-    Write-Step "step 5b/8 - Bun cache check (prevents stale-bytecode MCP failures)"
+    Write-Step "step 5b/8 - install MCP node_modules (bun install --frozen-lockfile)"
 
     # The unattended path: LocalZip means scripted ship, the iwr|iex pipe
     # means Read-Host won't work. Default to NOT wiping - but skip the
@@ -1423,6 +1423,28 @@ if (-not $NoBunCacheClear) {
             }
         }
     }
+
+    # B1 (2026-05-02): actually run `bun install --frozen-lockfile` in mcp/.
+    # Without this the staged ~/.mneme/mcp/node_modules/ may be missing zod /
+    # @modelcontextprotocol/sdk / ajv (B2 silently shipped an empty
+    # node_modules from POS install 2026-05-02). Bun starts MCP server and
+    # immediately ENOENTs on the first import. The cache wipe above prevents
+    # stale bytecode; this step ensures the deps actually exist on disk.
+    Push-Location "$BinDir\..\mcp"
+    try {
+        $bunExe = "$env:USERPROFILE\.bun\bin\bun.exe"
+        if (Test-Path $bunExe) {
+            Write-Step "running bun install --frozen-lockfile in mcp/"
+            & $bunExe install --frozen-lockfile 2>&1 | ForEach-Object { "    $_" }
+            if ($LASTEXITCODE -ne 0) {
+                Write-Warn "bun install failed with exit $LASTEXITCODE - MCP server may not start"
+            } else {
+                Write-OK "MCP node_modules installed (bun install --frozen-lockfile)"
+            }
+        } else {
+            Write-Warn "bun.exe not found at $bunExe - skipping bun install (MCP may not work)"
+        }
+    } finally { Pop-Location }
 }
 
 # ============================================================================

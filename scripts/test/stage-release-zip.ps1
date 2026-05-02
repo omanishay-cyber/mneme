@@ -159,10 +159,44 @@ OK ("bin/ complete: {0} files, {1:N1} MB" -f $binCount, $binSize)
 
 Section "Copy mcp/ (TS source + node_modules + dist)"
 $stageMcp = Join-Path $StageDir "mcp"
+
+# B2 (2026-05-02): pre-stage validation gate. If source mcp/node_modules/
+# is missing zod or @modelcontextprotocol/sdk, the staged zip will ship
+# broken (POS install 2026-05-02 hit ENOENT for zod). Run bun install
+# --frozen-lockfile to repopulate, then HARD-FAIL if the deps still
+# aren't there. Belt + suspenders with B1 (install.ps1 also runs bun
+# install at install time on the user's machine).
+$zodPkgJson = Join-Path $mcp "node_modules\zod\package.json"
+$sdkPkgJson = Join-Path $mcp "node_modules\@modelcontextprotocol\sdk\package.json"
+if (-not (Test-Path $zodPkgJson) -or -not (Test-Path $sdkPkgJson)) {
+    Write-Host "  -> mcp/node_modules incomplete, running 'bun install --frozen-lockfile' first..." -ForegroundColor Yellow
+    Push-Location $mcp
+    try {
+        & bun install --frozen-lockfile 2>&1 | ForEach-Object { "     $_" }
+        if ($LASTEXITCODE -ne 0) {
+            Fail "bun install in mcp/ failed with exit $LASTEXITCODE - refusing to stage broken zip"
+        }
+    } finally { Pop-Location }
+}
+if (-not (Test-Path $zodPkgJson)) {
+    Fail "mcp/node_modules/zod/package.json STILL missing after bun install - refusing to stage broken zip (B2 / 2026-05-02 POS install bug)"
+}
+if (-not (Test-Path $sdkPkgJson)) {
+    Fail "mcp/node_modules/@modelcontextprotocol/sdk/package.json STILL missing after bun install - refusing to stage broken zip"
+}
+Write-Host "     OK: mcp/node_modules has zod + @modelcontextprotocol/sdk" -ForegroundColor Green
+
 # robocopy is faster + smarter than Copy-Item for trees this size.
 & robocopy $mcp $stageMcp /E /NFL /NDL /NJH /NJS /NP /MT:8 | Out-Null
 $rc = $LASTEXITCODE
 if ($rc -gt 7) { Fail ("robocopy mcp/ failed with code {0}" -f $rc) }
+
+# B2 post-stage assertion: confirm robocopy actually included node_modules.
+$stagedZodPkg = Join-Path $stageMcp "node_modules\zod\package.json"
+if (-not (Test-Path $stagedZodPkg)) {
+    Fail "post-stage: $stagedZodPkg missing - robocopy didn't include node_modules"
+}
+
 $mcpSize = ((Get-ChildItem $stageMcp -Recurse -File -ErrorAction SilentlyContinue | Measure-Object Length -Sum).Sum / 1MB)
 OK ("mcp/ complete: {0:N1} MB" -f $mcpSize)
 
