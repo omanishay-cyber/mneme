@@ -1,4 +1,5 @@
-filepath = 'C:/Users/Anish/Desktop/crg/datatree/docs/design/2026-04-23-datatree-design.md'
+import os
+filepath = os.path.expanduser('~/crg/datatree/docs/design/2026-04-23-datatree-design.md')
 
 with open(filepath, 'r', encoding='utf-8') as f:
     content = f.read()

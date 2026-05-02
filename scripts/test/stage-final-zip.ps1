@@ -25,7 +25,7 @@ param(
     [string]$OutZip = "$env:USERPROFILE\Desktop\mneme final.zip",
     [string]$StageDir = "$env:USERPROFILE\Desktop\mneme-final-stage",
     # Bundle real model weights into the final.zip. Looks for them at
-    # ..\models relative to $SourceRoot (i.e. C:\Users\Anish\Desktop\New folder (2)\models\).
+    # ..\models relative to $SourceRoot.
     # Adds ~3.5 GB to the zip but lets the user `mneme models install --from-path`
     # straight from the extracted final/ folder.
     [switch]$IncludeModels,
