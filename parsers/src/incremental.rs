@@ -19,7 +19,7 @@ use tree_sitter::{InputEdit, Point, Tree};
 
 /// Maximum number of trees the LRU keeps alive.
 ///
-/// AI-DNA pace: bumped from 1000 to 4000 (4× headroom). Anish indexes 1000+
+/// AI-DNA pace: bumped from 1000 to 4000 (4× headroom). We index 1000+
 /// file projects; AI editing across the whole project burst-cycles all of
 /// them. With the legacy 1000-cap the LRU evicts hot trees mid-session,
 /// which forces full re-parses on the next save and breaks the

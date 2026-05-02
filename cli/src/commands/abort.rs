@@ -11,8 +11,8 @@
 //! 2. `Get-Process mneme | Stop-Process -Force` (or `kill -9`) —
 //!    same outcome.
 //!
-//! Per `docs-and-memory/feedback_basic_ops_not_features.md` (Anish,
-//! 2026-04-25): operational commands needed for first-launch UX are
+//! Per `docs-and-memory/feedback_basic_ops_not_features.md`
+//! (2026-04-25): operational commands needed for first-launch UX are
 //! BASIC NEEDS, not features. Per `feedback_mneme_ai_dna_pace.md`:
 //! "no partial-failure modes" + "crash-recovery is built-in, not
 //! bolt-on" — so the user MUST have a clean abort path.

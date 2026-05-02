@@ -550,7 +550,7 @@ async fn restart_dropped_count_increments_on_closed_channel() {
 /// requests in a tight loop without a draining receiver must succeed
 /// every time. The bounded predecessor used `try_send` and silently
 /// dropped requests on `Full` (postmortem §12.1: 11 dropped restarts in
-/// 5s on POS).
+/// 5s on the AWS test fleet).
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn unbounded_restart_channel_send_succeeds_under_load() {
     use crate::manager::{ChildManager, RestartRequest};

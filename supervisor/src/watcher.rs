@@ -41,7 +41,7 @@ pub const DEFAULT_DEBOUNCE: Duration = Duration::from_millis(250);
 /// Hard cap on tracked pending events to avoid unbounded memory if the user
 /// does something wild like untarring 100k files.
 ///
-/// AI-DNA pace: bumped from 10_000 to 65_536 (≈6.5×). Anish indexes 1000+
+/// AI-DNA pace: bumped from 10_000 to 65_536 (≈6.5×). We index 1000+
 /// file projects; AI mass-rename / mass-format operations easily emit
 /// 10k+ filesystem events in a single burst. Under the legacy cap the
 /// debouncer silently dropped events past 10k — visible to the user as

@@ -2,7 +2,7 @@
 # Enables AVX2/BMI2/FMA SIMD across all workspace crates.
 # 99% of Windows PCs in 2026 have these (Steam survey). Excludes only
 # pre-2013 Intel Atom/Celeron N-series tablets -- irrelevant for mneme's
-# developer/POS workstation use case. Provides 2-4x speedup on
+# developer/AWS workstation use case. Provides 2-4x speedup on
 # BGE inference, Leiden community detection, parser tree-sitter,
 # scanner regex matching.
 

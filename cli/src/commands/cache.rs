@@ -6,7 +6,7 @@
 //! recovery path — `~/.mneme/projects/<id>/` grows monotonically with
 //! each indexed project, snapshots accumulate forever, and the only
 //! "fix" is a hand-rolled `Remove-Item -Recurse ~/.mneme/`. That is
-//! NOT acceptable as a basic operational command — Anish 2026-04-25.
+//! NOT acceptable as a basic operational command — established 2026-04-25.
 //!
 //! Subcommands:
 //!   `mneme cache du`              disk-usage breakdown (human or `--json`)

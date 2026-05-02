@@ -439,7 +439,7 @@ mod tests {
     // file-create and lock-acquire even when the previous holder is dead.
     // Without these tests, the user sees "another build in progress for
     // project X (locked at pid=23968 ts=...)" and chases a PID that no
-    // longer exists. Anish hit this on his home PC on 2026-04-29.
+    // longer exists. We hit this on local hardware on 2026-04-29.
     //
     // Acceptance: when the stamp's PID is dead, the error message MUST
     // append "stale stamp from PID N — race anyway" so the user knows

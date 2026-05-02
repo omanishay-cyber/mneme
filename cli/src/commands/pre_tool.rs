@@ -119,7 +119,7 @@ pub async fn run(args: PreToolArgs, socket_override: Option<PathBuf>) -> CliResu
     // HOOK-CANCELLED-001 layer 2 + Bug E (the resurrection-loop killer,
     // 2026-04-29): use the no-autospawn hook client. Supervisor down ⇒
     // hook silently no-ops. We do NOT resurrect the daemon on every tool
-    // call — that path produced 22 cmd windows per tool call on the POS
+    // call — that path produced 22 cmd windows per tool call on our AWS test
     // host (postmortem §3.E + §12.5). User runs `mneme daemon start`
     // explicitly to activate context capture.
     let client = make_hook_client(socket_override);

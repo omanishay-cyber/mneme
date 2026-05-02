@@ -156,7 +156,7 @@ of the pipeline (`parse` onward) per file as `.` events arrive.
 ## Module map
 
 Every crate and every non-Rust workspace, with a one-line purpose and an
-owner tag. `hand-written` means Anish wrote it line by line;
+owner tag. `hand-written` means we wrote it line by line;
 `agent-generated` means it was produced by a build-out agent against a
 hand-written spec, then reviewed and tuned.
 

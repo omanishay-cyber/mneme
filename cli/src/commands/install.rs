@@ -238,7 +238,7 @@ pub async fn run(args: InstallArgs) -> CliResult<()> {
     // mneme.exe — it does taskkill/PATH/Defender/hook-strip/dir-remove
     // via pure PowerShell.
     //
-    // Bug H (postmortem §6, 2026-04-29 POS install): this used to be
+    // Bug H (postmortem §6, 2026-04-29 AWS install test): this used to be
     // `if let Err(e) = ... { warn!(...) }` — a silent fail mode that
     // produced the symptom "file does not exist after install" with
     // zero visible error to the user. Now propagated via `?` and the
@@ -587,7 +587,7 @@ fn find_latest_mneme_bak(target: &std::path::Path) -> Option<PathBuf> {
 ///
 /// Idempotent — overwrites any prior copy.
 ///
-/// **Bug H (postmortem §6, 2026-04-29 POS install):** Earlier this
+/// **Bug H (postmortem §6, 2026-04-29 AWS install test):** Earlier this
 /// function was wired but the call site at line 243 used
 /// `if let Err(e) = ... { warn!(...) }`, swallowing every failure into
 /// log noise the user never saw. The fix here has three parts:

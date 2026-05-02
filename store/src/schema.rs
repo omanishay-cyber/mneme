@@ -16,7 +16,7 @@
 //! - **Online**: migrations run at every shard open
 //!   (inside `builder::init_shard` / `builder::init_meta`), so existing
 //!   user databases get caught up without an explicit upgrade step.
-//!   Anish can flip this to an offline-only runner later if startup
+//!   We can flip this to an offline-only runner later if startup
 //!   cost ever matters; today the table is empty so cost is zero.
 //! - **Forward-only, no rollback**: every entry in [`MIGRATIONS`] is a
 //!   `Vec<&str>` of forward SQL. Down-migrations are intentionally

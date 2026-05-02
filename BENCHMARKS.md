@@ -306,7 +306,7 @@ repository itself.
 
 ### Methodology
 
-- **Fixture**: `C:\Users\Anish\Desktop\crg\datatree` at SHA
+- **Fixture**: `C:\Users\<USER>\crg\datatree` at SHA
   `164948ccee36f74ee303ec25d0d67565fae0d96c`. Mneme sees 359 files (its own
   ignore rules), CRG sees 290 files (its own parser pack coverage - Rust, TOML,
   MD, JSON, YAML).
@@ -438,7 +438,7 @@ cd benchmarks/crg-compare
 python -m venv .venv
 .venv/Scripts/python.exe -m pip install --upgrade pip wheel setuptools
 .venv/Scripts/python.exe -m pip install \
-    "C:/Users/Anish/Desktop/crg/refferance/crg-extracted/code-review-graph-main[eval]"
+    "C:/Users/<USER>/crg/refferance/crg-extracted/code-review-graph-main[eval]"
 
 # Cold build, incremental, and search harness
 cd ../..

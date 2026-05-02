@@ -8,7 +8,7 @@ Detailed engineering backlog lives in [`docs/dev/v0.4-backlog.md`](docs/dev/v0.4
 
 ## Shipped
 
-### v0.3.2 hotfix - store-PC POS production install hardening (2026-05-02)
+### v0.3.2 hotfix - AWS production install hardening (2026-05-02)
 
 - 22+ install + audit + UX bugs fixed in place under the v0.3.2 tag (no version bump).
 - Cross-OS install commands per platform (Windows / macOS / Linux), each auto-detecting x64 vs ARM64.

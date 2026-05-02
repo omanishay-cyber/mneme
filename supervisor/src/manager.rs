@@ -23,7 +23,7 @@ use tracing::{debug, error, info, warn};
 // Bug J (postmortem §12.1): the restart-request channel is now
 // unbounded. The previous bounded design (`mpsc::channel(cap)` with
 // `try_send`) silently dropped requests on `Full` — observed in
-// production at 11 dropped restarts in 5s on the POS install. The
+// production at 11 dropped restarts in 5s on the AWS install test. The
 // CHANGELOG v0.2.0 (line 709) had already promised
 // `mpsc::UnboundedChannel<RestartRequest>` — this commit honours that
 // contract. Memory pressure is bounded externally by the

@@ -2,7 +2,7 @@
 
 **Goal:** ship a working Mneme release with all Wave 2 bugs fixed and end-to-end-verified on a fresh VMware VM.
 
-**Bundle:** `C:\Users\Anish\Desktop\New folder (2)\source` (workspace v0.3.2)
+**Bundle:** local source bundle (workspace v0.3.2)
 
 **Test host:** Local VMware Workstation VM `testingpc` (WinDev2407Eval / Win11 Eval) at `192.168.1.193`. Replaces the EC2 t3.micro from prior cycles - local VM has 58 GB free vs EC2's 3 GB.
 
@@ -119,7 +119,7 @@ MCP spot-check via JSON-RPC: health, doctor, recall_concept.
 
 ## Final ZIP deliverable
 
-`C:\Users\Anish\Desktop\mneme final.zip` - assembled by `scripts/test/stage-final-zip.ps1` after Phase D completes. Contains:
+Final zip - assembled by `scripts/test/stage-final-zip.ps1` after Phase D completes. Contains:
 
 - `source/` - full source tree (no target/, no node_modules/, no dist/)
 - `release/mneme-v0.3.2-windows-x64.zip` - the binary release ZIP, tested on VM

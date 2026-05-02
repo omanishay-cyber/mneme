@@ -1105,7 +1105,7 @@ mod tests {
             Uninstall(UninstallArgs),
         }
 
-        // Exact form Anish typed on EC2 + the `OFFICE-TODO.md` step 4
+        // Exact form used on EC2 + the `OFFICE-TODO.md` step 4
         // / `NEXT-PATH.md` Phase B6 step 4 docs.
         let parsed =
             Harness::try_parse_from(["mneme", "uninstall", "--all", "--purge-state", "--yes"]);

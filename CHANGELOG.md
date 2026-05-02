@@ -5,17 +5,17 @@ All notable changes to mneme will be recorded here.
 Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [SemVer](https://semver.org/spec/v2.0.0.html).
 
-## [v0.3.2 hotfix] - 2026-05-02 - store-PC POS production install hardening
+## [v0.3.2 hotfix] - 2026-05-02 - AWS production install hardening
 
-22+ bugs caught during real-world store-PC POS production installs and Claude Code MCP testing on 2026-05-02. All fixes ship under the existing **v0.3.2** tag (re-uploaded zip + bootstrap on the v0.3.2 release page) - no version bump.
+22+ bugs caught during real-world AWS install testing and Claude Code MCP testing on 2026-05-02. All fixes ship under the existing **v0.3.2** tag (re-uploaded zip + bootstrap on the v0.3.2 release page) - no version bump.
 
 ### Fixed (install pipeline + plugin commands + diagnostic chain)
 
-- **B1 - `install.ps1` now runs `bun install --frozen-lockfile` after extract.** Without this, `~/.mneme/mcp/node_modules/` shipped empty (or missing `zod` / `@modelcontextprotocol/sdk` / `ajv`) and the MCP server crashed silently on first start with `error: ENOENT while resolving package 'zod' from 'C:\Users\POS\.mneme\mcp\src\types.ts'`. Claude Code's `/mcp` panel showed `mneme * failed`. Step 5b in `scripts/install.ps1` now invokes Bun, fails the install loud if exit code != 0, and reports `MCP node_modules installed` on success.
+- **B1 - `install.ps1` now runs `bun install --frozen-lockfile` after extract.** Without this, `~/.mneme/mcp/node_modules/` shipped empty (or missing `zod` / `@modelcontextprotocol/sdk` / `ajv`) and the MCP server crashed silently on first start with `error: ENOENT while resolving package 'zod' from 'C:\Users\<USER>\.mneme\mcp\src\types.ts'`. Claude Code's `/mcp` panel showed `mneme * failed`. Step 5b in `scripts/install.ps1` now invokes Bun, fails the install loud if exit code != 0, and reports `MCP node_modules installed` on success.
 - **B1.5 - Mneme plugin slash commands now register with Claude Code on install.** Pre-fix, after a clean install + `mneme: connected`, typing `/mn-build` (or `/mn-recall`, `/mn-why`, `/mn-resume`, etc.) in Claude Code showed `Unknown command`. The release zip's `plugin/commands/` subtree was dropped at `~/.mneme/plugin/` but never linked into Claude's plugin search path. Install step 7 now copies/symlinks the plugin into Claude's plugin directory so the slash commands surface in autocomplete.
 - **B2 - `stage-release-zip.ps1` refuses to ship broken zips.** Previously, the staging script blindly robocopied `mcp/` even if the source `node_modules/` was empty - producing a zip that crashed on first install. New pre-stage assertion: `mcp/node_modules/zod/package.json` MUST exist (auto-runs `bun install --frozen-lockfile` if missing); abort with `Fail "mcp/node_modules missing zod - refusing to stage broken zip"` otherwise. Mirror assertion for `@modelcontextprotocol/sdk`. Defense in depth with B1.
 - **B3 - `mneme doctor` MCP probe captures and echoes the child's stderr on failure.** Pre-fix, when the MCP server failed to start, doctor reported the unhelpful `could not probe MCP server - child closed stdout before response arrived` with no actionable diagnostic. The probe now captures stderr alongside stdout, prints the last 20 lines on probe failure, and includes the child's exit code. Users see the actual error (e.g. `ENOENT while resolving package 'zod'`) instead of guessing.
-- **B12 - Audit findings now stream to `findings.db` per-batch (no more 0-finding outcomes on timeout).** Pre-fix, `mneme-scanners` accumulated findings in process memory and only wrote them to `findings.db` at end-of-run. When the audit subprocess was killed by the wall-clock timeout (or any reason), the entire in-memory buffer (37,423 findings on Orion!) was lost. Build summary said "audit: ran" with `findings.db: 0` and the user had no idea their audit was binned. Scanners now `INSERT` into `findings.db` per-N-files (or every K seconds, whichever comes first) using SQLite WAL - partial findings persist even on hard kill.
+- **B12 - Audit findings now stream to `findings.db` per-batch (no more 0-finding outcomes on timeout).** Pre-fix, `mneme-scanners` accumulated findings in process memory and only wrote them to `findings.db` at end-of-run. When the audit subprocess was killed by the wall-clock timeout (or any reason), the entire in-memory buffer (37,423 findings on a real Electron app!) was lost. Build summary said "audit: ran" with `findings.db: 0` and the user had no idea their audit was binned. Scanners now `INSERT` into `findings.db` per-N-files (or every K seconds, whichever comes first) using SQLite WAL - partial findings persist even on hard kill.
 - **B13 - Audit fan-out uses idle scanner-workers from the supervisor pool.** Previously the audit phase spawned ONE single-threaded `mneme-scanners.exe` subprocess that walked all files sequentially while 6 idle `scanner-worker-N` daemon processes sat idle. Audit now becomes a typed job dispatched by the supervisor: file list is split into N batches, one batch per worker, results aggregated. **5–10× faster on multi-core machines** (on a high-end 22-core AWS instance: ~13 min audit drops to ~1–2 min on the same corpus).
 - **B14.5 - Heartbeat phase label now updates when audit starts.** Pre-fix, when the build pipeline transitioned from embed -> audit, `cli/src/commands/build.rs` failed to call `heartbeat.set_phase("audit")`. The user saw stale `phase=embed processed=8003/8003` for 13+ minutes while audit was actually running - leaving the impression that embed had hung. Audit invocation now correctly sets phase + resets total/processed counters.
 - **B17 - All BGE / ORT inference pipeline now stable on Windows.** Bundled `onnxruntime.dll` bumped to **1.24.4** (matches what `ort 2.0.0-rc.12` expects on the API-24 ABI). Pre-fix, the Windows-shipped 1.20.x DLL would silently hang `RealBackend::try_new` on first BGE inference call - embedder fell back to hashing-trick without warning. Bundled DLL pinned via `ORT_DYLIB_PATH` so the in-tree version always wins over `System32`.
@@ -57,7 +57,7 @@ Versioning follows [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Test gate (v0.3.2 hotfix VM checklist - mandatory before reupload)
 
-Lesson from POS install 2026-05-02: the prior VM test was too clean and missed bugs that any real user machine surfaced immediately. New VM gate now runs:
+Lesson from our AWS install test 2026-05-02: the prior VM test was too clean and missed bugs that any real user machine surfaced immediately. New VM gate now runs:
 
 1. Wipe ALL state before fresh install (`~/.mneme`, `$TEMP/mneme-bootstrap-v0.3.2`, `~/.bun/install/cache`, `~/.bun`)
 2. Run once fresh - verify clean install
@@ -305,7 +305,7 @@ The B-008 chain converts an opaque exit-code into a complete diagnostic in one t
   `powershell -ExecutionPolicy Bypass -File "$HOME\.mneme\uninstall.ps1"`.
   Verified dropped on EC2 install (6,781 bytes).
 - **G1+G4+G6+G7 - `scripts/install.ps1` auto-installs Rust + Tauri CLI
-  + Python + SQLite CLI** (Anish directive: "mneme should check, host
+  + Python + SQLite CLI** (per project directive: "mneme should check, host
   pc has bun, rust, sqlite, node, python, cargo all others installed
   or not and it should pull installation and setup environment as i
   didnt have tauri yesterday and went into issues"). The previous

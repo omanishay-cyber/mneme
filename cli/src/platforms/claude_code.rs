@@ -850,7 +850,7 @@ mod tests {
 
     // -----------------------------------------------------------------
     // B-AGENT-C-1 (v0.3.2): the silent-zero error path in
-    // `count_registered_mneme_hooks` is the bug Anish hit when Claude
+    // `count_registered_mneme_hooks` is the bug we hit when Claude
     // Code rewrote settings.json mid-doctor. Every io / utf-8 / json
     // failure historically returned `(0, expected)` with no diagnostic.
     // The detailed variant surfaces the concrete reason so doctor can

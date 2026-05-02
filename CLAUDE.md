@@ -39,7 +39,7 @@ If you're a user *consuming* mneme as an MCP plugin, see [README.md](README.md) 
 
 ### Local-only invariant (project-wide)
 - Mneme must NEVER make outbound network calls during normal operation. The only exceptions are user-initiated `mneme models install --from <local-mirror>` (still local) or, with explicit opt-in, `mneme update --check` (polls a single user-configured URL).
-- Section 22 of the design doc has the full ban list. Any new feature that contemplates network access is auto-rejected unless explicitly approved by Anish.
+- Section 22 of the design doc has the full ban list. Any new feature that contemplates network access is auto-rejected unless explicitly approved by the maintainers.
 
 ### Resource policy
 - No artificial caps on RAM, CPU, or disk. Use `num_cpus` for worker pool sizing. Cache size unlimited unless user opts in. See `docs/design/2026-04-23-resource-policy-addendum.md`.

@@ -210,7 +210,7 @@ iwr -useb https://raw.githubusercontent.com/omanishay-cyber/mneme/main/scripts/i
 #   6 agents dispatched in parallel
 #   24h leak soak (Phase D idle-after-load - per feedback_leak_is_the_leak.md "leak is the leak")
 
-# Acceptance gate: REAL-1 - interactive Claude with Haiku 4.5 + low effort + Anish-proxy prompts
+# Acceptance gate: REAL-1 - interactive Claude with Haiku 4.5 + low effort + maintainer-proxy prompts
 ```
 
 If REAL-2 passes: tag `v0.3.2`, build public release ZIP, push to `omanishay-cyber/mneme` (PUBLIC repo).

@@ -112,7 +112,7 @@ pub struct BuildArgs {
 /// unfiltered monorepo requires explicit consent.
 ///
 /// Rationale: F-010 in the v0.3.0 install report — `mneme build
-/// C:\Users\POS` kicked off indexing node_modules, .git, AppData,
+/// C:\Users\<USER>` kicked off indexing node_modules, .git, AppData,
 /// OneDrive, Screenshots, every plugin cache, on track for hundreds of
 /// thousands of files. Exit path was "kill the daemon". Unacceptable
 /// default behavior for a tool that runs unattended.
@@ -6202,14 +6202,14 @@ mod tests {
 
     #[test]
     fn is_windows_abs_accepts_drive_letter_with_backslash() {
-        assert!(is_windows_abs(r"C:\Users\Anish"));
+        assert!(is_windows_abs(r"C:\Users\TestUser"));
         assert!(is_windows_abs(r"D:\foo"));
     }
 
     #[test]
     fn is_windows_abs_accepts_drive_letter_with_forward_slash() {
         // Some tools normalise to `/` even on Windows; accept both.
-        assert!(is_windows_abs("C:/Users/Anish"));
+        assert!(is_windows_abs("C:/Users/TestUser"));
     }
 
     #[test]

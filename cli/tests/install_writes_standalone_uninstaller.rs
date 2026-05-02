@@ -1,7 +1,7 @@
 //! Bug H regression — `drop_standalone_uninstaller` must reliably write
 //! `~/.mneme/uninstall.ps1` and the call site must not swallow failures.
 //!
-//! Postmortem §6 (2026-04-29 POS install): the file did not exist after
+//! Postmortem §6 (2026-04-29 AWS install test): the file did not exist after
 //! `mneme install` even though the K19 wiring at `cli/src/commands/
 //! install.rs:243` calls `drop_standalone_uninstaller`. The current call
 //! site uses `if let Err(e) = ... { warn!(...) }` — a silent fail mode
@@ -137,7 +137,7 @@ fn drop_standalone_uninstaller_writes_file_with_expected_bytes() {
     );
 
     // 2) File is non-trivial. The bundled uninstall.ps1 is ~6.7 KB; a
-    //    silent truncation (the v0.3.0 POS symptom) would land us at
+    //    silent truncation (the v0.3.0 AWS install symptom) would land us at
     //    0 bytes or a partial header. Pin > 5000 to catch both.
     let written = std::fs::read(&target).expect("read back uninstall.ps1");
     assert!(

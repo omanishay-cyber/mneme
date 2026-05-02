@@ -24,7 +24,7 @@ use crate::error::CliResult;
 use crate::ipc::{IpcRequest, IpcResponse};
 
 /// Single source of truth for the copyright line printed in the
-/// banner. Anish confirmed canonical names 2026-04-25 → restoring full line.
+/// banner. Canonical names confirmed 2026-04-25 → restoring full line.
 /// Closes I-14.
 const COPYRIGHT: &str = "© 2026 Anish Trivedi & Kruti Trivedi";
 
@@ -515,7 +515,7 @@ pub(crate) fn compose_hooks_message(
              restart Claude to pick them up."
         ),
 
-        // 0/N + Claude running — THE bug Anish hit. Claude likely
+        // 0/N + Claude running — THE bug we hit. Claude likely
         // overwrote the file with its in-memory copy. Don't blame the
         // install.
         (false, Some(pid)) if none_present => format!(
@@ -2184,7 +2184,7 @@ mod tests {
 
     #[test]
     fn copyright_constant_carries_both_names() {
-        // I-14 closed: Anish picked Trivedi for both. Banner now says
+        // I-14 closed: maintainers picked Trivedi for both names. Banner now says
         // "© 2026 Anish Trivedi & Kruti Trivedi".
         assert!(COPYRIGHT.contains("Anish Trivedi"));
         assert!(COPYRIGHT.contains("Kruti Trivedi"));
@@ -2246,7 +2246,7 @@ mod tests {
 
     #[test]
     fn known_toolchain_install_hints_are_actionable() {
-        // Anish runs Windows; every entry must have a winget-shaped
+        // We test on Windows; every entry must have a winget-shaped
         // hint or a clear official one-liner. None should be empty.
         for entry in KNOWN_TOOLCHAIN {
             assert!(

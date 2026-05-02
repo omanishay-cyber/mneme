@@ -9,8 +9,8 @@
 //! NO per-file output. On a 5,000-file project the user sees the
 //! Tesseract-disabled multimodal warnings, then 5–20 minutes of
 //! perfect silence. They assume the process hung and Ctrl-C — which
-//! kills the build mid-write and corrupts the WAL. Anish hit this on
-//! his home PC on 2026-04-29.
+//! kills the build mid-write and corrupts the WAL. We hit this on
+//! local hardware on 2026-04-29.
 //!
 //! ## What this module gives you
 //!
