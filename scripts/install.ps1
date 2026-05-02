@@ -139,6 +139,13 @@ try {
     $OutputEncoding            = [System.Text.Encoding]::UTF8
 } catch { }
 
+# B5: silence Invoke-WebRequest "Writing web request" progress chatter
+# script-wide. Every Invoke-WebRequest call site in this installer
+# (G1 Rust, G2 Bun, G3 Node, G4 Git, G7 SQLite, daemon health probe,
+# zip download) inherits this. Set at script scope so we don't have
+# to wrap each inline IWR.
+$ProgressPreference = 'SilentlyContinue'
+
 function Write-Step {
     param([string]$Message, [string]$Color = 'Cyan')
     Write-Host ("==> {0}" -f $Message) -ForegroundColor $Color
@@ -856,8 +863,12 @@ if ($NoToolchain) {
                 if ($wingetExe) {
                     $p = Start-Process winget -ArgumentList 'install','--id','UB-Mannheim.TesseractOCR','--silent','--accept-source-agreements','--accept-package-agreements' -Wait -PassThru
                     if ($p.ExitCode -eq 0 -or $p.ExitCode -eq -1978335189) {
-                        $env:PATH = [Environment]::GetEnvironmentVariable('PATH','Machine') + ';' + [Environment]::GetEnvironmentVariable('PATH','User')
-                        Write-OK "[G9] Tesseract OCR installed (re-open shell if `tesseract` not on PATH yet)"
+                        # B8: refresh PATH so the immediate capability check picks up the new install
+                        $machinePath = [Environment]::GetEnvironmentVariable("PATH", "Machine")
+                        $userPath = [Environment]::GetEnvironmentVariable("PATH", "User")
+                        $env:PATH = "$machinePath;$userPath"
+                        # B6: literal "Tesseract" (was `tesseract` — backtick-t was a PowerShell tab escape that ate the T)
+                        Write-OK "[G9] Tesseract OCR installed (re-open shell if Tesseract not on PATH yet)"
                     } else {
                         Write-Warn ("[G9] winget Tesseract install exited {0} - non-fatal, continuing" -f $p.ExitCode)
                     }
@@ -1108,10 +1119,18 @@ if ($UsePreExtracted) {
             Write-Info ("orphan-cleanup: {0} file(s) from prior install no longer in zip" -f $Orphans.Count)
             foreach ($o in $Orphans) {
                 $abs = Join-Path $MnemeHome $o
-                try {
-                    Remove-Item -LiteralPath $abs -Force -ErrorAction Stop
-                } catch {
-                    Write-Warn ("could not remove orphan {0}: {1}" -f $abs, $_.Exception.Message)
+                # B4: Test-Path before Remove-Item so files already gone
+                # (e.g. cleaned by a prior partial run, or never extracted
+                # in the first place) don't trigger a "could not remove
+                # orphan" warning. The end-of-loop "removed N orphan(s)"
+                # summary line still prints — it's the per-file warnings
+                # that were noisy (41 fired on a typical POS upgrade).
+                if (Test-Path -LiteralPath $abs) {
+                    try {
+                        Remove-Item -LiteralPath $abs -Force -ErrorAction SilentlyContinue
+                    } catch {
+                        Write-Warn ("could not remove orphan {0}: {1}" -f $abs, $_.Exception.Message)
+                    }
                 }
             }
             Write-OK ("removed {0} orphan file(s)" -f $Orphans.Count)

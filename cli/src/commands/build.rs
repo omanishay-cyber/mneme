@@ -2266,7 +2266,11 @@ async fn run_audit_pass_ipc_then_fallback(
 
     match ipc_attempt {
         Ok(crate::ipc::IpcResponse::Error { message }) => {
-            warn!(error = %message, "supervisor returned error; falling back to direct subprocess");
+            // B13: supervisor's "audit not yet implemented in supervisor;
+            // CLI fallback is authoritative" is the documented fallback
+            // path, not a problem. Use info! so it doesn't surface as a
+            // WARN line in normal `mneme build` output.
+            info!(error = %message, "supervisor returned error; falling back to direct subprocess");
         }
         Ok(_) => {
             // Supervisor accepted the audit; the scanners worker will

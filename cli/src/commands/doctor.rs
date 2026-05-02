@@ -13,7 +13,7 @@
 //! kernel32.lib) plus a one-line PASS/FAIL summary row. Closes I-16.
 
 use clap::Args;
-use std::io::{BufRead, BufReader, Write};
+use std::io::{BufRead, BufReader, Read, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command as StdCommand, Stdio};
 use std::time::{Duration, Instant};
@@ -915,10 +915,14 @@ fn probe_mcp_tools(deadline: Duration) -> Result<Vec<String>, String> {
         .arg("stdio")
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
-        // Silence the MCP server's own stderr banner / diagnostic
-        // logs so nothing contaminates the probe; stderr is piped to
-        // null anyway, but belt-and-braces for any SDK that reads env.
+        // B3: pipe stderr (was Stdio::null) so failures can echo the
+        // child's bun/node diagnostic output back to the doctor report.
+        // A drainer thread (below) reads the pipe into a bounded buffer
+        // so the child can't deadlock on a full stderr pipe.
+        .stderr(Stdio::piped())
+        // Cap the MCP server's own stderr verbosity so the captured
+        // tail we surface on failure is signal, not noise. NO_COLOR
+        // keeps any captured tail readable (no ANSI escapes).
         .env("MNEME_LOG", "error")
         .env("NO_COLOR", "1");
     // Bug M10 (D-window class): suppress console-window allocation
@@ -933,24 +937,45 @@ fn probe_mcp_tools(deadline: Duration) -> Result<Vec<String>, String> {
 
     let start = Instant::now();
 
-    // Take ownership of stdin/stdout handles. If either is missing the
-    // child is unusable — kill it and bail.
+    // Take ownership of stdin/stdout/stderr handles. If stdin or stdout
+    // is missing the child is unusable — kill, capture whatever stderr
+    // we have, and bail with an enriched error.
+    let mut stderr_pipe = child.stderr.take();
     let mut stdin = match child.stdin.take() {
         Some(s) => s,
         None => {
             let _ = child.kill();
-            let _ = child.wait();
-            return Err("no stdin pipe".into());
+            let exit = child.wait().ok().and_then(|s| s.code());
+            let tail = drain_stderr_blocking(&mut stderr_pipe);
+            return Err(format_probe_failure("no stdin pipe", exit, &tail));
         }
     };
     let stdout = match child.stdout.take() {
         Some(s) => s,
         None => {
             let _ = child.kill();
-            let _ = child.wait();
-            return Err("no stdout pipe".into());
+            let exit = child.wait().ok().and_then(|s| s.code());
+            let tail = drain_stderr_blocking(&mut stderr_pipe);
+            return Err(format_probe_failure("no stdout pipe", exit, &tail));
         }
     };
+
+    // B3: drain stderr in a worker thread so (a) the child can't block
+    // on a full pipe and (b) we always have a buffer to surface on
+    // failure. Bounded to ~4 KB of tail to keep the doctor report sane.
+    let (stderr_tx, stderr_rx) = std::sync::mpsc::channel::<Vec<u8>>();
+    let stderr_handle = stderr_pipe.take();
+    std::thread::spawn(move || {
+        let buf = match stderr_handle {
+            Some(mut s) => {
+                let mut all = Vec::new();
+                let _ = s.read_to_end(&mut all);
+                all
+            }
+            None => Vec::new(),
+        };
+        let _ = stderr_tx.send(buf);
+    });
 
     // Run the actual JSON-RPC handshake on a worker thread so we can
     // enforce the deadline from this thread without blocking forever
@@ -966,7 +991,7 @@ fn probe_mcp_tools(deadline: Duration) -> Result<Vec<String>, String> {
 
     // Wait for the worker to finish, bounded by `deadline`.
     let remaining = deadline.saturating_sub(start.elapsed());
-    let result = match rx.recv_timeout(remaining) {
+    let handshake_result = match rx.recv_timeout(remaining) {
         Ok(res) => res,
         Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
             Err(format!("timed out after {}s", deadline.as_secs()))
@@ -974,11 +999,79 @@ fn probe_mcp_tools(deadline: Duration) -> Result<Vec<String>, String> {
         Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => Err("handshake thread died".into()),
     };
 
-    // Always kill the child and reap it before returning.
+    // Always kill the child and reap it before returning. This also
+    // closes the stderr pipe so the drainer thread can finish.
     let _ = child.kill();
-    let _ = child.wait();
+    let exit_code = child.wait().ok().and_then(|s| s.code());
 
-    result
+    // Best-effort grab of the stderr tail. If the drainer hasn't
+    // posted yet, give it a short window — the pipe is closed so
+    // read_to_end should return promptly.
+    let stderr_tail = stderr_rx
+        .recv_timeout(Duration::from_secs(2))
+        .unwrap_or_default();
+
+    match handshake_result {
+        Ok(tools) => Ok(tools),
+        Err(reason) => Err(format_probe_failure(&reason, exit_code, &stderr_tail)),
+    }
+}
+
+/// B3: blocking variant used on the early-exit error paths (stdin /
+/// stdout pipe missing) where we don't have a drainer thread set up
+/// yet. Reads up to ~4 KB of stderr from the child's pipe handle.
+fn drain_stderr_blocking(pipe: &mut Option<std::process::ChildStderr>) -> Vec<u8> {
+    let mut out = Vec::new();
+    if let Some(s) = pipe.as_mut() {
+        let _ = s.read_to_end(&mut out);
+    }
+    out
+}
+
+/// B3: format the enriched probe-failure message used by the
+/// `render_mcp_tool_probe_box` `Err(reason)` arm. Shape:
+///
+///   <reason> (exit=N) — stderr tail: <last lines>
+///
+/// Exit code suffix is omitted when the child exited cleanly (Some(0)
+/// or unknown). Stderr tail is omitted when empty. Tail is bounded to
+/// the last 4 KB and the last 20 lines, whichever is smaller, so the
+/// doctor report stays readable even when the child spewed a megabyte
+/// of bun diagnostics before crashing.
+fn format_probe_failure(reason: &str, exit: Option<i32>, stderr: &[u8]) -> String {
+    let mut out = String::from(reason);
+    if let Some(code) = exit {
+        if code != 0 {
+            out.push_str(&format!(" (exit={code})"));
+        }
+    }
+    if !stderr.is_empty() {
+        let text = String::from_utf8_lossy(stderr);
+        // Bound by 4 KB first.
+        let trimmed: &str = if text.len() > 4096 {
+            // Slice from a UTF-8 char boundary near (len - 4096).
+            let cut = text.len() - 4096;
+            let mut start = cut;
+            while start < text.len() && !text.is_char_boundary(start) {
+                start += 1;
+            }
+            &text[start..]
+        } else {
+            &text
+        };
+        // Then bound by last 20 lines.
+        let lines: Vec<&str> = trimmed
+            .lines()
+            .filter(|l| !l.trim().is_empty())
+            .collect();
+        let take = lines.len().min(20);
+        let tail_lines = &lines[lines.len() - take..];
+        let joined = tail_lines.join(" | ");
+        if !joined.is_empty() {
+            out.push_str(&format!(" — stderr tail: {joined}"));
+        }
+    }
+    out
 }
 
 /// Drive the MCP JSON-RPC handshake: initialize → initialized →
@@ -1517,9 +1610,18 @@ pub fn render_toolchain_box(probes: &[ToolProbe]) -> bool {
     }
     println!("└─────────────────────────────────────────────────────────┘");
 
-    // Per-tool fix hints for everything missing — printed below the box
-    // so the table stays readable.
-    let missing: Vec<&ToolProbe> = probes.iter().filter(|p| !p.is_present()).collect();
+    // B10: per-tool fix hints for everything missing — printed below
+    // the box so the table stays readable. Filter strictly against the
+    // detection result (`found_at.is_none()` is the literal "MISSING"
+    // signal — a tool whose probe binary was located on PATH has
+    // `found_at = Some(_)` even when the version probe failed). This
+    // mirrors the value-rendering path at the top of this function:
+    //   (None, _) => format!("MISSING — {}", probe.entry.issue_id)
+    // so a row marked ✓ in the box can never have a hint printed below.
+    let missing: Vec<&ToolProbe> = probes
+        .iter()
+        .filter(|p| p.found_at.is_none())
+        .collect();
     if !missing.is_empty() {
         println!();
         println!("install hints for missing tools:");
@@ -1994,6 +2096,63 @@ mod tests {
         let row = DoctorRow::new("label", "value");
         assert_eq!(row.label, "label");
         assert_eq!(row.value, "value");
+    }
+
+    // B3: format_probe_failure pins the shape of the doctor MCP-probe
+    // failure line. The user-visible spec is:
+    //   ✗ probe : could not probe MCP server (exit=N) — stderr tail: <last lines>
+    // These tests pin the suffix portion (everything after the
+    // "could not probe MCP server — " caller-side prefix).
+
+    #[test]
+    fn format_probe_failure_includes_exit_code_when_nonzero() {
+        let out = format_probe_failure("timed out after 10s", Some(7), &[]);
+        assert!(
+            out.contains("(exit=7)"),
+            "expected '(exit=7)' in: {out}"
+        );
+        assert!(out.contains("timed out after 10s"));
+    }
+
+    #[test]
+    fn format_probe_failure_omits_exit_code_when_zero_or_unknown() {
+        // Clean exit (0) — no exit suffix.
+        let out_zero = format_probe_failure("ok-but-malformed", Some(0), &[]);
+        assert!(!out_zero.contains("exit="), "got: {out_zero}");
+        // Unknown (None, e.g. killed by signal on unix) — no exit suffix.
+        let out_none = format_probe_failure("killed", None, &[]);
+        assert!(!out_none.contains("exit="), "got: {out_none}");
+    }
+
+    #[test]
+    fn format_probe_failure_appends_stderr_tail() {
+        let stderr = b"line one\nline two\nline three\n";
+        let out = format_probe_failure("bad json", Some(1), stderr);
+        assert!(out.contains("stderr tail:"), "got: {out}");
+        assert!(out.contains("line three"), "got: {out}");
+        assert!(out.contains("(exit=1)"), "got: {out}");
+    }
+
+    #[test]
+    fn format_probe_failure_skips_stderr_tail_when_empty() {
+        let out = format_probe_failure("nothing", Some(2), &[]);
+        assert!(!out.contains("stderr tail:"), "got: {out}");
+    }
+
+    #[test]
+    fn format_probe_failure_caps_stderr_to_last_20_lines() {
+        // 30 non-empty lines → only the last 20 should survive.
+        let mut stderr = String::new();
+        for i in 1..=30 {
+            stderr.push_str(&format!("L{i}\n"));
+        }
+        let out = format_probe_failure("boom", Some(1), stderr.as_bytes());
+        // First 10 lines should be dropped.
+        assert!(!out.contains("L1 |"), "L1 should have been trimmed: {out}");
+        assert!(!out.contains("L10 |"), "L10 should have been trimmed: {out}");
+        // L11 through L30 should be present.
+        assert!(out.contains("L11"), "L11 should remain: {out}");
+        assert!(out.contains("L30"), "L30 should remain: {out}");
     }
 
     #[cfg(not(windows))]
