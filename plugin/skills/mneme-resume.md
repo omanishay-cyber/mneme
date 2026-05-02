@@ -2,7 +2,7 @@
 name: mneme-resume
 description: "Recover from a context compaction or session restart. Pulls the resumption bundle from the step ledger and continues from the current step. Use after any context reset, or when the user says 'where were we' / 'pick up where we left off'."
 version: 1.0.0
-author: Anish Trivedi
+author: Anish Trivedi & Kruti Trivedi
 triggers: [resume, resume-step, continue, /mn-step, where-were-we]
 tags: [mneme, resume, step-ledger, compaction]
 ---

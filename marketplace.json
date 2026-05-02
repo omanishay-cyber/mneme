@@ -4,7 +4,7 @@
   "displayName": "mneme — the AI superbrain",
   "description": "Persistent per-project memory that survives context compaction. 26-shard SQLite, 47/47 MCP tools wired, 14 visualization views, 11 drift scanners, compaction-resilient Step Ledger, FTS5-accelerated keyword search, opt-in BGE-small ONNX embeddings. 100% local.",
   "version": "0.3.2",
-  "author": "Anish Trivedi",
+  "author": "Anish Trivedi & Kruti Trivedi",
   "homepage": "https://omanishay-cyber.github.io/mneme/",
   "repository": "https://github.com/omanishay-cyber/mneme",
   "license": "Apache-2.0",

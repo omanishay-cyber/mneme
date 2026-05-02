@@ -3,8 +3,8 @@
   "name": "mneme-marketplace",
   "description": "Mneme — persistent, incrementally-updated knowledge graph for token-efficient code work across 18 AI coding platforms.",
   "owner": {
-    "name": "Anish Trivedi",
-    "url": "https://github.com/anishtrivedi"
+    "name": "Anish Trivedi & Kruti Trivedi",
+    "url": "https://github.com/omanishay-cyber"
   },
   "plugins": [
     {

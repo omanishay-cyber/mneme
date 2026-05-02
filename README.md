@@ -410,7 +410,7 @@ Honest inventory as of the v0.3.2 hotfix (2026-05-02). Most surfaces flipped fro
 | **Plugin slash commands `/mn-build`, `/mn-recall`, etc.** | ✅ **auto-registered in v0.3.2 (B1.5)** | install.ps1 step 7 symlinks `~/.mneme/plugin/` to `~/.claude/plugins/mneme/` (falls back to recursive copy if symlink perms denied). Restart Claude Code -> `/mn-` autocompletes the full command set. |
 | **MCP node_modules pre-installed (no manual `bun install`)** | ✅ **fixed in v0.3.2 (B1)** | install.ps1 step 5b runs `bun install --frozen-lockfile` after extract. stage-release-zip.ps1 also fail-loud refuses to ship a zip with empty mcp/node_modules (B2 validation gate). |
 | **Audit pipeline streams findings (no data loss on timeout)** | ✅ **fixed in v0.3.2 (B12)** | mneme-scanners writes findings to findings.db every 100 rows or 5s. Even if the subprocess gets killed mid-scan, all persisted findings survive. |
-| **Audit fan-out across scanner-workers** | ✅ **shipped in v0.3.2 (B11.7)** | Supervisor dispatches Job::Scan per file across the 6-worker scanner pool. Was single-process subprocess before. ~5x faster on 6-core POS hardware. |
+| **Audit fan-out across scanner-workers** | ✅ **shipped in v0.3.2 (B11.7)** | Supervisor dispatches Job::Scan per file across the 6-worker scanner pool. Was single-process subprocess before. ~5x faster on a high-end AWS server. |
 | **Audit hang guard** | ✅ **per-line stall (30s), no wall-clock** in v0.3.2 (B11.8) | The previous `MNEME_AUDIT_TIMEOUT_SEC=300` outer wall-clock killed slow-but-working scans. Removed. Per-line stall detector remains as the sole hang guard. No env var override needed for big projects. |
 | **`--rebuild` flag on `mneme build`** | ✅ shipped in v0.3.2 (B11.5) | Wipes `build-state.json` checkpoint + forces `--full` re-parse. Use when you want zero state carryover. |
 | **8 Claude Code hooks default-on** | ✅ shipped in v0.3.2 (K1) | `mneme install` writes 8 hook entries under `~/.claude/settings.json::hooks` by default. Pass `--no-hooks` to skip. Hooks read STDIN JSON and exit 0 on internal error so a mneme bug can never block tool calls. |
@@ -426,7 +426,7 @@ Honest inventory as of the v0.3.2 hotfix (2026-05-02). Most surfaces flipped fro
 | One-shot `pip install mneme` | ❌ planned v0.4 (Tier 1.5.H) | Python wrapper around bootstrap, ~2-3h. Cosmetic for Python audience. |
 | VS Code / JetBrains / Cursor extensions | ❌ planned v0.6 (Tier 2 #11) | Live graph views + in-editor blast-radius highlights. |
 
-For the full hotfix bug list see [`CHANGELOG.md`](CHANGELOG.md) §`v0.3.2 hotfix - 2026-05-02`. For the v0.4+ vision see `mneme-vision.md` (Anish's local working doc).
+For the full hotfix bug list see [`CHANGELOG.md`](CHANGELOG.md) §`v0.3.2 hotfix - 2026-05-02`. For the v0.4+ vision see `mneme-vision.md` (our internal working doc).
 
 ## 🚀 Install - in depth
 
@@ -510,7 +510,7 @@ Total ~3.4 GB downloaded once. All inference runs on your CPU (no GPU required).
 
 ## 🆕 What's new in v0.3.2 hotfix (2026-05-02)
 
-The hotfix sweeps 22+ bugs caught during real-world store-PC POS production installs and rebuilds the v0.3.2 release zip in place (no version bump - same `v0.3.2` tag).
+The hotfix sweeps 22+ bugs caught during our 2026-05-02 AWS install regression cycle and rebuilds the v0.3.2 release zip in place (no version bump - same `v0.3.2` tag).
 
 **Install reliability**
 

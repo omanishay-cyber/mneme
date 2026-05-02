@@ -30,4 +30,4 @@ Applies in the GitHub repo, Discussions, Issues, PRs, any mneme-branded
 chat room, and at any event (online or in-person) where you're representing
 mneme.
 
-- Anish Trivedi
+- Anish Trivedi & Kruti Trivedi

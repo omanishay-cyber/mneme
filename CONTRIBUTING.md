@@ -124,4 +124,4 @@ See [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md). Be kind, be specific, be generous 
 
 Thanks again. Every contribution makes mneme better for everyone who uses it.
 
-- Anish Trivedi
+- Anish Trivedi & Kruti Trivedi

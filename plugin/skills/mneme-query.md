@@ -2,7 +2,7 @@
 name: mneme-query
 description: "Query the local mneme knowledge graph and project memory. Use when the user asks about files, decisions, blast radius, references, architecture, or anything 'what does X do' / 'where is Y used' / 'why did we pick Z'."
 version: 1.0.0
-author: Anish Trivedi
+author: Anish Trivedi & Kruti Trivedi
 triggers: [query, query-the-graph, ask-mneme, /mn-recall, recall]
 tags: [mneme, recall, knowledge-graph, memory]
 ---

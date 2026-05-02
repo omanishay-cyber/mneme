@@ -23,7 +23,7 @@ name: Multi-Arch Release
 #   - Linux glibc (gnu) chosen over musl for broadest compatibility.
 #     musl static builds are a future enhancement.
 #
-# Author: Anish Trivedi. Apache-2.0.
+# Authors: Anish Trivedi & Kruti Trivedi. Apache-2.0.
 
 on:
   workflow_dispatch:

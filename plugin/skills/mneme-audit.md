@@ -2,7 +2,7 @@
 name: mneme-audit
 description: "Run mneme's drift + quality scanners (theme, types, security, a11y, perf) over the working tree, the diff, or one file. Use before commits, after refactors, or when the user asks 'what's wrong with this'."
 version: 1.0.0
-author: Anish Trivedi
+author: Anish Trivedi & Kruti Trivedi
 triggers: [audit, auditing, audit-codebase, /mn-audit]
 tags: [mneme, audit, drift, scanners, quality]
 ---

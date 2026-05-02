@@ -8,7 +8,7 @@ If you're a user *consuming* mneme as an MCP plugin, see [README.md](README.md) 
 
 ## Project context
 
-- **Owner / sole copyright holder**: Anish Trivedi.
+- **Owners / copyright holders**: Anish Trivedi & Kruti Trivedi.
 - **License**: Apache-2.0. See [LICENSE](LICENSE). Permissive: use, modify, distribute, sublicense, including commercially. Requires attribution + NOTICE file preservation.
 - **Status**: alpha - actively being iterated.
 - **Architecture**: multi-process (Rust supervisor + Bun TS MCP + Bun TS Vision app + Python multimodal sidecar). Architecture overview in [`docs/architecture.md`](docs/architecture.md).
@@ -163,7 +163,7 @@ cd workers/multimodal && pip install -e ".[dev]" && pytest
 
 ## Where to ask questions
 
-There is no public discussion forum. This is a private, proprietary project. If you have access to this codebase, you have a direct relationship with Anish Trivedi - ask him directly.
+There is no public discussion forum. This is a private, proprietary project. If you have access to this codebase, you have a direct relationship with us - ask us directly.
 
 ---
 

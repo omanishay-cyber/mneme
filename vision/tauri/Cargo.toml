@@ -2,7 +2,7 @@
 name = "mneme-vision-tauri"
 version = "0.1.0"
 description = "Tauri desktop wrapper for the mneme Vision app"
-authors = ["Anish Trivedi"]
+authors = ["Anish Trivedi", "Kruti Trivedi"]
 edition = "2021"
 rust-version = "1.75"
 

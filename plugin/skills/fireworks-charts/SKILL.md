@@ -1,7 +1,7 @@
 ---
 name: fireworks-charts
 version: 1.0.0
-author: Anish Trivedi
+author: Anish Trivedi & Kruti Trivedi
 description: amCharts 5 premium chart integration for Electron + React projects. Gauge, Treemap, Sankey, Funnel, Bar Race, Waterfall, Pie/Donut, Radar, Timeline, Heatmap, Wordcloud. React wrapper patterns with useLayoutEffect + refs. Glassmorphism theme integration, dark/light mode, CSS variable bridging.
 triggers:
   - gauge
