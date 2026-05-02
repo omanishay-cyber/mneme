@@ -49,6 +49,15 @@ interface RealpathSyncWithNative {
 }
 
 export function projectIdForPath(absPath: string): string {
+  // B-023 (2026-05-02): MUST match the Rust CLI's `ProjectId::from_path`
+  // (common/src/ids.rs) byte-for-byte. The CLI uses `dunce::canonicalize`
+  // which strips Windows UNC `\\?\` prefixes but PRESERVES native
+  // backslashes and original case. Any divergence here means the MCP
+  // server looks up a different shard than the CLI built, and every tool
+  // call returns "shard not found" even though the underlying graph data
+  // exists. (Caught by the multi-MCP bench 2026-05-02: mneme scored 0/5
+  // because of this mismatch alone — CLI run from same cwd returned 5
+  // hits with file:line citations for the same query.)
   let p = absPath;
   try {
     // realpathSync.native is faster on Windows when available.
@@ -56,10 +65,15 @@ export function projectIdForPath(absPath: string): string {
     p = realpath.native?.(p) ?? realpath(p);
   } catch {
     // Path may not exist on disk yet — that's fine, fall through to
-    // string-level normalization so we still get a stable id.
+    // raw input string so we still get a stable id.
   }
   if (process.platform === "win32") {
-    p = p.replace(/\\/g, "/").toLowerCase();
+    // Strip the UNC `\\?\` long-path prefix that node:fs realpath returns
+    // on Windows but `dunce::canonicalize` strips. Mirrors `dunce`'s
+    // behavior. KEEP backslashes + KEEP original case — both match CLI.
+    if (p.startsWith("\\\\?\\")) {
+      p = p.slice(4);
+    }
   }
   return createHash("sha256").update(p).digest("hex");
 }
