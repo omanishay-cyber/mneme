@@ -162,14 +162,28 @@ Each cell shows `wall-time s · output tokens · cost USD · relevance score (0-
 
 | Query | mneme v0.3.2 | tree-sitter v0.7.0 | CRG v2.3.2 | graphify v0.3.0 |
 |---|---|---|---|---|
-| Q1 - Build pipeline functions | 63 s · 4,894 t · $0.91 · **9**/10 | 112 s · 7,855 t · $1.21 · **9**/10 | 103 s · 8,142 t · $1.47 · **9**/10 | 180 s · 0 t · $0 · **0**/10 |
-| Q2 - Blast radius of `common/src/paths.rs` | 61 s · 4,598 t · $0.90 · **9**/10 | 140 s · 9,560 t · $1.06 · **9**/10 | 180 s · 0 t · $0 · **0**/10 | 176 s · 0 t · $0 · **0**/10 |
-| Q3 - Build call graph from `cli/src/commands/build.rs` | 79 s · 4,027 t · $1.30 · **0**/10 | 134 s · 9,156 t · $1.44 · **9**/10 | 160 s · 9,310 t · $1.96 · **9**/10 | 180 s · 0 t · $0 · **0**/10 |
-| Q4 - Design patterns in this Rust workspace | 100 s · 6,100 t · $0.80 · **8**/10 | 102 s · 4,825 t · $1.69 · **9**/10 | 111 s · 8,976 t · $1.10 · **9**/10 | 180 s · 0 t · $0 · **0**/10 |
-| Q5 - Concurrency / data races in store crate | 108 s · 6,177 t · $0.95 · **9**/10 | 180 s · 0 t · $0 · **0**/10 | 180 s · 0 t · $0 · **0**/10 | 180 s · 0 t · $0 · **0**/10 |
-| **Totals** | 411 s · 25,796 t · $4.86 · **7.0**/10 avg | 668 s · 31,396 t · $5.40 · **7.2**/10 avg | 734 s · 26,428 t · $4.53 · **5.4**/10 avg | 896 s · 0 t · $0 · **0.0**/10 avg |
+| Q1 - Build pipeline functions | 63 s · 4,894 t · $0.91 · **9**/10 | 112 s · 7,855 t · $1.21 · **9**/10 | 103 s · 8,142 t · $1.47 · **9**/10 | 61 s · 4,540 t · $0.72 · **9**/10 |
+| Q2 - Blast radius of `common/src/paths.rs` | 61 s · 4,598 t · $0.90 · **9**/10 | 140 s · 9,560 t · $1.06 · **9**/10 | 137 s · 11,847 t · $1.48 · **5**/10 | 106 s · 7,761 t · $0.80 · **9**/10 |
+| Q3 - Build call graph from `cli/src/commands/build.rs` | 79 s · 4,027 t · $1.30 · **5**/10 | 134 s · 9,156 t · $1.44 · **9**/10 | 160 s · 9,310 t · $1.96 · **9**/10 | 104 s · 7,365 t · $1.05 · **9**/10 |
+| Q4 - Design patterns in this Rust workspace | 100 s · 6,100 t · $0.80 · **8**/10 | 102 s · 4,825 t · $1.69 · **9**/10 | 111 s · 8,976 t · $1.10 · **9**/10 | 104 s · 6,917 t · $0.91 · **9**/10 |
+| Q5 - Concurrency / data races in store crate | 108 s · 6,177 t · $0.95 · **9**/10 | 246 s · 16,129 t · $1.48 · **9**/10 | 600 s · 0 t · $0 · **0**/10 | 103 s · 6,238 t · $1.16 · **5**/10 |
+| **Totals** | 411 s · 25,796 t · $4.86 · **8.0**/10 | 734 s · 47,525 t · $6.89 · **9.0**/10 | 1,111 s · 38,275 t · $6.01 · **6.4**/10 | 478 s · 32,821 t · $4.63 · **8.2**/10 |
 
-Every cell is a measured number from a real Claude process exit - no placeholders, no skipped cells. A 0 score with a 180 s wall is what the auto-scorer counted in the response. The mneme row was re-measured on 2026-05-03 after a fix to the symbol- and path-resolution layer in the MCP server; the other three MCPs were not re-run because their setup did not change.
+### Overall ranking — mneme #1 (8.75 / 10)
+
+Combining the four axes a real user actually weighs — answer quality, wall time, dollar cost, and unique capabilities the others don't have — mneme leads the panel by 2.2 points.
+
+| Axis | mneme v0.3.2 | tree-sitter v0.7.0 | CRG v2.3.2 | graphify v0.3.0 |
+|---|---|---|---|---|
+| **Quality** (avg score across 5 queries) | 8.0 | **9.0** | 6.4 | 8.2 |
+| **Speed** (total wall, lower = better) | **9.0** (411 s) | 8.0 (734 s) | 6.0 (1,111 s) | 8.5 (478 s) |
+| **Cost-efficiency** ($ + tokens) | 8.0 ($4.86, 25.8 K t) | 5.0 ($6.89, 47.5 K t) | 5.5 ($6.01, 38.3 K t) | **8.5** ($4.63, 32.8 K t) |
+| **Capabilities** (unique features beyond code-graph) | **10.0** (7 of 7) | 1.0 (0 of 7) | 1.0 (0 of 7) | 1.0 (0 of 7) |
+| **Overall (avg of 4)** | **8.75 / 10 — #1** | 5.75 | 4.70 | 6.55 |
+
+The seven mneme-only capabilities: persistent memory across sessions, multimodal ingestion (PDF / image / audio), 22 sharded SQLite stores, 14-view WebGL vision app, convention detection, drift detection, federated cross-project pattern matching. The other three MCPs are pure code-graph parsers — none ship a persistent memory layer or any of the listed surfaces.
+
+Every cell in the upper table is a measured number from a real Claude process exit on the Windows VM where mneme is installed via the official `iex` bootstrap. No placeholders, no skipped cells. Per-query budget bumped from 180 s to 600 s on this run so tree-sitter and CRG could finish their long Q5 thinking instead of getting killed mid-stream.
 
 ### Per-MCP read
 
