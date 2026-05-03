@@ -64,12 +64,11 @@ jobs:
             archive: zip
             ort_archive: onnxruntime-win-arm64-1.24.4.zip
             ort_lib: onnxruntime.dll
-          - os: macos-13
-            target: x86_64-apple-darwin
-            artifact: mneme-v0.3.2-macos-x64.tar.gz
-            archive: tar.gz
-            ort_archive: onnxruntime-osx-x86_64-1.24.4.tgz
-            ort_lib: libonnxruntime.dylib
+          # macos-13 (x86_64-apple-darwin) leg removed: GitHub-hosted x64
+          # macOS runners have been stuck queued for hours, breaking the
+          # multi-arch release workflow. Apple Silicon (macos-14 / arm64)
+          # remains. We can re-add the x64 leg when GitHub runner capacity
+          # recovers, or pivot to cross-compilation from arm64.
           - os: macos-14
             target: aarch64-apple-darwin
             artifact: mneme-v0.3.2-macos-arm64.tar.gz
