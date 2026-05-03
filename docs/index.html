@@ -180,7 +180,7 @@
     }
 
     h1.wordmark {
-      font-size: clamp(72px, 11vw, 144px);
+      font-size: clamp(64px, 9.5vw, 124px);
       font-weight: 600;
       letter-spacing: -0.055em;
       line-height: 0.92;
@@ -188,6 +188,34 @@
       color: var(--text-strong);
     }
     .gradient-text { color: var(--text-strong); }
+
+    /* Hero stars chip + license chip in logo-row */
+    .hero-stars {
+      display: inline-flex; align-items: center; gap: 5px;
+      padding: 4px 10px; border-radius: 999px;
+      background: var(--bg-3);
+      border: 1px solid var(--line);
+      color: var(--text-strong);
+      font-family: "JetBrains Mono", ui-monospace, monospace;
+      font-size: 12px; font-weight: 600;
+      transition: border-color 0.15s ease, background 0.15s ease;
+      text-decoration: none;
+    }
+    .hero-stars:hover {
+      border-color: var(--accent-amber);
+      background: rgba(217,119,6,0.06);
+      text-decoration: none;
+    }
+    .hero-stars svg { color: var(--accent-amber); }
+
+    .hero-license {
+      font-family: "JetBrains Mono", ui-monospace, monospace;
+      font-size: 11px; font-weight: 600;
+      letter-spacing: 0.04em; text-transform: uppercase;
+      color: var(--muted-2);
+      padding: 4px 10px; border-radius: 999px;
+      border: 1px solid var(--line);
+    }
 
     .tagline {
       font-size: clamp(28px, 3.2vw, 38px);
@@ -1203,6 +1231,14 @@
           <circle cx="16" cy="9.5" r="1.4" fill="#16a37c"/>
         </svg>
         <span class="version-pill">v0.3.2 · live</span>
+        <a class="hero-stars" href="https://github.com/omanishay-cyber/mneme"
+           aria-label="Star mneme on GitHub">
+          <svg width="13" height="13" viewBox="0 0 16 16" aria-hidden="true">
+            <path fill="currentColor" d="M8 .25a.75.75 0 0 1 .673.418l1.882 3.815 4.21.612a.75.75 0 0 1 .416 1.279l-3.046 2.97.719 4.192a.75.75 0 0 1-1.088.791L8 12.347l-3.766 1.98a.75.75 0 0 1-1.088-.79l.72-4.194L.818 6.374a.75.75 0 0 1 .416-1.28l4.21-.611L7.327.668A.75.75 0 0 1 8 .25z"/>
+          </svg>
+          <span data-gh-stars>-</span>
+        </a>
+        <span class="hero-license">Apache-2.0</span>
       </div>
       <h1 class="wordmark"><span class="gradient-text">mneme</span></h1>
       <p class="tagline">Claude remembers your code.<br/>Even when you don't.</p>
