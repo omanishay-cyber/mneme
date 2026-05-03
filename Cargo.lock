@@ -2418,6 +2418,7 @@ dependencies = [
  "dunce",
  "futures",
  "interprocess",
+ "mime_guess",
  "mneme-common",
  "mneme-livebus",
  "mneme-parsers",

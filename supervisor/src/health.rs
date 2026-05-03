@@ -31,7 +31,6 @@ use std::sync::{Arc, Mutex, OnceLock};
 use std::time::{Duration, Instant};
 use sysinfo::{Disks, System};
 use tokio::sync::Notify;
-use tower_http::services::ServeDir;
 use tracing::{error, info, warn};
 
 /// Cache TTL for `compute_disk_usage`. Disks::new_with_refreshed_list()
@@ -388,22 +387,145 @@ fn compose_app_router(
                 .route("/", get(move || serve_index(bytes_for_root.clone())))
                 .fallback(get(move || serve_index(bytes_for_fallback.clone())));
 
-            // Real on-disk assets stay on ServeDir, but only for the
-            // narrow `/assets/*` subtree. This still uses
-            // `tokio::fs::*` (and therefore the blocking pool), but
-            // the SPA boot is no longer gated on it: index.html is
-            // already in the user's browser by the time the first
-            // bundle request lands.
+            // B-023 (2026-05-02): explicit /assets/<file> routes backed
+            // by Arc<[u8]> bytes pre-loaded at router-build. Replaces the
+            // previous `app.nest_service("/assets", ServeDir::new(...))`
+            // wiring, which still went through `tokio::fs::*` →
+            // `tokio::task::spawn_blocking` for every request and
+            // wedged on the supervisor's 8-thread blocking pool
+            // (saturated by stdin/stdout forwarders for 7 worker
+            // children + the watcher's RSS sampler). The browser's
+            // <script type="module" src="/assets/index-*.js"> request
+            // for the SPA bundle would queue forever, leaving the
+            // user staring at a blank page even though `/` returned
+            // index.html instantly. Pre-loading every asset into
+            // memory and serving from a HashMap keyed by filename
+            // means /assets/* never touches the blocking pool again.
+            //
+            // Memory cost: vision/dist/assets/ is ~10 MB total
+            // (~35 files including .js / .js.map / .css). At supervisor
+            // boot we trade one allocation per file for permanent
+            // O(1) request servicing. .js.map files are intentionally
+            // included so the browser devtools can resolve sourcemaps.
+            //
+            // Unknown filenames return 404 explicitly — we MUST NOT
+            // route /assets/missing.js back through the SPA fallback,
+            // otherwise the browser receives index.html with
+            // Content-Type: text/html; charset=utf-8 and complains
+            // "Failed to load module script: Expected a JavaScript
+            // module script but the server responded with a MIME type
+            // of text/html."
             let assets_dir = dir.join("assets");
             if assets_dir.is_dir() {
-                app = app.nest_service("/assets", ServeDir::new(&assets_dir));
+                let mut asset_count = 0_usize;
+                let mut asset_bytes_total = 0_usize;
+                let mut asset_skipped = 0_usize;
+                match std::fs::read_dir(&assets_dir) {
+                    Ok(entries) => {
+                        for entry in entries.flatten() {
+                            let path = entry.path();
+                            if !path.is_file() {
+                                continue;
+                            }
+                            let filename = match path.file_name().and_then(|n| n.to_str()) {
+                                Some(name) => name.to_string(),
+                                None => {
+                                    asset_skipped += 1;
+                                    warn!(
+                                        path = %path.display(),
+                                        "asset filename not valid UTF-8; skipped"
+                                    );
+                                    continue;
+                                }
+                            };
+                            let bytes = match std::fs::read(&path) {
+                                Ok(b) => b,
+                                Err(e) => {
+                                    asset_skipped += 1;
+                                    warn!(
+                                        path = %path.display(),
+                                        error = %e,
+                                        "asset unreadable; skipped (will 404)"
+                                    );
+                                    continue;
+                                }
+                            };
+                            let mime = mime_guess::from_path(&filename)
+                                .first_or_octet_stream()
+                                .essence_str()
+                                .to_owned();
+                            let bytes_arc: Arc<[u8]> = Arc::from(bytes.into_boxed_slice());
+                            let route_path = format!("/assets/{}", filename);
+                            asset_bytes_total += bytes_arc.len();
+                            asset_count += 1;
+                            let bytes_for_route = bytes_arc.clone();
+                            let mime_for_route = mime.clone();
+                            app = app.route(
+                                &route_path,
+                                get(move || {
+                                    let bytes = bytes_for_route.clone();
+                                    let mime = mime_for_route.clone();
+                                    async move {
+                                        Response::builder()
+                                            .status(StatusCode::OK)
+                                            .header(header::CONTENT_TYPE, mime)
+                                            .header(
+                                                header::CACHE_CONTROL,
+                                                "public, max-age=31536000, immutable",
+                                            )
+                                            .body(Body::from(bytes.to_vec()))
+                                            .expect("static SPA asset response")
+                                    }
+                                }),
+                            );
+                        }
+                        info!(
+                            path = %assets_dir.display(),
+                            asset_count,
+                            asset_bytes_total,
+                            asset_skipped,
+                            strategy = "explicit_route_in_memory",
+                            "vision SPA assets pre-loaded into Arc<[u8]>; \
+                             /assets/<file> routes registered (bypasses \
+                             ServeDir / tokio blocking pool)"
+                        );
+                    }
+                    Err(e) => {
+                        warn!(
+                            path = %assets_dir.display(),
+                            error = %e,
+                            "vision SPA assets/ subdir unreadable; bundle requests \
+                             will return 404 from axum's default matcher"
+                        );
+                    }
+                }
             } else {
                 warn!(
                     path = %assets_dir.display(),
-                    "vision SPA assets/ subdir missing; bundle requests will hit \
-                     the SPA fallback (likely a broken install)"
+                    "vision SPA assets/ subdir missing; bundle requests will return \
+                     404 (likely a broken install)"
                 );
             }
+
+            // B-023 final guard: catch-all for `/assets/{*tail}` so unknown
+            // bundle filenames return a true 404 instead of falling through
+            // to the SPA fallback below (which would hand back index.html
+            // with Content-Type: text/html, and the browser would log
+            // "Failed to load module script: Expected a JavaScript module
+            // script but the server responded with a MIME type of
+            // text/html"). This route is registered AFTER every explicit
+            // /assets/<file> route, so axum's matcher prefers the
+            // explicit ones; only truly missing filenames hit this 404.
+            app = app.route(
+                "/assets/*tail",
+                get(|| async {
+                    Response::builder()
+                        .status(StatusCode::NOT_FOUND)
+                        .header(header::CONTENT_TYPE, "text/plain; charset=utf-8")
+                        .body(Body::from("asset not found"))
+                        .expect("404 asset response")
+                }),
+            );
         }
         None => {
             warn!(

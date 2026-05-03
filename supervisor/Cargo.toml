@@ -73,6 +73,18 @@ tower-http = { version = "0.5", features = ["fs"] }
 # feature we need.
 tower = { version = "0.5", features = ["util"] }
 
+# B-023 (2026-05-02): pre-load every file in `vision/dist/assets/` into
+# `Arc<[u8]>` at router-build time and serve via explicit axum routes
+# with `mime_guess` for the Content-Type. This bypasses tower-http's
+# `ServeDir`, which goes through `tokio::fs::*` → `spawn_blocking` and
+# wedges on the supervisor's 8-thread blocking pool (saturated by
+# stdin/stdout forwarders for 7 worker children + the watcher's RSS
+# sampler). With ServeDir on `/assets/*`, the browser's <script
+# type="module"> request for the SPA bundle hung forever, leaving the
+# user staring at a blank page. Pre-loading + explicit routes avoids
+# the blocking pool entirely.
+mime_guess = "2.0"
+
 # Filesystem watching (incremental reindex on save).
 notify = "6.1"
 walkdir = "2.5"
