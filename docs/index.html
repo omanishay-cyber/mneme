@@ -563,6 +563,66 @@
       width: var(--bar-w, 50%);
     }
 
+    /* MCP-logo header column markers - opt-in via th class + --logo-url */
+    .bench-table th .mcp-logo {
+      display: inline-block;
+      width: 16px; height: 16px;
+      margin-right: 6px;
+      vertical-align: -3px;
+      border-radius: 3px;
+      background: currentColor;
+      -webkit-mask: var(--logo-url) center/contain no-repeat;
+              mask: var(--logo-url) center/contain no-repeat;
+    }
+    .bench-table th.mcp-mneme       { color: var(--accent-green); }
+    .bench-table th.mcp-tree-sitter { color: var(--accent-purple); }
+    .bench-table th.mcp-crg         { color: var(--accent-blue); }
+    .bench-table th.mcp-graphify    { color: var(--accent-magenta); }
+
+    /* Score chips (1-10 scale) - opt-in via class="score" */
+    .bench-table .score {
+      display: inline-block;
+      min-width: 28px;
+      text-align: center;
+      padding: 2px 8px;
+      border-radius: 999px;
+      font-family: "JetBrains Mono", ui-monospace, monospace;
+      font-weight: 700; font-size: 12px;
+      background: rgba(22,163,124,0.12);
+      border: 1px solid rgba(22,163,124,0.40);
+      color: var(--accent-green);
+      margin-left: 8px;
+      vertical-align: 1px;
+    }
+    .bench-table .score.s-mid {
+      background: rgba(217,119,6,0.10);
+      border-color: rgba(217,119,6,0.40);
+      color: var(--accent-amber);
+    }
+    .bench-table .score.s-low {
+      background: rgba(220,38,38,0.10);
+      border-color: rgba(220,38,38,0.40);
+      color: var(--accent-red);
+    }
+
+    /* Sticky first column on mobile overflow */
+    @media (max-width: 760px) {
+      .bench-table th:first-child,
+      .bench-table td:first-child {
+        position: sticky; left: 0;
+        background: var(--bg-3);
+        z-index: 1;
+      }
+    }
+
+    /* Highlight mneme column subtly - assumes column 2 in 4-MCP comparison tables */
+    .bench-table.bench-mcp th:nth-child(2),
+    .bench-table.bench-mcp td:nth-child(2) {
+      background: rgba(22,163,124,0.04);
+      box-shadow: inset 4px 0 0 var(--accent-green);
+    }
+    .bench-table.bench-mcp tr:hover td:nth-child(2) { background: rgba(22,163,124,0.10); }
+
     /* ============================================================ */
     /*  QUOTE                                                         */
     /* ============================================================ */
