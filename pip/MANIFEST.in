@@ -1,0 +1,8 @@
+include README.md
+include LICENSE
+include pyproject.toml
+recursive-include src/mneme_mcp *.py py.typed
+recursive-include tests *.py
+prune tests/__pycache__
+global-exclude *.pyc
+global-exclude __pycache__

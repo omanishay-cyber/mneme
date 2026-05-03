@@ -1,0 +1,65 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "mneme-mcp"
+version = "0.3.2"
+description = "Local persistent code-graph and AI-superbrain MCP server -- Python wrapper for the official installer"
+readme = "README.md"
+license = { text = "Apache-2.0" }
+requires-python = ">=3.10"
+authors = [
+    { name = "Anish Trivedi" },
+    { name = "Kruti Trivedi" },
+]
+keywords = ["mneme", "mcp", "code-graph", "memory", "ai", "developer-tools", "installer"]
+classifiers = [
+    "Development Status :: 4 - Beta",
+    "Environment :: Console",
+    "Intended Audience :: Developers",
+    "License :: OSI Approved :: Apache Software License",
+    "Operating System :: OS Independent",
+    "Operating System :: POSIX :: Linux",
+    "Operating System :: MacOS :: MacOS X",
+    "Operating System :: Microsoft :: Windows",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.13",
+    "Topic :: Software Development",
+    "Topic :: Software Development :: Build Tools",
+    "Topic :: Utilities",
+]
+dependencies = []
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8",
+    "pytest-mock>=3",
+]
+
+[project.scripts]
+mneme = "mneme_mcp.cli:main"
+mneme-bootstrap = "mneme_mcp.cli:main"
+
+[project.urls]
+Homepage = "https://github.com/omanishay-cyber/mneme"
+Repository = "https://github.com/omanishay-cyber/mneme"
+Documentation = "https://omanishay-cyber.github.io/mneme/"
+Issues = "https://github.com/omanishay-cyber/mneme/issues"
+Changelog = "https://github.com/omanishay-cyber/mneme/blob/master/CHANGELOG.md"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.setuptools.package-data]
+mneme_mcp = ["py.typed"]
+
+[tool.pytest.ini_options]
+markers = [
+    "network: tests that require live network access (deselect with '-m \"not network\"')",
+]
+addopts = "-m 'not network'"
+testpaths = ["tests"]
