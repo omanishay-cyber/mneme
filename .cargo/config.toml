@@ -5,6 +5,11 @@
 # developer/AWS workstation use case. Provides 2-4x speedup on
 # BGE inference, Leiden community detection, parser tree-sitter,
 # scanner regex matching.
+#
+# 2026-05-03: scope to x86_64 targets only. Unconditional [build] rustflags
+# broke aarch64 cross-compile (Linux + macOS) because rustc rejects
+# 'x86-64-v3' as an unknown processor for non-x86 targets. Use a
+# cfg-keyed [target] section so arm64 builds inherit no extra flags.
 
-[build]
+[target.'cfg(target_arch = "x86_64")']
 rustflags = ["-C", "target-cpu=x86-64-v3"]
