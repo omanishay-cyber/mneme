@@ -16,7 +16,11 @@
 //! Read path: opens each `<project_root>/<file>.db` read-only via
 //! `rusqlite`. Missing files are reported as "not yet written"; missing
 //! tables on existing files (a shard that exists but never had its main
-//! table populated) are reported as `0` with an `EMPTY` annotation.
+//! table populated) are reported as `0` with a "no data yet" annotation.
+//! (Pre-2026-05-03 the annotation was `❌ EMPTY` which read as an error
+//! to users on a fresh build — most empty shards are expected-empty until
+//! the producing scanner/hook actually runs. Neutral wording avoids the
+//! "is my install broken?" panic.)
 //!
 //! Strict-Rust hygiene: no `unwrap()` on user-input paths, no panics on
 //! malformed DBs — the worst this function does is print fewer rows. The
@@ -47,8 +51,8 @@ struct ShardDescriptor {
     /// `commits`). Plural; the count is appended to it as `N <unit>`.
     unit: &'static str,
     /// Source/scanner that should populate this shard. Printed in the
-    /// `❌ EMPTY` annotation so the operator knows what's missing, not
-    /// just that a number is zero.
+    /// "no data yet" annotation so the operator knows what's missing
+    /// and which producer fills it, not just that a number is zero.
     expected_source: &'static str,
 }
 
@@ -356,15 +360,15 @@ pub fn print_shard_summary(project_root: &Path) {
 
 /// Special-case row for graph.db. If any of the three counters is
 /// missing we still print the row, just with `?` in place of that
-/// column. Annotating the whole row as EMPTY only when nodes is 0/missing.
+/// column. Annotating the whole row as "no data yet" only when nodes is 0/missing.
 fn print_graph_row(nodes: &ShardProbe, edges: &ShardProbe, files: &ShardProbe) {
     let nodes_str = format_probe_value(nodes);
     let edges_str = format_probe_value(edges);
     let files_str = format_probe_value(files);
     let empty_marker = match nodes {
         ShardProbe::Missing => "        not yet written",
-        ShardProbe::TableMissing => "        ❌ EMPTY (schema applied but no rows)",
-        ShardProbe::Rows(0) => "        ❌ EMPTY (expected: tree-sitter parser)",
+        ShardProbe::TableMissing => "        no data yet (schema ready, awaiting first write)",
+        ShardProbe::Rows(0) => "        no data yet (expected source: tree-sitter parser)",
         ShardProbe::Rows(_) => "",
     };
     println!(
@@ -377,14 +381,14 @@ fn print_shard_row(d: &ShardDescriptor, probe: &ShardProbe) {
     let val = format_probe_value(probe);
     let empty_marker = match probe {
         ShardProbe::Missing => format!(
-            "         ❌ EMPTY (file not created — expected: {})",
+            "         no data yet (file will be created by: {})",
             d.expected_source
         ),
         ShardProbe::TableMissing => format!(
-            "         ❌ EMPTY (table `{}` missing — expected: {})",
+            "         no data yet (schema ready, table `{}` will be filled by: {})",
             d.primary_table, d.expected_source
         ),
-        ShardProbe::Rows(0) => format!("         ❌ EMPTY (expected: {})", d.expected_source),
+        ShardProbe::Rows(0) => format!("         no data yet (will be filled by: {})", d.expected_source),
         ShardProbe::Rows(_) => String::new(),
     };
     // Pad shard file name to a fixed width for legibility. 16 is wide
