@@ -1,8 +1,8 @@
 ﻿# MCP Bench - 2026-05-02
 
-Head-to-head comparison of four code-graph MCP servers on an internal Electron + React + TypeScript codebase (82 source files, ~12K LOC), run through Claude Code 2.1.119 on a Windows 11 test instance.
+Comparison of four code-graph MCP servers on an internal Electron + React + TypeScript codebase (82 source files, ~12K LOC), run through Claude Code 2.1.119 on a Windows 11 test instance.
 
-See the **Why mneme? Side-by-side comparison** section in the [project README](../../../README.md) for the headline numbers and verdicts.
+See the **Comparison: four code-graph MCPs** section in the [project README](../../../README.md) for the headline numbers and verdicts.
 
 ## What's in here
 
@@ -26,9 +26,9 @@ pwsh ./bench-launcher.ps1 -TimeoutSec 480
 
 Default timeout is 240 s; bump to 480 s if you have a slow VM or want to tolerate Claude's API rate-limit pauses. Set `BENCH_MCPS=tree-sitter,graphify` to subset the MCPs.
 
-## Honest about limitations
+## Limitations
 
-- We measured mneme via the v0.3.2 release as installed by the official bootstrap. Mneme's MCP server hit a project-resolution mismatch on Windows that returned "shard not found" for every query - we filed B-023 against it and re-ran with the shard manually relinked (the `mneme-fix-*.json` envelopes in `results/`).
-- CRG and graphify hit the per-query timeout repeatedly with no partial response captured. We don't know if it's a Claude Code 2.1.119 issue, an MCP protocol mismatch, a Windows stdio quirk, or a tool bug. We logged "(timeout)" rather than fabricate timing.
+- I measured mneme via the v0.3.2 release as installed by the official bootstrap. Mneme's MCP server hit a project-resolution mismatch on Windows that returned "shard not found" for every query. Filed as B-023; re-ran with the shard manually relinked (the `mneme-fix-*.json` envelopes in `results/`).
+- CRG and graphify hit the per-query timeout repeatedly with no partial response captured. Don't know if it's a Claude Code 2.1.119 issue, an MCP protocol mismatch, a Windows stdio quirk, or a tool bug. Logged "(timeout)" rather than fabricate timing.
 - Tree-sitter answered all five queries in detail but slowly and expensively (avg 247 s, $0.43 per query) because it parses on demand instead of using a persistent graph.
 - All four MCP servers were healthy per `claude mcp list` before the bench started.

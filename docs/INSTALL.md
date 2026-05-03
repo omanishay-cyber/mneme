@@ -134,7 +134,7 @@ If MCP was registered and you want to unregister it:
 mneme unregister-mcp --platform claude-code
 ```
 
-Or roll the last install back byte-for-byte from the receipts:
+Or roll the last install back from the receipts:
 
 ```bash
 mneme rollback --list        # show every recorded install

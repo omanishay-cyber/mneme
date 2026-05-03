@@ -55,7 +55,7 @@ Last updated: 2026-05-02 (after v0.3.2 + 52-fix audit cycle).
 - **Effort:** 2 days.
 
 ### 6. Benchmark harness for inline-vs-dispatched build
-- **What:** No current benchmark measures `cli build . --inline` vs `cli build . --dispatch` throughput head-to-head. Would quantify the dispatch win and reveal worker-count sweet spots.
+- **What:** No current benchmark measures `cli build . --inline` vs `cli build . --dispatch` throughput side by side. Would quantify the dispatch win and reveal worker-count sweet spots.
 - **Why deferred:** needed only after (1) lands so dispatched writes are durable; otherwise inline always wins by default.
 - **Acceptance:** `just bench-dispatch` produces a CSV showing p50 / p95 / p99 latency + throughput for both modes across 1K / 10K / 100K file corpora.
 - **Effort:** half a day.
