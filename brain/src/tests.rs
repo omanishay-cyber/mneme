@@ -254,3 +254,156 @@ fn summarizer_falls_back_to_signature() {
     assert!(out.contains("foo"));
     assert!(out.contains("3"));
 }
+
+// ---------------------------------------------------------------------------
+// Call-edge resolver — Phase A bench Q3 fix
+// ---------------------------------------------------------------------------
+//
+// `parsers/src/extractor.rs::collect_calls` emits call edges with a
+// placeholder `target_qualified` like `call::a.rs::helper` — the
+// brain-side resolver translates those into the matching Function
+// `n_<hash>` id from the indexed graph so call_graph / find_references
+// in the *callers* direction return real edges.
+
+mod call_resolver_tests {
+    use crate::call_resolver::{
+        build_function_index, extract_callee_name, parse_call_placeholder, resolve_callee,
+        IndexedFunction,
+    };
+    use std::collections::HashMap;
+
+    #[test]
+    fn parse_placeholder_basic() {
+        let p = parse_call_placeholder("call::src/lib.rs::helper").expect("parse");
+        assert_eq!(p.file_path, "src/lib.rs");
+        assert_eq!(p.callee_text, "helper");
+    }
+
+    #[test]
+    fn parse_placeholder_keeps_path_in_callee() {
+        // `crate::foo::bar` callee text contains its own `::`. Must
+        // survive splitn(2) so the path-suffix logic in
+        // `extract_callee_name` can pick the rightmost segment.
+        let p = parse_call_placeholder("call::lib.rs::crate::foo::bar").expect("parse");
+        assert_eq!(p.file_path, "lib.rs");
+        assert_eq!(p.callee_text, "crate::foo::bar");
+    }
+
+    #[test]
+    fn parse_placeholder_rejects_non_call() {
+        assert!(parse_call_placeholder("n_abc1234567890def").is_none());
+        assert!(parse_call_placeholder("import::x::y").is_none());
+        assert!(parse_call_placeholder("call::nofile").is_none());
+        assert!(parse_call_placeholder("call::").is_none());
+        assert!(parse_call_placeholder("").is_none());
+    }
+
+    #[test]
+    fn extract_callee_name_handles_method_and_path() {
+        assert_eq!(extract_callee_name("helper"), "helper");
+        assert_eq!(extract_callee_name("b.put"), "put");
+        assert_eq!(extract_callee_name("self.method"), "method");
+        assert_eq!(extract_callee_name("crate::foo::bar"), "bar");
+        assert_eq!(extract_callee_name("Foo::new"), "new");
+        // Built-in macro / bare ident
+        assert_eq!(extract_callee_name("vec"), "vec");
+        assert_eq!(extract_callee_name("println"), "println");
+        // Whitespace tolerance
+        assert_eq!(extract_callee_name("  trimmed  "), "trimmed");
+    }
+
+    #[test]
+    fn resolve_callee_finds_unique_function() {
+        // Synthetic input mirrors what the parser emits + what the
+        // ingest layer indexes:
+        //   parser-emitted edge:
+        //     {from: "n_caller", to: "call::a.rs::helper", kind: "calls"}
+        //   nodes table has:
+        //     {qualified_name: "n_helper", name: "helper", file: "a.rs", kind: "function"}
+        // After resolve, the edge's target should be "n_helper".
+        let by_name = build_function_index([
+            ("helper", "n_helper", "a.rs"),
+            ("caller", "n_caller", "a.rs"),
+        ]);
+        let got = resolve_callee("helper", Some("a.rs"), &by_name);
+        assert_eq!(got.as_deref(), Some("n_helper"));
+    }
+
+    #[test]
+    fn resolve_callee_prefers_same_file_on_collision() {
+        // Two functions named `put` in different files → same-file
+        // hint MUST win so the resolver doesn't randomly cross-link.
+        let by_name = build_function_index([
+            ("put", "n_put_bag_rs", "bag.rs"),
+            ("put", "n_put_box_rs", "box.rs"),
+        ]);
+        let got = resolve_callee("b.put", Some("box.rs"), &by_name);
+        assert_eq!(got.as_deref(), Some("n_put_box_rs"));
+        let got2 = resolve_callee("b.put", Some("bag.rs"), &by_name);
+        assert_eq!(got2.as_deref(), Some("n_put_bag_rs"));
+    }
+
+    #[test]
+    fn resolve_callee_falls_back_to_first_when_no_same_file() {
+        let by_name = build_function_index([
+            ("put", "n_put_bag_rs", "bag.rs"),
+            ("put", "n_put_box_rs", "box.rs"),
+        ]);
+        let got = resolve_callee("b.put", Some("unrelated.rs"), &by_name).expect("resolve");
+        // First-insert order wins. Both are valid pointers — caller
+        // logged a deterministic best-effort link.
+        assert!(got == "n_put_bag_rs" || got == "n_put_box_rs");
+    }
+
+    #[test]
+    fn resolve_callee_returns_none_for_external() {
+        // `vec!`, `println!`, external crate functions — none in the
+        // index → resolver drops them, caller leaves edge alone.
+        let by_name = build_function_index([("helper", "n_helper", "a.rs")]);
+        assert!(resolve_callee("vec", None, &by_name).is_none());
+        assert!(resolve_callee("HashMap::new", None, &by_name).is_none());
+        assert!(resolve_callee("std::process::exit", None, &by_name).is_none());
+    }
+
+    #[test]
+    fn resolve_callee_returns_none_for_empty_callee() {
+        let by_name: HashMap<String, Vec<IndexedFunction>> = HashMap::new();
+        assert!(resolve_callee("", None, &by_name).is_none());
+        assert!(resolve_callee("   ", None, &by_name).is_none());
+    }
+
+    #[test]
+    fn build_function_index_skips_anonymous() {
+        // Arrow fn / closure with no binding → empty `name`. Indexing
+        // it would let the resolver match every empty callee text to
+        // an arbitrary closure — useless and dangerous.
+        let by_name =
+            build_function_index([("", "n_anon_closure", "a.rs"), ("named", "n_named", "a.rs")]);
+        assert!(by_name.get("").is_none());
+        assert_eq!(by_name.get("named").map(|v| v.len()), Some(1));
+    }
+
+    #[test]
+    fn end_to_end_resolve_via_placeholder() {
+        // Walks the full path the orchestration layer takes:
+        //   1. Parse the `call::*` placeholder
+        //   2. Reduce callee_text → bare identifier
+        //   3. Resolve against the function index
+        //   4. Result is the n_<hash> the UPDATE writes back
+        let by_name = build_function_index([
+            ("build_or_migrate", "n_bom_builder", "store/src/builder.rs"),
+            ("helper", "n_helper", "lib.rs"),
+        ]);
+
+        let placeholder = "call::lib.rs::build_or_migrate";
+        let p = parse_call_placeholder(placeholder).expect("parse");
+        let resolved = resolve_callee(p.callee_text, Some(p.file_path), &by_name);
+        assert_eq!(resolved.as_deref(), Some("n_bom_builder"));
+
+        // Method-call form: `caller_struct.helper()` → resolves to
+        // `helper` even though the placeholder text is `c.helper`.
+        let p2 = parse_call_placeholder("call::lib.rs::c.helper").expect("parse");
+        let resolved2 = resolve_callee(p2.callee_text, Some(p2.file_path), &by_name);
+        assert_eq!(resolved2.as_deref(), Some("n_helper"));
+    }
+}

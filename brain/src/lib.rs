@@ -19,6 +19,7 @@
 #![warn(missing_debug_implementations)]
 
 pub mod blast;
+pub mod call_resolver;
 pub mod cluster_runner;
 pub mod concept;
 pub mod conventions;
@@ -88,6 +89,10 @@ impl std::fmt::Display for NodeId {
 // ---- Re-exports -----------------------------------------------------------
 
 pub use blast::{build_report, compute_risk, BlastReport, CodeRef, RiskLevel};
+pub use call_resolver::{
+    build_function_index, extract_callee_name, parse_call_placeholder, resolve_callee,
+    CallPlaceholder, IndexedFunction,
+};
 pub use cluster_runner::ClusterRunner;
 pub use concept::{Concept, ConceptExtractor};
 pub use conventions::{

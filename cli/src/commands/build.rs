@@ -910,6 +910,30 @@ pub(crate) async fn run_inline(args: BuildArgs, project: PathBuf) -> CliResult<(
     heartbeat.set_phase("resolve-imports");
     let resolve_stats = run_resolve_imports_pass(&store, &project_id, &project, &paths).await;
 
+    // 4.6. Calls-edge resolver pass (Phase A bench Q3 fix). Walks
+    // every calls edge whose target_qualified still starts with
+    // `call::` (the placeholder stamped by extractor.rs::collect_calls),
+    // pulls the raw callee text out of `extra.unresolved`, and
+    // UPDATEs target_qualified to the matching Function `n_<hash>`
+    // id from the indexed graph. Without this pass `mneme call_graph`
+    // and `find_references` in the *callers* direction return empty
+    // even on a fully-built corpus — every call edge points at a
+    // pseudo-id that no Function node carries. Built-in macros
+    // (`vec!`, `println!`) and external-crate functions are tallied
+    // as `unresolved_external` and stay as pseudo-ids by design —
+    // they have no in-graph node to point at.
+    //
+    // Same orchestration discipline as resolve-imports: read-only
+    // SELECT on the graph.db connection, drop it, then UPDATE
+    // through the per-shard writer task (`store::Inject`) so the
+    // single-writer invariant holds. Pure resolution logic lives
+    // in `brain::call_resolver` (covered by 11 unit tests).
+    //
+    // MUST run before Leiden so community detection clusters by
+    // resolved call connectivity rather than by pseudo-id text.
+    heartbeat.set_phase("resolve-calls");
+    let resolve_calls_stats = run_resolve_calls_pass(&store, &project_id, &paths).await;
+
     // 5. Leiden community detection. Reads (source_qualified, target_qualified)
     // pairs out of graph.db::edges, runs the deterministic Rust Leiden solver
     // (brain::cluster_runner::ClusterRunner), and writes the resulting
@@ -1109,6 +1133,21 @@ pub(crate) async fn run_inline(args: BuildArgs, project: PathBuf) -> CliResult<(
     // rows on a fresh project.
     let agents_stats = run_agents_pass(&store, &project_id, &project).await;
 
+    // 20b. Seed-populate pass (v0.3.2 hotfix #5). Without this pass,
+    // `history.db.turns`, `tasks.db.ledger_entries`, and `wiki.db.wiki_pages`
+    // are completely empty on a freshly-built project until Claude Code
+    // (or another agent) actually USES the tools. That makes
+    // `mneme_recall("auth")` return zero hits even when the README + 50
+    // commits clearly mention auth — the Phase A "remember context across
+    // sessions" promise stays empty. This pass seeds:
+    //   * history.db.turns          ← last N git commits as `role=git` rows
+    //   * tasks.db.ledger_entries   ← // TODO / FIXME / HACK / XXX scanner
+    //   * wiki.db.wiki_pages        ← README/CHANGELOG/docs/*.md sections
+    // Failure non-fatal — a missing git binary or a project with no
+    // markdown leaves the corresponding shard empty as before.
+    heartbeat.set_phase("seed-populate");
+    let seed_stats = run_seed_populate_pass(&store, &project_id, &project).await;
+
     // Stamp meta.db::projects.last_indexed_at so the staleness nag
     // (audit-L12) can tell users when their recall results are
     // potentially out of date. This must run AFTER the multimodal pass
@@ -1186,6 +1225,14 @@ pub(crate) async fn run_inline(args: BuildArgs, project: PathBuf) -> CliResult<(
         resolve_stats.unresolved_bare,
         resolve_stats.unresolved_relative,
         resolve_stats.duration_ms
+    );
+    println!(
+        "  call-edges:   {} / {} resolved (external={}, no-text={}, ms={})",
+        resolve_calls_stats.resolved,
+        resolve_calls_stats.total_calls_edges,
+        resolve_calls_stats.unresolved_external,
+        resolve_calls_stats.unresolved_no_text,
+        resolve_calls_stats.duration_ms
     );
     println!(
         "  multimodal:   {} files, {} pages ({} errors, {} pages/sec{})",
@@ -1293,6 +1340,13 @@ pub(crate) async fn run_inline(args: BuildArgs, project: PathBuf) -> CliResult<(
     println!(
         "  agents:       {} synthetic run(s) recorded (per-turn rows owned by SubagentStop hook)",
         agents_stats.runs_written,
+    );
+    println!(
+        "  seed:         {} commits, {} todos, {} wiki sections (status={})",
+        seed_stats.commits_written,
+        seed_stats.todos_written,
+        seed_stats.wiki_sections_written,
+        seed_stats.status,
     );
     println!(
         "  shard:        {}",
@@ -2644,6 +2698,195 @@ async fn run_resolve_imports_pass(
             // Bare package name (`lodash`, `react`, `numpy`) with no
             // local file. Expected for npm / pypi / crates.io deps.
             stats.unresolved_bare += 1;
+        }
+    }
+
+    stats.duration_ms = started.elapsed().as_millis() as u64;
+    stats
+}
+
+// ---------------------------------------------------------------------------
+// Calls-edge resolver pass — Phase A bench Q3 fix
+// ---------------------------------------------------------------------------
+//
+// Without this pass `mneme call_graph build_or_migrate --depth 2`
+// returns 0 callers and `find_references build_or_migrate` returns
+// 0 hits. Reason: `parsers/src/extractor.rs::collect_calls` emits call
+// edges with `target_qualified = "call::<file>::<callee_text>"` (a
+// pseudo-id), stashing the raw callee text in `extra.unresolved`.
+// The original design comment promised "downstream resolvers (brain)
+// can map TARGET → real Function node id at link time" — but no such
+// resolver was ever written. Edges sat forever pointing at pseudo-ids;
+// every consumer-graph walk in the *callers* direction returned empty.
+//
+// This pass walks every calls edge whose target still starts with
+// `call::`, parses the callee text from `extra.unresolved`, calls
+// into `brain::call_resolver::resolve_callee` to find the matching
+// indexed Function `n_<hash>` id, and UPDATEs `target_qualified`.
+// Built-in macros (`vec!`, `println!`) and external-crate functions
+// (`HashMap::new`) have no in-graph node and are left unresolved by
+// design — they're tallied separately so the build summary surfaces
+// the real (in-graph) vs. external-call ratio.
+//
+// MUST run AFTER the parser loop (so all Function nodes are in
+// graph.db) and BEFORE the Leiden pass (so community detection
+// clusters by resolved call connectivity rather than pseudo-id text).
+// Co-located with run_resolve_imports_pass — same shape, same
+// orchestration discipline.
+
+#[derive(Debug, Default, Clone)]
+struct ResolveCallsStats {
+    /// Total calls edges found with `target_qualified LIKE 'call::%'`.
+    total_calls_edges: usize,
+    /// Edges successfully UPDATEd to a real Function `n_<hash>` id.
+    resolved: usize,
+    /// Callee text matched no indexed Function (built-in macro,
+    /// external crate fn, typo). Edge left untouched.
+    unresolved_external: usize,
+    /// `extra.unresolved` was missing or unreadable — can't even
+    /// attempt resolution. Edge left untouched.
+    unresolved_no_text: usize,
+    /// Wall-clock ms for the entire pass.
+    duration_ms: u64,
+}
+
+async fn run_resolve_calls_pass(
+    store: &Store,
+    project_id: &ProjectId,
+    paths: &PathManager,
+) -> ResolveCallsStats {
+    let started = Instant::now();
+    let mut stats = ResolveCallsStats::default();
+
+    let graph_db = paths.shard_db(project_id, DbLayer::Graph);
+    if !graph_db.exists() {
+        return stats;
+    }
+
+    // Read everything we need from graph.db, then drop the read-only
+    // connection BEFORE issuing UPDATEs through the writer task —
+    // honours the per-shard single-writer invariant.
+    let conn = match rusqlite::Connection::open_with_flags(
+        &graph_db,
+        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+    ) {
+        Ok(c) => c,
+        Err(_) => return stats,
+    };
+
+    // 1. Build the by-name index of every Function node. The brain
+    //    resolver consumes this — pure-logic, no SQL, fully tested in
+    //    `brain/src/tests.rs::call_resolver_tests`.
+    let function_rows: Vec<(String, String, String)> = {
+        let mut stmt = match conn.prepare(
+            "SELECT name, qualified_name, file_path FROM nodes \
+             WHERE kind = 'function' AND name IS NOT NULL AND name != '' \
+             AND file_path IS NOT NULL",
+        ) {
+            Ok(s) => s,
+            Err(_) => return stats,
+        };
+        let it = match stmt.query_map([], |r| {
+            Ok((
+                r.get::<_, String>(0)?,
+                r.get::<_, String>(1)?,
+                r.get::<_, String>(2)?,
+            ))
+        }) {
+            Ok(rows) => rows,
+            Err(_) => return stats,
+        };
+        it.filter_map(|r| r.ok()).collect()
+    };
+    let by_name = brain::call_resolver::build_function_index(function_rows);
+
+    // 2. Pull every unresolved call edge along with the source
+    //    function's file_path so the resolver can prefer same-file
+    //    matches when multiple Functions share a `name`.
+    let edges: Vec<(i64, Option<String>, Option<String>)> = {
+        let mut stmt = match conn.prepare(
+            "SELECT e.id, e.extra, n.file_path \
+             FROM edges e \
+             LEFT JOIN nodes n ON n.qualified_name = e.source_qualified \
+             WHERE e.kind = 'calls' \
+             AND e.target_qualified LIKE 'call::%'",
+        ) {
+            Ok(s) => s,
+            Err(_) => return stats,
+        };
+        let it = match stmt.query_map([], |r| {
+            Ok((
+                r.get::<_, i64>(0)?,
+                r.get::<_, Option<String>>(1)?,
+                r.get::<_, Option<String>>(2)?,
+            ))
+        }) {
+            Ok(rows) => rows,
+            Err(_) => return stats,
+        };
+        it.filter_map(|r| r.ok()).collect()
+    };
+    drop(conn);
+    stats.total_calls_edges = edges.len();
+
+    for (edge_id, extra_json, caller_file) in edges {
+        // Pull the raw callee text out of `extra.unresolved`. The
+        // parser writes this on every call edge; if it's missing
+        // we've nothing to match against → leave the edge alone.
+        let unresolved: Option<String> = extra_json
+            .as_deref()
+            .and_then(|s| serde_json::from_str::<serde_json::Value>(s).ok())
+            .and_then(|v| {
+                v.get("unresolved")
+                    .and_then(|inner| inner.as_str().map(|s| s.to_string()))
+            });
+        let Some(callee_text) = unresolved else {
+            stats.unresolved_no_text += 1;
+            continue;
+        };
+
+        // Same-file preference: caller_file may be `None` only for
+        // call edges whose `source_qualified` is a File node (top-
+        // level expressions outside any function) — in that case we
+        // still resolve, just without the same-file tiebreaker.
+        let caller_file_clean = caller_file.as_deref().map(strip_long_path_prefix);
+        let caller_file_ref = caller_file_clean.as_deref();
+
+        let resolved =
+            brain::call_resolver::resolve_callee(&callee_text, caller_file_ref, &by_name);
+
+        let Some(target_qn) = resolved else {
+            stats.unresolved_external += 1;
+            continue;
+        };
+
+        // UPDATE the edge through the per-shard writer task.
+        let sql = "UPDATE edges SET target_qualified = ?1 WHERE id = ?2";
+        let params = vec![
+            serde_json::Value::String(target_qn),
+            serde_json::Value::Number(edge_id.into()),
+        ];
+        let resp = store
+            .inject
+            .insert(
+                project_id,
+                DbLayer::Graph,
+                sql,
+                params,
+                InjectOptions {
+                    emit_event: false,
+                    audit: false,
+                    ..InjectOptions::default()
+                },
+            )
+            .await;
+        if resp.success {
+            stats.resolved += 1;
+        } else {
+            // UPDATE failure (lock contention, schema drift) — count
+            // as external so the user sees the gap; don't crash the
+            // build over a single edge.
+            stats.unresolved_external += 1;
         }
     }
 
@@ -6148,6 +6391,398 @@ async fn run_agents_pass(store: &Store, project_id: &ProjectId, project: &Path) 
 }
 
 // ---------------------------------------------------------------------------
+// Seed-populate pass (v0.3.2 hotfix #5)
+// ---------------------------------------------------------------------------
+
+#[derive(Debug, Default)]
+struct SeedStats {
+    commits_written: usize,
+    todos_written: usize,
+    wiki_sections_written: usize,
+    /// Free-form: `ok | empty | partial | git-failed` etc. Mirrors the
+    /// `GitStats::status` convention.
+    status: String,
+}
+
+/// Cap on the number of git commits we backfill into `history.db.turns`.
+/// 200 is "enough to be useful for `recall` over commit messages on the
+/// last few months of work" without bloating the shard. Older commits
+/// stay in `git.db.commits` (the dedicated git shard) but are NOT
+/// duplicated into `history.db`.
+const SEED_COMMIT_CAP: usize = 200;
+
+/// Cap on the number of TODO/FIXME/HACK/XXX comments we record per
+/// project. Most repos have <500; the cap protects against a giant
+/// vendored snapshot in an un-`.gitignored` directory.
+const SEED_TODO_CAP: usize = 1_000;
+
+/// Cap on the number of markdown sections we index. README + CHANGELOG +
+/// docs/*.md typically chunk to under 200 sections; the cap is a safety
+/// rail.
+const SEED_WIKI_SECTION_CAP: usize = 500;
+
+/// Hotfix #5 — seed-populate `history.db`, `tasks.db`, and `wiki.db` so
+/// `recall` returns useful results on a freshly-built corpus instead of
+/// empty rows. See the call-site comment for the full motivation.
+async fn run_seed_populate_pass(
+    store: &Store,
+    project_id: &ProjectId,
+    project: &Path,
+) -> SeedStats {
+    let mut stats = SeedStats::default();
+    let session = format!("seed-{}", project_id.as_str());
+
+    // ---------- (a) git commits → history.db.turns -------------------------
+    let probe = crate::windowless_command("git")
+        .arg("rev-parse")
+        .arg("--is-inside-work-tree")
+        .current_dir(project)
+        .output();
+    let mut git_ok = false;
+    if let Ok(o) = probe {
+        if o.status.success() {
+            git_ok = true;
+        }
+    }
+
+    if git_ok {
+        let log_out = crate::windowless_command("git")
+            .args([
+                "log",
+                "--pretty=format:%H|%an|%at|%s",
+                "-n",
+                &SEED_COMMIT_CAP.to_string(),
+            ])
+            .current_dir(project)
+            .output();
+        if let Ok(o) = log_out {
+            if o.status.success() {
+                let log_text = String::from_utf8_lossy(&o.stdout);
+                for line in log_text.lines() {
+                    let parts: Vec<&str> = line.splitn(4, '|').collect();
+                    if parts.len() < 4 {
+                        continue;
+                    }
+                    let sha = parts[0].trim();
+                    let author = parts[1];
+                    let epoch: i64 = parts[2].parse().unwrap_or(0);
+                    let subject = parts[3];
+                    let ts = chrono::DateTime::<chrono::Utc>::from_timestamp(epoch, 0)
+                        .map(|d| d.to_rfc3339())
+                        .unwrap_or_else(|| "1970-01-01T00:00:00Z".to_string());
+                    let extra = serde_json::json!({
+                        "kind": "git_commit",
+                        "sha": sha,
+                        "author": author,
+                    })
+                    .to_string();
+                    let sql = "INSERT INTO turns(session_id, role, content, timestamp, extra) \
+                               VALUES(?1, ?2, ?3, ?4, ?5)";
+                    let params = vec![
+                        serde_json::Value::String(session.clone()),
+                        serde_json::Value::String("git".into()),
+                        serde_json::Value::String(subject.to_string()),
+                        serde_json::Value::String(ts),
+                        serde_json::Value::String(extra),
+                    ];
+                    let resp = store
+                        .inject
+                        .insert(
+                            project_id,
+                            DbLayer::History,
+                            sql,
+                            params,
+                            InjectOptions {
+                                emit_event: false,
+                                audit: false,
+                                ..InjectOptions::default()
+                            },
+                        )
+                        .await;
+                    if resp.success {
+                        stats.commits_written += 1;
+                    }
+                    if stats.commits_written >= SEED_COMMIT_CAP {
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    // ---------- (b) TODO/FIXME/HACK/XXX → tasks.db.ledger_entries ----------
+    // Walk the project for source files, scan each for TODO-style markers.
+    // Bounded by SEED_TODO_CAP so a vendored dump can't explode the shard.
+    let todo_re = regex::Regex::new(
+        r"(?m)(?://|#|/\*|--)\s*(TODO|FIXME|HACK|XXX|BUG|NOTE)[:\s]\s*([^\r\n]*)",
+    )
+    .ok();
+    if let Some(re) = todo_re {
+        let walker = ignore::WalkBuilder::new(project)
+            .standard_filters(true)
+            .max_filesize(Some(512 * 1024)) // skip giant generated files
+            .build();
+        'outer: for entry in walker.flatten() {
+            if !entry.file_type().is_some_and(|ft| ft.is_file()) {
+                continue;
+            }
+            let p = entry.path();
+            // Skip obvious noise even with .gitignore on (some repos
+            // forget to ignore their archive folder).
+            let rel = p.strip_prefix(project).unwrap_or(p);
+            let rel_str = rel.to_string_lossy().to_lowercase().replace('\\', "/");
+            if rel_str.starts_with("docs/archive/")
+                || rel_str.contains("/node_modules/")
+                || rel_str.contains("/vendor/")
+                || rel_str.contains("/target/")
+                || rel_str.contains("/dist/")
+                || rel_str.contains("/build/")
+            {
+                continue;
+            }
+            // Only scan sane source-file extensions — binaries and big
+            // assets are skipped silently.
+            let ext = p
+                .extension()
+                .and_then(|e| e.to_str())
+                .unwrap_or("")
+                .to_lowercase();
+            const TODO_EXTS: &[&str] = &[
+                "rs", "ts", "tsx", "js", "jsx", "py", "go", "java", "rb", "c", "cpp", "h", "hpp",
+                "cs", "php", "kt", "swift", "scala", "sh", "bash", "lua", "vue", "svelte",
+            ];
+            if !TODO_EXTS.contains(&ext.as_str()) {
+                continue;
+            }
+            let Ok(text) = std::fs::read_to_string(p) else {
+                continue;
+            };
+            for (i, line) in text.lines().enumerate() {
+                let Some(cap) = re.captures(line) else {
+                    continue;
+                };
+                let kind_marker = cap.get(1).map(|m| m.as_str()).unwrap_or("TODO");
+                let body = cap.get(2).map(|m| m.as_str()).unwrap_or("").trim();
+                if body.is_empty() {
+                    continue;
+                }
+                let summary = format!("{kind_marker}: {body}");
+                let touched = serde_json::json!([rel.to_string_lossy()]).to_string();
+                let payload = serde_json::json!({
+                    "kind": "open_question",
+                    "marker": kind_marker,
+                    "file": rel.to_string_lossy(),
+                    "line": i + 1,
+                    "body": body,
+                })
+                .to_string();
+                let id = format!(
+                    "todo-{}-{}-{}",
+                    rel_str.replace('/', "_"),
+                    i + 1,
+                    blake3::hash(body.as_bytes()).to_hex(),
+                );
+                let now_ms = chrono::Utc::now().timestamp_millis();
+                let sql = "INSERT OR IGNORE INTO ledger_entries(\
+                            id, session_id, timestamp, kind, summary, rationale, \
+                            touched_files, touched_concepts, transcript_ref, kind_payload\
+                        ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)";
+                let params = vec![
+                    serde_json::Value::String(id),
+                    serde_json::Value::String(session.clone()),
+                    serde_json::Value::Number(now_ms.into()),
+                    serde_json::Value::String("open_question".into()),
+                    serde_json::Value::String(summary),
+                    serde_json::Value::String(format!(
+                        "Source-code marker found at {}:{}",
+                        rel.display(),
+                        i + 1
+                    )),
+                    serde_json::Value::String(touched),
+                    serde_json::Value::String("[]".into()),
+                    serde_json::Value::Null,
+                    serde_json::Value::String(payload),
+                ];
+                let resp = store
+                    .inject
+                    .insert(
+                        project_id,
+                        DbLayer::Tasks,
+                        sql,
+                        params,
+                        InjectOptions {
+                            emit_event: false,
+                            audit: false,
+                            ..InjectOptions::default()
+                        },
+                    )
+                    .await;
+                if resp.success {
+                    stats.todos_written += 1;
+                }
+                if stats.todos_written >= SEED_TODO_CAP {
+                    break 'outer;
+                }
+            }
+        }
+    }
+
+    // ---------- (c) markdown headers → wiki.db.wiki_pages ------------------
+    // README + CHANGELOG at project root + every *.md under docs/ get
+    // chunked by H2/H3 and stored as wiki rows. Each section becomes one
+    // page so `recall` (which scans wiki_pages.title + summary) can hit
+    // them. We deliberately do NOT compete with `run_wiki_pass` (which
+    // generates community wiki pages from the graph) — different slug
+    // prefix (`seed-md-...`) so the two coexist.
+    let mut md_targets: Vec<PathBuf> = Vec::new();
+    for fname in ["README.md", "CHANGELOG.md", "ARCHITECTURE.md", "ROADMAP.md"] {
+        let cand = project.join(fname);
+        if cand.is_file() {
+            md_targets.push(cand);
+        }
+    }
+    let docs_dir = project.join("docs");
+    if docs_dir.is_dir() {
+        let walker = ignore::WalkBuilder::new(&docs_dir)
+            .standard_filters(true)
+            .max_filesize(Some(2 * 1024 * 1024))
+            .build();
+        for entry in walker.flatten() {
+            if !entry.file_type().is_some_and(|ft| ft.is_file()) {
+                continue;
+            }
+            let p = entry.path();
+            // Skip docs/archive — it's the canonical noise dump.
+            let rel = p.strip_prefix(project).unwrap_or(p);
+            let rel_str = rel.to_string_lossy().to_lowercase().replace('\\', "/");
+            if rel_str.starts_with("docs/archive/") {
+                continue;
+            }
+            if p.extension().and_then(|e| e.to_str()).unwrap_or("") == "md" {
+                md_targets.push(p.to_path_buf());
+            }
+        }
+    }
+
+    for md in md_targets {
+        let Ok(text) = std::fs::read_to_string(&md) else {
+            continue;
+        };
+        let rel = md.strip_prefix(project).unwrap_or(&md).to_path_buf();
+        let sections = chunk_markdown_by_headers(&text);
+        for (idx, sec) in sections.into_iter().enumerate() {
+            if stats.wiki_sections_written >= SEED_WIKI_SECTION_CAP {
+                break;
+            }
+            // Slug must be unique per regen — include path + section index.
+            let slug = format!(
+                "seed-md-{}-{}",
+                rel.to_string_lossy().replace(['/', '\\', '.'], "-"),
+                idx
+            );
+            let title = if sec.title.is_empty() {
+                format!("{} (intro)", rel.display())
+            } else {
+                format!("{} — {}", rel.display(), sec.title)
+            };
+            let summary = sec.body.lines().take(3).collect::<Vec<_>>().join(" ");
+            let files_json = serde_json::json!([rel.to_string_lossy()]).to_string();
+            let sql = "INSERT INTO wiki_pages(\
+                        slug, version, community_id, title, markdown, summary, \
+                        entry_points, file_paths, risk_score\
+                    ) VALUES(?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)";
+            let params = vec![
+                serde_json::Value::String(slug),
+                serde_json::Value::Number(1.into()),
+                serde_json::Value::Null,
+                serde_json::Value::String(title),
+                serde_json::Value::String(sec.body.clone()),
+                serde_json::Value::String(summary),
+                serde_json::Value::String("[]".into()),
+                serde_json::Value::String(files_json),
+                serde_json::Value::Number(serde_json::Number::from(0)),
+            ];
+            let resp = store
+                .inject
+                .insert(
+                    project_id,
+                    DbLayer::Wiki,
+                    sql,
+                    params,
+                    InjectOptions {
+                        emit_event: false,
+                        audit: false,
+                        ..InjectOptions::default()
+                    },
+                )
+                .await;
+            if resp.success {
+                stats.wiki_sections_written += 1;
+            }
+        }
+    }
+
+    stats.status = if !git_ok {
+        format!(
+            "no-git/todos={}/wiki={}",
+            stats.todos_written, stats.wiki_sections_written
+        )
+    } else if stats.commits_written == 0
+        && stats.todos_written == 0
+        && stats.wiki_sections_written == 0
+    {
+        "empty".into()
+    } else {
+        "ok".into()
+    };
+    stats
+}
+
+/// One markdown section produced by [`chunk_markdown_by_headers`].
+#[derive(Debug, Clone)]
+struct MdSection {
+    title: String,
+    body: String,
+}
+
+/// Split markdown text into sections at every H1/H2/H3 header. The text
+/// before the first header (preamble) becomes section 0 with an empty
+/// title. Section bodies INCLUDE the header line so the wiki row reads
+/// like a self-contained snippet.
+fn chunk_markdown_by_headers(text: &str) -> Vec<MdSection> {
+    let mut out: Vec<MdSection> = Vec::new();
+    let mut current_title = String::new();
+    let mut current_body = String::new();
+    for line in text.lines() {
+        let trimmed = line.trim_start();
+        let is_header =
+            trimmed.starts_with("# ") || trimmed.starts_with("## ") || trimmed.starts_with("### ");
+        if is_header {
+            if !current_body.trim().is_empty() {
+                out.push(MdSection {
+                    title: current_title.clone(),
+                    body: current_body.clone(),
+                });
+            }
+            current_title = trimmed.trim_start_matches('#').trim().to_string();
+            current_body.clear();
+            current_body.push_str(line);
+            current_body.push('\n');
+        } else {
+            current_body.push_str(line);
+            current_body.push('\n');
+        }
+    }
+    if !current_body.trim().is_empty() {
+        out.push(MdSection {
+            title: current_title,
+            body: current_body,
+        });
+    }
+    out
+}
+
+// ---------------------------------------------------------------------------
 // Unit tests for the pure helper surfaces above.
 //
 // These pin the documented contract for each helper without spinning up the
@@ -6160,6 +6795,62 @@ async fn run_agents_pass(store: &Store, project_id: &ProjectId, project: &Path) 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ---- chunk_markdown_by_headers (v0.3.2 hotfix #5) ------------------
+
+    #[test]
+    fn chunk_markdown_emits_one_section_per_header() {
+        let md = "\
+preamble line
+# Title One
+body of one
+## Sub of one
+sub body
+# Title Two
+body of two
+";
+        let sections = chunk_markdown_by_headers(md);
+        // preamble, # Title One, ## Sub of one, # Title Two = 4
+        assert_eq!(sections.len(), 4, "got {sections:?}");
+        assert_eq!(sections[1].title, "Title One");
+        assert!(sections[1].body.contains("body of one"));
+        assert_eq!(sections[2].title, "Sub of one");
+        assert_eq!(sections[3].title, "Title Two");
+    }
+
+    #[test]
+    fn chunk_markdown_handles_no_headers() {
+        let md = "just a flat blob\nof text\nno headers";
+        let sections = chunk_markdown_by_headers(md);
+        assert_eq!(sections.len(), 1);
+        assert_eq!(sections[0].title, "");
+        assert!(sections[0].body.contains("just a flat blob"));
+    }
+
+    #[test]
+    fn chunk_markdown_handles_empty_input() {
+        let sections = chunk_markdown_by_headers("");
+        assert_eq!(sections.len(), 0);
+    }
+
+    #[test]
+    fn chunk_markdown_skips_h4_and_deeper() {
+        // Only H1/H2/H3 split sections — deeper headers stay in the
+        // body of their parent section so we don't over-fragment.
+        let md = "\
+# Top
+some text
+#### Deep header
+more text
+## Mid
+other text
+";
+        let sections = chunk_markdown_by_headers(md);
+        assert_eq!(sections.len(), 2);
+        assert_eq!(sections[0].title, "Top");
+        assert!(sections[0].body.contains("Deep header"));
+        assert_eq!(sections[1].title, "Mid");
+    }
 
     // ---- looks_binary --------------------------------------------------
 
