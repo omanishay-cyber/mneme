@@ -886,6 +886,47 @@
     .speed-card:nth-child(1) .speed-num { color: var(--accent-green); }
     .speed-card:nth-child(2) .speed-num { color: var(--accent-blue); }
     .speed-card:nth-child(3) .speed-num { color: var(--accent-magenta); }
+
+    /* Mini comparison bars on each speed-card */
+    .speed-card .speed-bar {
+      display: block;
+      height: 3px;
+      margin-top: 14px;
+      border-radius: 2px;
+      background: var(--bg-2);
+      overflow: hidden;
+      position: relative;
+    }
+    .speed-card .speed-bar::after {
+      content: "";
+      position: absolute;
+      inset: 0 auto 0 0;
+      width: 0;
+      background: linear-gradient(90deg, var(--accent-blue), var(--accent-green));
+      border-radius: 2px;
+      transition: width 1.4s cubic-bezier(0.22, 1, 0.36, 1) 0.3s;
+    }
+    .reveal.is-visible .speed-card:nth-child(1) .speed-bar::after { width: 96%; }
+    .reveal.is-visible .speed-card:nth-child(2) .speed-bar::after { width: 88%; }
+    .reveal.is-visible .speed-card:nth-child(3) .speed-bar::after { width: 71%; }
+    .speed-card .speed-bar-label {
+      display: flex; justify-content: space-between;
+      margin-top: 6px;
+      font-family: "JetBrains Mono", ui-monospace, monospace;
+      font-size: 10.5px;
+      color: var(--muted-2);
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+    }
+
+    /* Terminal replay button (lives in .terminal-bar) */
+    .term-replay {
+      border: 0; background: transparent; cursor: pointer;
+      color: #7a7d85; padding: 4px 6px; border-radius: 5px;
+      margin-left: auto;
+      transition: color 0.15s ease, background 0.15s ease;
+    }
+    .term-replay:hover { color: #41E1B5; background: rgba(65,225,181,0.10); }
     .speed-label {
       font-size: 14px;
       font-weight: 600;
@@ -1472,6 +1513,11 @@
             <span class="dot dot-g"></span>
           </div>
           <div class="title">~/projects/my-app · mneme</div>
+          <button class="term-replay" type="button" aria-label="Replay terminal demo" data-term-replay>
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <path d="M3 12a9 9 0 1 0 9-9 9.75 9.75 0 0 0-6.74 2.74L3 8"/><path d="M3 3v5h5"/>
+            </svg>
+          </button>
         </div>
         <div class="terminal-body">
           <div class="terminal-line l1"><span class="t-prompt">$</span> mneme recall <span class="t-str">"auth flow"</span></div>
@@ -1630,16 +1676,22 @@
         <div class="speed-num">~1000×</div>
         <div class="speed-label">faster updates than the closest competitor (CRG)</div>
         <div class="speed-detail">When you save a file, mneme refreshes the graph before you can blink. CRG takes ~2 seconds.</div>
+        <div class="speed-bar" aria-hidden="true"></div>
+        <div class="speed-bar-label"><span>mneme</span><span>vs CRG</span></div>
       </div>
       <div class="speed-card">
         <div class="speed-num">&lt; 20 ms</div>
         <div class="speed-label">how long AI waits for an answer (typical)</div>
         <div class="speed-detail">Faster than a single packet to a cloud service. AI gets context as fast as it can ask.</div>
+        <div class="speed-bar" aria-hidden="true"></div>
+        <div class="speed-bar-label"><span>local</span><span>vs cloud</span></div>
       </div>
       <div class="speed-card">
         <div class="speed-num">~34%</div>
         <div class="speed-label">smaller AI context for typical code-review queries</div>
         <div class="speed-detail">Best 5% of queries save 71%. mneme picks what AI sees instead of dumping every file.</div>
+        <div class="speed-bar" aria-hidden="true"></div>
+        <div class="speed-bar-label"><span>mneme</span><span>baseline</span></div>
       </div>
     </div>
 
@@ -2287,6 +2339,29 @@ python run_crg_bench.py</code></pre>
         }
       });
     });
+  })();
+
+  // Terminal replay button + auto-loop every 16s
+  (function () {
+    const body = document.querySelector('.terminal-body');
+    if (!body) return;
+    const lines = body.querySelectorAll('.terminal-line');
+    if (!lines.length) return;
+    const prefersReduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const replay = function () {
+      lines.forEach(function (l) {
+        l.style.animation = 'none';
+        // force reflow
+        void l.offsetWidth;
+        l.style.animation = '';
+      });
+    };
+    document.querySelectorAll('[data-term-replay]').forEach(function (b) {
+      b.addEventListener('click', replay);
+    });
+    if (!prefersReduced) {
+      setInterval(replay, 16000);
+    }
   })();
 </script>
 
