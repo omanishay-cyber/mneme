@@ -1,6 +1,12 @@
 # INSTALL.md - mneme v0.3.2 (hotfix 2026-05-02)
 
-Two ways to use mneme: **install from the public bootstrap** (one command per OS, recommended) or **install from the home zip** (offline-friendly, exact build artifact). Or **work on the source** (edit + build). All three are documented below.
+Three ways to use mneme:
+
+- Install from the public bootstrap (one command per OS, recommended)
+- Install from the home zip (offline-friendly, exact build artifact)
+- Work on the source (edit + build)
+
+All three are documented below.
 
 ---
 
@@ -34,7 +40,7 @@ curl -fsSL https://github.com/omanishay-cyber/mneme/releases/download/v0.3.2/ins
 | Requirement | Detail |
 |---|---|
 | **OS** | 64-bit Windows 10/11 (x64 live, arm64 in CI build), macOS 14+ (Intel + Apple Silicon, both live), Ubuntu 22.04+ / Debian / Fedora (x64 live, arm64 in CI build) |
-| **CPU baseline** | x86-64-v3 - AVX2 / BMI2 / FMA. Intel Haswell (2013+) or AMD Excavator (2015+). Almost every PC sold since 2013 qualifies. The bootstrap refuses early on pre-Haswell hardware with a clear error. |
+| **CPU baseline** | x86-64-v3 - AVX2 / BMI2 / FMA. Intel Haswell (2013+) or AMD Excavator (2015+). Almost every PC sold since 2013 qualifies. The bootstrap refuses pre-Haswell hardware with a clear error. |
 | **Disk** | 5 GB free (binaries ~250 MB, models ~3.4 GB, room for first project's shards) |
 | **Privileges** | No admin needed. Defender exclusions are added best-effort if elevated; install proceeds without them otherwise. |
 | **32-bit Windows** | **Not supported.** Bun runtime requires x64 or ARM64. The bootstrap detects and refuses with `Fail "32-bit Windows is not supported (Bun runtime requires x64 or ARM64)..."`. |
@@ -43,7 +49,7 @@ curl -fsSL https://github.com/omanishay-cyber/mneme/releases/download/v0.3.2/ins
 
 ## Offline / home-zip install
 
-Use this when you have the `mneme final` home zip and want to install the exact binary artifact from disk (no network call to GitHub Releases). Same outcome as the public bootstrap; just sourced from the local zip.
+Use this when you have the `mneme final` home zip and want to install the binary artifact from disk (no network call to GitHub Releases). Same outcome as the public bootstrap, sourced from the local zip.
 
 ```powershell
 # 1. Open PowerShell (any user, no admin needed)

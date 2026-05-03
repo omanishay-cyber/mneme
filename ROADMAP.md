@@ -133,7 +133,7 @@ below is the *starting* set; Stage 1 DM responses will reorder.
 
 ## One-line summary
 
-**v0.3.x ships a safe, tested installer + a fully wired MCP + 20 skills.
-v0.4 ships supervisor IPC routing + real benchmarks + cross-platform
-parity + marketplace presence. v1.0 ships a VS Code extension + native
-package-manager formulas + the first 100 external users.**
+**v0.3.x ships the installer + MCP + 20 skills. v0.4 ships supervisor IPC
+routing + benchmarks + cross-platform parity + marketplace presence. v1.0
+ships a VS Code extension + package-manager formulas + the first 100
+external users.**

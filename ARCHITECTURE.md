@@ -1,15 +1,15 @@
 # Mneme Architecture
 
-A deep, honest tour of how Mneme is built. Audience: contributors, reviewers,
-and anyone asking "is this actually engineered or is it a wrapper?".
+A deep tour of how Mneme is built. For contributors, reviewers, and anyone
+asking "is this actually engineered, or a wrapper?".
 
-Short version: Mneme is a **multi-process Rust daemon** with a Bun/TypeScript
+Short version: Mneme is a multi-process Rust daemon with a Bun/TypeScript
 MCP surface, a Tauri/WebGL desktop app, and a Python multimodal sidecar. It
-talks to AI coding tools over JSON-RPC (MCP), runs entirely on your machine,
-and persists state in 22 sharded SQLite databases plus one global meta DB.
+talks to AI coding tools over JSON-RPC (MCP), runs locally, and persists
+state in 22 sharded SQLite databases plus one global meta DB.
 
-This document is the long-form companion to `docs/architecture.md`. If you
-want the 10-minute skim, read that one. If you want every seam, read this.
+This is the long-form companion to `docs/architecture.md`. Want the
+10-minute skim? Read that one. Want every seam? Read this.
 
 ---
 
@@ -309,12 +309,12 @@ hand-written spec, then reviewed and tuned.
 
 ### 1. Local-first, no unsolicited network
 
-Mneme **never** makes outbound network calls during normal operation. No
-telemetry. No auto-update check unless the user explicitly opts in. No
-model download unless the user runs `mneme models install --from <path>`
-and points at a local mirror. Every model weight that ships with the
-binary is loaded from disk. The embedder is pure Rust with no ONNX
-dependency precisely so the binary has nothing to download.
+Mneme makes no outbound network calls during normal operation. No
+telemetry. No auto-update check unless the user opts in. No model download
+unless the user runs `mneme models install --from <path>` and points at
+a local mirror. Every model weight that ships with the binary is loaded
+from disk. The embedder is pure Rust with no ONNX dependency, so the
+binary has nothing to download.
 
 This is enforced at three layers:
 
@@ -579,17 +579,16 @@ but would:
 
 Mneme's multi-process shape buys:
 
-- **Fault isolation** - one crash = one restarted worker, not a cold
-  start.
-- **Language pragmatism** - Rust where it matters, Bun where stdio speed
+- Fault isolation: one crash = one restarted worker, not a cold start.
+- Language pragmatism: Rust where it matters, Bun where stdio speed
   matters, Python where the ecosystem is irreplaceable.
-- **Parallel throughput** - parsers + scanners + brain all run
-  concurrently; only the per-shard writer tasks serialise.
-- **Hot-reload MCP surface** - tools can be edited and redeployed
-  without killing the daemon.
+- Parallel throughput: parsers + scanners + brain run concurrently;
+  only the per-shard writer tasks serialise.
+- Hot-reload MCP surface: tools can be edited and redeployed without
+  killing the daemon.
 
-The cost is complexity. That cost is paid once, up front, and never
-again. Users see `mneme daemon status` -> healthy, and that's it.
+The cost is complexity, paid once up front. Users see `mneme daemon status`
+-> healthy, and that's it.
 
 ---
 
@@ -612,8 +611,8 @@ of these, it gets rejected.
 8. **`mneme doctor` must pass on a fresh install with zero optional
    deps.** All optional capabilities must degrade gracefully.
 
-Violate one of these and the whole thing stops being an AI superbrain
-and becomes a brittle tool chain. The whole point is it survives.
+Violate one and the system stops being a persistent memory layer and
+becomes a brittle tool chain. The whole point is it survives.
 
 ---
 
