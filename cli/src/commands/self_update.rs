@@ -424,7 +424,7 @@ fn hex_lower(bytes: &[u8]) -> String {
 /// `MNEME_HOME` overrides + the OS-default fallback chain stay consistent
 /// with every other path in the workspace.
 pub fn install_bin_dir() -> CliResult<PathBuf> {
-    let paths = mneme_common::paths::PathManager::try_default_root()
+    let paths = common::paths::PathManager::try_default_root()
         .map_err(|e| CliError::Other(format!("could not resolve mneme root: {e}")))?;
     Ok(paths.root().join("bin"))
 }
