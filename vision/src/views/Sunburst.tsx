@@ -53,8 +53,17 @@ export function Sunburst(): JSX.Element {
           .innerRadius((d) => d.y0)
           .outerRadius((d) => d.y1 - 1);
 
-        const childCount = root.children?.length ?? 8;
-        const color = d3.scaleOrdinal(d3.quantize(d3.interpolateRainbow, Math.max(childCount, 3)));
+        // Item #10: swap d3.interpolateRainbow (perceptually awful for
+        // ordinal data) for d3.schemeTableau10 — same categorical
+        // palette graphify uses (#4E79A7 first swatch matches the
+        // graphify accent). Top-level children become the domain rows
+        // for the ordinal scale; descendants inherit from their depth-1
+        // ancestor so each "wedge" reads as one color family.
+        const topNames = root.children?.map((c) => c.data.name) ?? [];
+        const color = d3
+          .scaleOrdinal<string>()
+          .domain(topNames)
+          .range(d3.schemeTableau10);
 
         const svg = d3
           .select(ref.current)
