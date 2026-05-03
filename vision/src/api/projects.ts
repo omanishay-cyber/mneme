@@ -49,6 +49,35 @@ export interface ProjectsResponse {
  * daemon is unreachable so the dropdown still renders an "empty" state
  * rather than crashing the whole SPA.
  */
+/**
+ * Normalize one project entry from the daemon's response. The shipped
+ * v0.3.2 supervisor returns the minimal shape `{id, path, has_graph_db}`,
+ * while the unreleased enriched response carries `{hash, display_name,
+ * indexed_files, nodes, edges, last_indexed_at, has_graph_db}`. Accept
+ * both: prefer the new fields, fall back to the minimal ones, derive
+ * display_name from the path basename when missing.
+ */
+function normalizeProject(raw: Record<string, unknown>): ProjectSummary {
+  const hash = (raw.hash as string) ?? (raw.id as string) ?? "";
+  const canonical_path = (raw.canonical_path as string) ?? (raw.path as string) ?? null;
+  let display_name = (raw.display_name as string) ?? "";
+  if (!display_name && canonical_path) {
+    const segs = canonical_path.split(/[\\/]/).filter(Boolean);
+    display_name = segs[segs.length - 1] ?? hash.slice(0, 8);
+  }
+  if (!display_name) display_name = hash.slice(0, 8) || "project";
+  return {
+    hash,
+    display_name,
+    canonical_path,
+    indexed_files: Number(raw.indexed_files ?? 0),
+    nodes: Number(raw.nodes ?? 0),
+    edges: Number(raw.edges ?? 0),
+    last_indexed_at: (raw.last_indexed_at as string) ?? null,
+    has_graph_db: Boolean(raw.has_graph_db),
+  };
+}
+
 export async function fetchProjects(signal?: AbortSignal): Promise<ProjectsResponse> {
   const url = API_BASE + "/api/projects";
   try {
@@ -56,10 +85,13 @@ export async function fetchProjects(signal?: AbortSignal): Promise<ProjectsRespo
     if (!res.ok) {
       return { projects: [], projects_root: "", error: `HTTP ${res.status}` };
     }
-    const json = (await res.json()) as ProjectsResponse;
-    // Defensive: backfill missing fields so callers can rely on the shape.
+    const json = (await res.json()) as { projects?: unknown; projects_root?: string };
+    const rawList = Array.isArray(json.projects) ? json.projects : [];
     return {
-      projects: Array.isArray(json.projects) ? json.projects : [],
+      projects: rawList
+        .filter((p): p is Record<string, unknown> => p !== null && typeof p === "object")
+        .map(normalizeProject)
+        .filter((p) => p.hash.length > 0),
       projects_root: json.projects_root ?? "",
     };
   } catch (err) {
