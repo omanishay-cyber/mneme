@@ -10,11 +10,16 @@ InstallModes:
 UpgradeBehavior: install
 Commands:
 - mneme
-# arm64 build pending — re-PR once mneme-v0.3.2-windows-arm64.zip is published.
 Installers:
 - Architecture: x64
   InstallerUrl: https://github.com/omanishay-cyber/mneme/releases/download/v0.3.2/mneme-v0.3.2-windows-x64.zip
   InstallerSha256: F11DB0DA304662161A5B662F2A6CC4C39E9DFB225EABE4DF6C47F2069F498BDB
+  NestedInstallerFiles:
+  - RelativeFilePath: bin\mneme.exe
+    PortableCommandAlias: mneme
+- Architecture: arm64
+  InstallerUrl: https://github.com/omanishay-cyber/mneme/releases/download/v0.3.2/mneme-v0.3.2-windows-arm64.zip
+  InstallerSha256: 9356505156BF4FE81B0A00FDEB0DE0A522B4E48652D0907896BF10D21B81FBFD
   NestedInstallerFiles:
   - RelativeFilePath: bin\mneme.exe
     PortableCommandAlias: mneme
