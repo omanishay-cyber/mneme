@@ -874,7 +874,7 @@ fn print_banner() {
     println!("║   ██║ ╚═╝ ██║██║ ╚████║███████╗██║ ╚═╝ ██║███████╗           ║");
     println!("║   ╚═╝     ╚═╝╚═╝  ╚═══╝╚══════╝╚═╝     ╚═╝╚══════╝           ║");
     println!("║                                                              ║");
-    println!("║   persistent memory · code graph · drift detector · 47 tools ║");
+    println!("║   persistent memory · code graph · drift detector · 48 tools ║");
     print_banner_line(&format!(
         "   v{} · 100% local · Apache-2.0",
         env!("CARGO_PKG_VERSION")
@@ -1308,7 +1308,7 @@ pub fn which_on_path(name: &str) -> Option<PathBuf> {
 /// compiler / linker on this machine. Used by both the live probe and
 /// the unit-test that pins the message text. Closes I-16.
 const MSVC_INSTALL_HINT: &str =
-    "MSVC Build Tools missing — install via `winget install Microsoft.VisualStudio.2022.BuildTools` or VS Installer";
+    "(optional, dev-only) MSVC Build Tools not installed — only needed if you plan to build mneme from source. Install via `winget install Microsoft.VisualStudio.2022.BuildTools` or VS Installer if you want to.";
 
 // ============================================================================
 // G1-G10: developer toolchain probes. Closes Phase A §G.
@@ -1877,13 +1877,13 @@ pub fn check_build_toolchain() -> Vec<DoctorRow> {
                 }
                 None => {
                     vswhere_row_value =
-                        "MISSING — VS Installer present but no VC.Tools.x86.x64 component"
+                        "(optional, dev-only) — VS Installer present but no VC.Tools.x86.x64 component"
                             .to_string();
                 }
             }
         }
         None => {
-            vswhere_row_value = "MISSING — install Visual Studio Installer".to_string();
+            vswhere_row_value = "(optional, dev-only) — install Visual Studio Installer for source builds".to_string();
         }
     }
 
@@ -1900,7 +1900,7 @@ pub fn check_build_toolchain() -> Vec<DoctorRow> {
                 _ => "ok".to_string(),
             }
         } else {
-            "MISSING — not on PATH and not in any VS install".to_string()
+            "(optional, dev-only) — only needed for building mneme from source".to_string()
         },
     ));
     rows.push(DoctorRow::new(
@@ -1913,7 +1913,7 @@ pub fn check_build_toolchain() -> Vec<DoctorRow> {
                 _ => "ok".to_string(),
             }
         } else {
-            "MISSING — not on PATH and not in any VS install".to_string()
+            "(optional, dev-only) — only needed for building mneme from source".to_string()
         },
     ));
 
@@ -1942,7 +1942,7 @@ pub fn check_build_toolchain() -> Vec<DoctorRow> {
         Some(path) => rows.push(DoctorRow::new("Windows SDK", format!("ok ({path})"))),
         None => rows.push(DoctorRow::new(
             "Windows SDK",
-            "MISSING — install Windows 10/11 SDK (e.g. via VS Installer)",
+            "(optional, dev-only) — install Windows 10/11 SDK only if building from source",
         )),
     }
 
@@ -2045,7 +2045,7 @@ fn print_build_toolchain_section() {
         return;
     }
     println!("┌─────────────────────────────────────────────────────────┐");
-    println!("│ build toolchain (Windows MSVC)                          │");
+    println!("│ build toolchain (Windows MSVC, optional - source builds)│");
     println!("├─────────────────────────────────────────────────────────┤");
     for row in rows {
         line(&row.label, &row.value);
