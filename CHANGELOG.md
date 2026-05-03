@@ -7,7 +7,7 @@ Versioning follows [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ## [v0.3.2 hotfix] - 2026-05-02 - AWS production install hardening
 
-22+ bugs caught during real-world AWS install testing and Claude Code MCP testing on 2026-05-02. All fixes ship under the existing **v0.3.2** tag (re-uploaded zip + bootstrap on the v0.3.2 release page) - no version bump.
+22+ bugs caught during AWS install testing and Claude Code MCP testing on 2026-05-02. All fixes ship under the existing **v0.3.2** tag (re-uploaded zip + bootstrap on the v0.3.2 release page). No version bump.
 
 ### Fixed (install pipeline + plugin commands + diagnostic chain)
 
@@ -20,7 +20,7 @@ Versioning follows [SemVer](https://semver.org/spec/v2.0.0.html).
 - **B14.5 - Heartbeat phase label now updates when audit starts.** Pre-fix, when the build pipeline transitioned from embed -> audit, `cli/src/commands/build.rs` failed to call `heartbeat.set_phase("audit")`. The user saw stale `phase=embed processed=8003/8003` for 13+ minutes while audit was actually running - leaving the impression that embed had hung. Audit invocation now correctly sets phase + resets total/processed counters.
 - **B17 - All BGE / ORT inference pipeline now stable on Windows.** Bundled `onnxruntime.dll` bumped to **1.24.4** (matches what `ort 2.0.0-rc.12` expects on the API-24 ABI). Pre-fix, the Windows-shipped 1.20.x DLL would silently hang `RealBackend::try_new` on first BGE inference call - embedder fell back to hashing-trick without warning. Bundled DLL pinned via `ORT_DYLIB_PATH` so the in-tree version always wins over `System32`.
 
-### Fixed (cosmetic - "even small cosmetic has to be fixed" rule)
+### Fixed (cosmetic)
 
 - **B4 - 41 spurious orphan-cleanup warnings on upgrade installs.** Pre-fix, `Remove-Item` on already-deleted manifest entries warned 41 times per upgrade. Now `Test-Path` guard before each `Remove-Item`; only real failures warn. Final summary `removed N orphan(s)` is the truth.
 - **B5 - PowerShell progress chatter (`Writing web request / Writing request stream`) silenced inside model downloads.** Inner `Get-Asset` function now sets `$ProgressPreference = 'SilentlyContinue'` locally instead of inheriting from the parent.
@@ -57,7 +57,7 @@ Versioning follows [SemVer](https://semver.org/spec/v2.0.0.html).
 
 ### Test gate (v0.3.2 hotfix VM checklist - mandatory before reupload)
 
-Lesson from our AWS install test 2026-05-02: the prior VM test was too clean and missed bugs that any real user machine surfaced immediately. New VM gate now runs:
+Lesson from the AWS install test on 2026-05-02: the prior VM test was too clean and missed bugs that surfaced immediately on a real machine. New VM gate now runs:
 
 1. Wipe ALL state before fresh install (`~/.mneme`, `$TEMP/mneme-bootstrap-v0.3.2`, `~/.bun/install/cache`, `~/.bun`)
 2. Run once fresh - verify clean install
