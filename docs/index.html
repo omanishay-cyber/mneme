@@ -670,18 +670,69 @@
     /*  FOOTER                                                        */
     /* ============================================================ */
     footer {
-      max-width: 1100px;
-      margin: 60px auto 0;
-      padding: 50px 24px 40px;
+      max-width: 1180px;
+      margin: 80px auto 0;
+      padding: 60px 32px 48px;
       border-top: 1px solid var(--line);
-      text-align: center;
+      text-align: left;
       color: var(--muted);
-      font-size: 13px;
+      font-size: 13.5px;
     }
-    footer a { color: var(--muted); transition: color 0.2s ease; }
+    footer a { color: var(--muted); transition: color 0.2s ease; text-decoration: none; }
     footer a:hover { color: var(--accent-green); text-decoration: none; }
-    footer .links { margin-bottom: 16px; }
-    footer .links a { margin: 0 10px; }
+    .footer-grid {
+      display: grid;
+      grid-template-columns: 1.4fr repeat(3, 1fr);
+      gap: 48px;
+      margin-bottom: 48px;
+    }
+    .footer-brand .footer-logo-row {
+      display: inline-flex; align-items: center; gap: 8px;
+      font-size: 16px; color: var(--text-strong); margin-bottom: 12px;
+    }
+    .footer-tag {
+      max-width: 320px;
+      line-height: 1.55;
+      margin-bottom: 16px;
+    }
+    .footer-loc {
+      font-family: "JetBrains Mono", ui-monospace, monospace;
+      font-size: 11.5px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      color: var(--muted-2);
+    }
+    .footer-col h5 {
+      font-size: 11px;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--text-strong);
+      margin-bottom: 14px;
+      font-family: "JetBrains Mono", ui-monospace, monospace;
+    }
+    .footer-col a {
+      display: block;
+      padding: 4px 0;
+      color: var(--muted);
+      font-size: 13.5px;
+    }
+    .footer-bottom {
+      border-top: 1px solid var(--line);
+      padding-top: 24px;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 12px;
+      font-size: 12.5px;
+    }
+    .footer-bottom strong { color: var(--text-strong); }
+    .footer-named { font-style: italic; color: var(--muted-2); }
+    @media (max-width: 760px) {
+      .footer-grid { grid-template-columns: 1fr; gap: 32px; }
+      .footer-bottom { flex-direction: column; align-items: flex-start; }
+    }
 
     /* ============================================================ */
     /*  RESPONSIVE                                                    */
@@ -2031,17 +2082,49 @@ python run_crg_bench.py</code></pre>
   <!-- ============================================================ -->
   <!--  FOOTER                                                        -->
   <!-- ============================================================ -->
-  <footer>
-    <div class="links">
-      <a href="https://github.com/omanishay-cyber/mneme">GitHub</a>
-      <a href="https://github.com/omanishay-cyber/mneme/blob/main/docs/design/2026-04-23-datatree-design.md">Design doc</a>
-      <a href="https://github.com/omanishay-cyber/mneme/blob/main/CHANGELOG.md">Changelog</a>
-      <a href="https://github.com/omanishay-cyber/mneme/blob/main/LICENSE">License</a>
-      <a href="https://github.com/omanishay-cyber/mneme/issues">Issues</a>
-      <a href="https://github.com/omanishay-cyber/mneme/discussions">Discussions</a>
+  <footer id="footer">
+    <div class="footer-grid">
+      <div class="footer-brand">
+        <div class="footer-logo-row">
+          <svg width="20" height="20" viewBox="0 0 32 32" aria-hidden="true">
+            <rect x="3" y="3" width="26" height="26" rx="6" fill="currentColor"/>
+            <path d="M8 22 L8 12 L11 12 L16 18 L21 12 L24 12 L24 22"
+                  stroke="var(--accent-green)" stroke-width="2.4" fill="none"
+                  stroke-linecap="round" stroke-linejoin="round"/>
+            <circle cx="16" cy="9.5" r="1.4" fill="var(--accent-green)"/>
+          </svg>
+          <strong>mneme</strong>
+        </div>
+        <p class="footer-tag">The persistent memory layer for AI coding. Local-first. Open source.</p>
+        <p class="footer-loc">Built in New Jersey, USA &middot; Apache-2.0</p>
+      </div>
+
+      <div class="footer-col">
+        <h5>Project</h5>
+        <a href="https://github.com/omanishay-cyber/mneme">GitHub</a>
+        <a href="https://github.com/omanishay-cyber/mneme/releases">Releases</a>
+        <a href="https://github.com/omanishay-cyber/mneme/blob/main/CHANGELOG.md">Changelog</a>
+        <a href="https://github.com/omanishay-cyber/mneme/blob/main/LICENSE">License</a>
+      </div>
+      <div class="footer-col">
+        <h5>Docs</h5>
+        <a href="https://github.com/omanishay-cyber/mneme/blob/main/INSTALL.md">Install guide</a>
+        <a href="https://github.com/omanishay-cyber/mneme/blob/main/docs/mcp-tools.md">MCP tools</a>
+        <a href="https://github.com/omanishay-cyber/mneme/blob/main/BENCHMARKS.md">Benchmarks</a>
+        <a href="https://github.com/omanishay-cyber/mneme/blob/main/docs/design/2026-04-23-datatree-design.md">Design doc</a>
+      </div>
+      <div class="footer-col">
+        <h5>Community</h5>
+        <a href="https://github.com/omanishay-cyber/mneme/discussions">Discussions</a>
+        <a href="https://github.com/omanishay-cyber/mneme/issues">Issues</a>
+        <a href="https://github.com/omanishay-cyber/mneme/blob/main/CONTRIBUTING.md">Contributing</a>
+      </div>
     </div>
-    <p>© 2026 <strong>Anish Trivedi & Kruti Trivedi</strong>. Apache-2.0.</p>
-    <p style="margin-top:8px;opacity:0.6;">🌳 Named after Mneme, the Greek muse of memory.</p>
+
+    <div class="footer-bottom">
+      <p>&copy; 2026 <strong>Anish Trivedi &amp; Kruti Trivedi</strong>. Apache-2.0.</p>
+      <p class="footer-named">Named after Mneme, the Greek muse of memory.</p>
+    </div>
   </footer>
 
 </div>
