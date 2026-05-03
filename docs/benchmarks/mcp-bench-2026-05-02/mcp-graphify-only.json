@@ -1,7 +1,7 @@
-﻿{
+{
   "mcpServers": {
     "graphify": {
-      "command": "<home>/.mneme/bin/graphify-mcp-wrapper.cmd"
+      "command": "C:\\Users\\Anish\\Desktop\\temp\\mcp-bench-2026-05-02\\wrappers\\graphify-mcp-wrapper.cmd"
     }
   }
 }

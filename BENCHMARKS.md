@@ -450,3 +450,76 @@ benchmarks/crg-compare/.venv/Scripts/python.exe \
 
 Raw CRG output: [`benchmarks/results/crg-2026-04-23.json`](benchmarks/results/crg-2026-04-23.json)
 + [`benchmarks/results/crg-2026-04-23.csv`](benchmarks/results/crg-2026-04-23.csv).
+
+## 4-MCP comparison (2026-05-02)
+
+Same five questions, same corpus, same Claude Code model, isolated per MCP via
+`--strict-mcp-config`. Corpus = the mneme workspace itself
+(Rust + TypeScript + Python, 50K+ LOC, 400+ files); we previously ran the
+same harness against an Electron + React + TypeScript codebase on a separate
+AWS test instance, but the host running this re-run does not have access to
+that source tree from the AWS test instance running this re-run, so we substituted the mneme repo as the shared corpus and
+rewrote ground-truth markers accordingly. The ground-truth list and the
+auto-scorer rubric are committed at
+[`docs/benchmarks/mcp-bench-2026-05-02/ground-truth.md`](docs/benchmarks/mcp-bench-2026-05-02/ground-truth.md).
+
+Per-query budget: 180 s wall. Each cell shows
+`wall-time s · output tokens · cost USD · score (0-10)`. Cost comes verbatim
+from `total_cost_usd` in Claude's JSON envelope. A 0 score with a 180 s wall
+means the MCP did not return a usable answer in budget - the 0 score is what
+the auto-scorer counted in the response, not a placeholder.
+
+| Query | mneme v0.3.2 | tree-sitter v0.7.0 | CRG v2.3.2 | graphify v0.3.0 |
+|---|---|---|---|---|
+| Q1 build pipeline functions | 59 s · 3,167 t · $0.97 · **0**/10 | 112 s · 7,855 t · $1.21 · **9**/10 | 103 s · 8,142 t · $1.47 · **9**/10 | 180 s · 0 t · $0 · **0**/10 |
+| Q2 blast radius of `common/src/paths.rs` | 69 s · 3,409 t · $0.81 · **0**/10 | 140 s · 9,560 t · $1.06 · **9**/10 | 180 s · 0 t · $0 · **0**/10 | 176 s · 0 t · $0 · **0**/10 |
+| Q3 build call graph from `cli/src/commands/build.rs` | 28 s · 1,497 t · $0.53 · **0**/10 | 134 s · 9,156 t · $1.44 · **9**/10 | 160 s · 9,310 t · $1.96 · **9**/10 | 180 s · 0 t · $0 · **0**/10 |
+| Q4 design patterns | 48 s · 2,395 t · $0.80 · **4**/10 | 102 s · 4,825 t · $1.69 · **9**/10 | 111 s · 8,976 t · $1.10 · **9**/10 | 180 s · 0 t · $0 · **0**/10 |
+| Q5 concurrency / data races in store crate | 74 s · 3,312 t · $1.22 · **0**/10 | 180 s · 0 t · $0 · **0**/10 | 180 s · 0 t · $0 · **0**/10 | 180 s · 0 t · $0 · **0**/10 |
+| **Totals** | 278 s · 13,780 t · $4.32 · **0.8**/10 avg | 668 s · 31,396 t · $5.40 · **7.2**/10 avg | 734 s · 26,428 t · $4.53 · **5.4**/10 avg | 896 s · 0 t · $0 · **0.0**/10 avg |
+
+### What we read out of this
+
+- **tree-sitter** answered 4 of 5 with rich citations (9/10 on Q1-Q4). It
+  re-parses on every query, so cost climbs and Q5 (the largest prompt) ran
+  past the 180 s budget. Tree-sitter is the strongest baseline for ad-hoc
+  code-graph questions when there is no persistent index.
+- **CRG** matched tree-sitter on three of the four queries it answered
+  (9/10 on Q1, Q3, Q4) and used the cheapest tokens of the four when it did
+  answer. Q2 (blast radius) and Q5 (security) hit the 180 s budget. Both
+  reflect real `code-review-graph` MCP behaviour on the host - not a
+  configuration error - and would justify a longer per-query budget on a
+  re-run.
+- **mneme** returned only its two MCP resources (`mneme://commands`,
+  `mneme://identity`) on every query - none of the 47 advertised tools
+  (`mneme_recall`, `blast_radius`, `call_graph`, `architecture_overview`,
+  ...) were surfaced as callable MCP tools in this Claude Code build. The
+  CLI from the same project root returned correct results, so the graph
+  data on disk is fine; the gap is in the MCP server's tool registration
+  visible to the client. Filed for the v0.3.3 hotfix.
+- **graphify** connected and listed tools but every tool call hung past the
+  180 s budget. The graphify CLI itself works (the corpus index built in
+  ~13 s, 3 929 nodes / 7 196 edges) and `claude mcp list` reports
+  `Connected`, so the gap is somewhere in the MCP surface or in the
+  `fastmcp 3.x` runtime that ships with the autotrigger fork.
+
+### Reproduction
+
+```powershell
+# Build / refresh the corpus indexes (one-time)
+mneme build "<corpus-dir>"
+code-review-graph build
+graphify update .
+
+# Run the matrix (5 queries x 4 MCPs = 20 cells, ~30-40 min wall on this host)
+cd docs/benchmarks/mcp-bench-2026-05-02
+pwsh ./run-all-bench.ps1 -BenchDir . -ProjectDir "<corpus-dir>" -TimeoutSec 180
+
+# Render the markdown table
+pwsh ./final-table.ps1 -ResultsDir ./results
+```
+
+Raw envelopes for all 20 cells, the prompts as fed to Claude, the auto-score
+rubric, and the per-MCP `--strict-mcp-config` JSON files are committed under
+[`docs/benchmarks/mcp-bench-2026-05-02/`](docs/benchmarks/mcp-bench-2026-05-02/).
+

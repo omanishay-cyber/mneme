@@ -1,73 +1,89 @@
-﻿# Ground Truth — MCP Bench 2026-05-02
+# Ground Truth - MCP Bench 2026-05-02 (mneme self-corpus)
 
-Built by direct grep over `src/` and `electron/` of internal-app.
+Built by direct grep over the mneme workspace at
+`D:\Mneme Dome\Mneme-Home-Handoff-2026-04-30-2027\source`.
 
-## Q1 — Auth functions (gold list)
+This is the fallback ground truth used when the original Electron + React + TS
+corpus is not accessible from the test host. The mneme repo is itself a real
+multi-language workspace (Rust + TypeScript + Python, 50K+ LOC, 400+ files),
+complex enough for a meaningful 4-MCP comparison.
 
-Files (10):
-1. `src/utils/auth.ts` — hashPassword, verifyPassword, generateRecoveryCode, validatePasswordStrength, getLockoutRemaining, createLockoutTimestamp, browserScryptDerive
-2. `src/store/useAuthStore.ts` — validateGithubToken, parseSetupToken, login, loginWithSetupToken, logout, restoreSession, localLogin, localLogout, setAuthMode, changePassword, checkOfflineLock, verifyOrgKey, verifyLicense, isSetupComplete
-3. `src/utils/permissions.ts` — canAccessPage, canAccessRoute, canViewStore, canEditStore, canManageUsers, isOfflineLocked, getEffectiveRole, hasPermission, canModifyUser
-4. `src/hooks/usePermission.ts` — usePermission, usePermissions
-5. `src/utils/keyGenerator.ts` — generateStoreKey, validateKeyFormat, maskKey
-6. `src/utils/machineId.ts` — getMachineId, clearMachineIdCache
-7. `src/utils/orgManager.ts` — checkTechVault, verifyOrgKey, handshakeExistingOrg, createAdminAccount, revokeAdminKey, createManagerOrEmployee, scanAllUsersFromVault
-8. `src/utils/techKeyManager.ts` — encryptTechKey, decryptTechKey, validateTechKey
-9. `src/pages/LoginPage.tsx` — handleLogin (and form components)
-10. `src/components/StartScreen.tsx` — handleLogoClick, handleUserSelect, handlePasswordSubmit, handleStoreSelect, handleTechPortal, getStoresForUser
-11. `src/components/ProtectedRoute.tsx` — ProtectedRoute (component)
-12. `electron/main.cjs` — IPC handlers: auth:encryptToken, auth:decryptToken, auth:validateGithub, auth:saveAuthStore, auth:loadAuthStore, auth:storePasswordHashes, auth:getPasswordHashes, auth:saveStoreKey, auth:readStoreKey, auth:cacheStoreData, auth:readCachedData, auth:getMachineId, auth:hashPassword, auth:verifyPassword, auth:generateStoreKey, auth:generateRecoveryCode, techkey:encrypt, techkey:decrypt
+## Q1 - Build pipeline functions (gold list)
 
-Total: ~67 distinct named functions across ~12 files.
+Files / functions the answer should mention:
+1. `cli/src/commands/build.rs` - `run`, `build_pipeline`, `index_files`
+2. `store/src/builder.rs` - `DbBuilder::new`, `build_or_migrate`, `build_full`, `build_incremental`
+3. `store/src/inject.rs` - `inject_file`, `inject_node`, `inject_edge`
+4. `store/src/lib.rs` - `Store::new`, `Store::open`
+5. `parsers/src/lib.rs` - `parse_file`, `tree_to_nodes`
+6. `parsers/src/incremental.rs` - `IncrementalParser::new`, `parse_incremental`
+7. `scanners/src/lib.rs` - file walk + ignore handling
+8. `common/src/paths.rs` - `PathManager`
+9. `brain/src/lib.rs` - graph orchestration
+10. `cli/src/skill_matcher.rs` - skill detection on build
 
-## Q2 — Blast radius of `src/utils/auth.ts`
+Auto-score regex markers:
+`build_or_migrate|inject_file|Store::new|DbBuilder|PathManager|IncrementalParser|parse_file|index_files|build_pipeline|tree_to_nodes`
 
-Direct importers (grep `from.*utils/auth`):
-- src/store/useAuthStore.ts
-- src/store/useTechStore.ts (transitive via useAuthStore)
-- src/pages/LoginPage.tsx (uses store, indirectly)
-- src/components/StartScreen.tsx (uses hashPassword via store)
-- src/utils/orgManager.ts (uses hashPassword)
-- src/pages/UserProfilePage.tsx (uses changePassword via store)
-- electron/main.cjs (re-implements auth:hashPassword IPC)
+## Q2 - Blast radius of `common/src/paths.rs`
 
-Indirect (transitive via store): all pages that use `useAuthStore`:
-- AdminDashboard, AdminUsersPage, ProtectedRoute, Layout, ActivationWizard, MessagesPage, SettingsPage
+Direct + transitive importers:
+- `store/src/lib.rs`, `store/src/builder.rs`
+- `cli/src/commands/build.rs`, `recall.rs`, `blast.rs`, `drift.rs`, `uninstall.rs`
+- `benchmarks/src/lib.rs`, `benchmarks/src/bin/bench_retrieval.rs`
+- `common/tests/mneme_home_override.rs`
+- `common/src/lib.rs` (re-exports)
+- `common/src/worker_ipc.rs`, `query.rs`, `layer.rs`
+- `justfile` (build path constant)
 
-Total: ~14 files.
+Auto-score regex markers:
+`paths::PathManager|use mneme_common::paths|mneme_home_override|MNEME_HOME|common/src/paths`
 
-## Q3 — Login call graph
+## Q3 - Build call graph from `cli/src/commands/build.rs`
 
-Expected nodes (from LoginPage.tsx outward):
-1. LoginPage.tsx:handleLogin -> useAuthStore.login
-2. useAuthStore.login -> validateGithubToken (fetches GitHub API)
-3. useAuthStore.login -> setAuthMode
-4. useAuthStore.login -> persist via electron IPC: auth:saveAuthStore -> safeStorage encrypt
-5. LoginPage.tsx -> setup-token path -> parseSetupToken -> loginWithSetupToken -> verifyOrgKey -> orgManager.verifyOrgKey -> GitHub API
-6. After login -> ProtectedRoute checks state -> Layout renders
+Expected nodes:
+1. `cli/src/commands/build.rs::run` -> arg parse
+2. -> `Store::open` (mneme_store)
+3. `Store::open` -> `Store::new` -> `PathManager::shard_path`
+4. -> `DbBuilder::build_or_migrate`
+5. `build_or_migrate` -> `inject_file` per scanned file
+6. `inject_file` -> `parse_file` (mneme_parsers) -> tree-sitter parse
+7. `inject_file` -> `Store::insert_node`, `Store::insert_edge` (sqlite)
+8. Final: SQLite `graph.db` updated
 
-## Q4 — Design patterns
+Auto-score regex markers:
+`Store::open|DbBuilder|inject_file|parse_file|PathManager|graph\.db|rusqlite|build_pipeline`
 
-Expected (from code patterns):
-1. **Zustand store** (singleton state) — useAuthStore, useAppStore, useTechStore, useThemeStore
-2. **Custom hooks** — usePermission(s), useIdleTimer
-3. **Higher-order component / wrapper** — ProtectedRoute
-4. **IPC bridge / facade** — electron/preload.cjs exposes window.electronAPI
-5. **Repository / data access layer** — utils/githubSync.ts, utils/internalFileFormat.ts
-6. **Strategy** — different auth modes (none|pat|store_key|admin_key|tech)
-7. **Observer / pub-sub** — Zustand subscribers, dataSyncWatcher
-8. **Singleton** — store-key cached in machineId.ts, machineId memoized
-9. **Factory** — keyGenerator.ts (generateStoreKey, generateRecoveryCode)
-10. **Encryption-as-a-service / crypto facade** — techKeyManager (AES-256-GCM)
+## Q4 - Design patterns (Rust + TS workspace)
 
-## Q5 — Security issues in auth
+Expected:
+1. **Workspace / modular monolith** - `Cargo.toml` workspace members
+2. **Builder** - `store::DbBuilder`
+3. **Repository** - `Store` wraps SQLite
+4. **Strategy / pluggable parsers** - `parsers/src/lib.rs`
+5. **Visitor** - tree-sitter cursor walk in `parsers/src/lib.rs::tree_to_nodes`
+6. **Worker / IPC** - `common::worker_ipc`, `supervisor` crate
+7. **Pub-sub** - `livebus` crate
+8. **Singleton** - `PathManager`, parser pool
+9. **Facade** - `cli` binds many subsystems behind one `mneme` binary
+10. **Migration** - `Store::migrate` schema version
 
-Real issues findable in code:
-1. `auth.ts:browserScryptDerive` uses N=16384 (lower than recommended 65536) — weak fallback
-2. `useAuthStore.ts:validateGithubToken` stores PAT in localStorage / safeStorage but token visible on object inspection via window.electronAPI debug
-3. `electron/main.cjs:auth:cacheStoreData` uses HMAC for tamper-detect but key is derived from store key — single key reuse
-4. `permissions.ts:hasPermission` returns `true` for tech role unconditionally — privilege escalation if role check is bypassed
-5. `LoginPage.tsx` — no rate limiting on PAT login attempts (lockout exists in auth.ts but not enforced for token login)
-6. `auth.ts:generateRecoveryCode` uses `Math.random()` — not cryptographically secure (CHECK: does code use crypto.randomBytes via IPC?)
-7. `machineId.ts` — uses WMIC subprocess (unsanitized command injection if env var manipulation possible)
-8. `useAuthStore.ts:setupTokenStr` parsing — no length limit on raw input could enable DoS or buffer issue
+Auto-score regex markers:
+`DbBuilder|worker_ipc|livebus|PathManager|parser_pool|migrate|schema|Singleton|Facade|Builder`
+
+## Q5 - Concurrency / data-race issues in store crate
+
+Real candidates:
+1. `store/src/lib.rs` - `Store` uses `r2d2::Pool<SqliteConnectionManager>`. Any
+   shared mutable cache outside SQLite needs Mutex/RwLock.
+2. `store/src/inject.rs` - `inject_file` runs from multiple workers. SQLite
+   write-exclusive serializes, but in-process counters need `AtomicU64`.
+3. `store/src/builder.rs` - `build_or_migrate` window between schema check
+   and migration apply.
+4. `store/src/finder.rs` - read-side queries hold a pool connection; small
+   pool starves writers.
+5. `store/src/lifecycle.rs` - shutdown drops pool while workers may hold
+   connections - graceful drain required.
+
+Auto-score regex markers:
+`r2d2|Pool|Connection|Mutex|Atomic|transaction|busy_timeout|worker_ipc|Send|Sync|RwLock`

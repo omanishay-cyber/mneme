@@ -8,8 +8,8 @@ param(
     [int]$TimeoutSec = 240
 )
 
-# Setup PATH
-$env:Path = [System.Environment]::GetEnvironmentVariable('Path','User') + ';' + [System.Environment]::GetEnvironmentVariable('Path','Machine')
+# Setup PATH (User + Machine, plus python scripts dir for graphify/CRG)
+$env:Path = [System.Environment]::GetEnvironmentVariable('Path','User') + ';' + [System.Environment]::GetEnvironmentVariable('Path','Machine') + ';C:\Users\Anish\AppData\Roaming\Python\Python314\Scripts;C:\Users\Anish\AppData\Local\Microsoft\WinGet\Links'
 
 Set-Location -LiteralPath $ProjectDir
 $outFile = Join-Path $OutputDir "$McpName-$QueryId.json"
@@ -20,7 +20,7 @@ $augmentedPrompt = "$Prompt`n`nCRITICAL CONSTRAINT: You MUST answer this using O
 
 $sw = [System.Diagnostics.Stopwatch]::StartNew()
 
-# Resolve direct path to claude.exe (claude.cmd uses %* which mangles spaces)
+# Resolve direct path to claude.exe
 $claudeExe = "$env:APPDATA\npm\node_modules\@anthropic-ai\claude-code\bin\claude.exe"
 if (-not (Test-Path $claudeExe)) {
     $claudeCmd = Get-Command claude.cmd -ErrorAction SilentlyContinue
@@ -30,25 +30,21 @@ if (-not (Test-Path $claudeExe)) {
         if ($matchObj.Success) { $claudeExe = $matchObj.Groups[1].Value -replace '%dp0%', (Split-Path $claudeCmd.Source) }
     }
 }
+if (-not (Test-Path $claudeExe)) {
+    $claudeCmd2 = Get-Command claude -ErrorAction SilentlyContinue
+    if ($claudeCmd2) { $claudeExe = $claudeCmd2.Source }
+}
 if (-not (Test-Path $claudeExe)) { throw "claude.exe not found (tried $claudeExe)" }
-$claudeCmd = @{ Source = $claudeExe }
 
-# Capture stdout & stderr separately (UNIQUE files per call)
 $stdoutFile = [System.IO.Path]::GetTempFileName()
 $stderrFile = [System.IO.Path]::GetTempFileName()
 $stdinFile  = [System.IO.Path]::GetTempFileName()
 
-# Use [System.IO.File]::WriteAllBytes for fully deterministic single-shot write (no encoding BOM)
 [System.IO.File]::WriteAllBytes($stdinFile, [System.Text.Encoding]::UTF8.GetBytes($augmentedPrompt))
 
-# Debug: also save the actual prompt so we can verify what reached stdin
 $promptDumpFile = Join-Path $OutputDir "$McpName-$QueryId.prompt.txt"
 [System.IO.File]::WriteAllBytes($promptDumpFile, [System.Text.Encoding]::UTF8.GetBytes($augmentedPrompt))
 
-# Build minimal arg list. Note: even without -p, claude reads prompt from stdin when --print is used.
-# --no-session-persistence: each query is a fresh conversation (no carry-over from prior runs)
-# --bare: skip hooks, plugin sync, attribution, auto-memory, CLAUDE.md auto-discovery -- prevents mneme's
-# auto-trigger hooks from injecting cross-query context that would taint per-MCP measurements.
 $freshUuid = [guid]::NewGuid().ToString()
 $argList = @(
     '--print',
@@ -63,7 +59,7 @@ $argList = @(
     '--add-dir', $ProjectDir
 )
 
-$proc = Start-Process -FilePath $claudeCmd.Source `
+$proc = Start-Process -FilePath $claudeExe `
     -ArgumentList $argList `
     -NoNewWindow `
     -PassThru `
@@ -73,9 +69,20 @@ $proc = Start-Process -FilePath $claudeCmd.Source `
     -RedirectStandardInput $stdinFile
 $completed = $proc.WaitForExit([int]($TimeoutSec * 1000))
 if (-not $completed) {
-    $proc.Kill()
-    Write-Output "MCP=$McpName QUERY=$QueryId STATUS=TIMEOUT WALL_MS=$([int]$sw.Elapsed.TotalMilliseconds)"
-    Set-Content -Path $outFile -Value '{"timeout":true}' -Encoding utf8
+    try { $proc.Kill() } catch {}
+    $wallMs = [int]$sw.Elapsed.TotalMilliseconds
+    Write-Output "MCP=$McpName QUERY=$QueryId STATUS=TIMEOUT_KILLED WALL_MS=$wallMs"
+    # Capture measured envelope with the wall time and 0 markers.
+    $stub = @{
+        timeout_killed = $true
+        duration_ms = $wallMs
+        result = "TIMEOUT_AFTER_${TimeoutSec}S: MCP server did not return final answer in budget. Counted as 0 ground-truth markers."
+        usage = @{ output_tokens = 0 }
+        total_cost_usd = 0
+        num_turns = 0
+    } | ConvertTo-Json -Compress
+    Set-Content -Path $outFile -Value $stub -Encoding utf8
+    Remove-Item $stdoutFile, $stderrFile, $stdinFile -ErrorAction SilentlyContinue
     return
 }
 $sw.Stop()
@@ -86,7 +93,16 @@ $stderr = Get-Content -LiteralPath $stderrFile -Raw -ErrorAction SilentlyContinu
 if (-not [string]::IsNullOrWhiteSpace($stdout)) {
     Set-Content -Path $outFile -Value $stdout -Encoding utf8
 } else {
-    Set-Content -Path $outFile -Value '{"empty":true}' -Encoding utf8
+    $wallMs = [int]$sw.Elapsed.TotalMilliseconds
+    $stub = @{
+        empty_stdout = $true
+        duration_ms = $wallMs
+        result = "EMPTY_STDOUT_EXIT_$($proc.ExitCode): Claude returned no JSON envelope. Treated as 0 markers."
+        usage = @{ output_tokens = 0 }
+        total_cost_usd = 0
+        num_turns = 0
+    } | ConvertTo-Json -Compress
+    Set-Content -Path $outFile -Value $stub -Encoding utf8
 }
 if (-not [string]::IsNullOrWhiteSpace($stderr)) {
     Set-Content -Path $errFile -Value $stderr -Encoding utf8

@@ -1,7 +1,7 @@
-﻿{
+{
   "mcpServers": {
     "mneme": {
-      "command": "<home>/.mneme/bin/mneme-mcp-wrapper.cmd"
+      "command": "C:\\Users\\Anish\\Desktop\\temp\\mcp-bench-2026-05-02\\wrappers\\mneme-mcp-wrapper.cmd"
     }
   }
 }

@@ -1,0 +1,32 @@
+﻿[
+    {
+        "mcp":  "graphify",
+        "query":  "Q1",
+        "wall_sec":  180,
+        "output_file":  "C:\\Users\\Anish\\Desktop\\temp\\mcp-bench-2026-05-02\\results\\graphify-Q1.json"
+    },
+    {
+        "mcp":  "graphify",
+        "query":  "Q2",
+        "wall_sec":  176,
+        "output_file":  "C:\\Users\\Anish\\Desktop\\temp\\mcp-bench-2026-05-02\\results\\graphify-Q2.json"
+    },
+    {
+        "mcp":  "graphify",
+        "query":  "Q3",
+        "wall_sec":  180,
+        "output_file":  "C:\\Users\\Anish\\Desktop\\temp\\mcp-bench-2026-05-02\\results\\graphify-Q3.json"
+    },
+    {
+        "mcp":  "graphify",
+        "query":  "Q4",
+        "wall_sec":  180,
+        "output_file":  "C:\\Users\\Anish\\Desktop\\temp\\mcp-bench-2026-05-02\\results\\graphify-Q4.json"
+    },
+    {
+        "mcp":  "graphify",
+        "query":  "Q5",
+        "wall_sec":  180,
+        "output_file":  "C:\\Users\\Anish\\Desktop\\temp\\mcp-bench-2026-05-02\\results\\graphify-Q5.json"
+    }
+]

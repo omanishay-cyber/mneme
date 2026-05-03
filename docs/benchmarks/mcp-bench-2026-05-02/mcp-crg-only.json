@@ -1,7 +1,7 @@
-﻿{
+{
   "mcpServers": {
     "code-review-graph": {
-      "command": "<home>/.mneme/bin/crg-mcp-wrapper.cmd"
+      "command": "C:\\Users\\Anish\\Desktop\\temp\\mcp-bench-2026-05-02\\wrappers\\crg-mcp-wrapper.cmd"
     }
   }
 }

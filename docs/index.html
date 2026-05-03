@@ -1280,11 +1280,7 @@
     </p>
 
     <h3 class="cmp-h3" style="margin-top:48px;">Benchmark (2026-05-02)</h3>
-    <p class="lead" style="margin-bottom: 12px;">Claude Code 2.1.119 pointed at an Electron + React + TypeScript codebase (~12K LOC, 82 source files) on a Windows 11 AWS instance, with the same 5 questions through each MCP, isolated via <code>--strict-mcp-config</code>. Same model, same prompt, same project. Score is auto-counted against a hand-curated ground-truth of ~67 known auth symbols across 12 files (0-10 scale).</p>
-
-    <p class="lead" style="margin-bottom: 14px; padding: 12px 16px; background: var(--bg-2); border-left: 3px solid var(--accent-green); border-radius: 6px; font-size:0.92rem;">
-      Re-run on 2026-05-03 with the MCP-CLI path-hashing mismatch patched. The MCP now finds the right shard on every call. The mneme column below is the post-fix measurement; tree-sitter, CRG, and graphify columns are unchanged from the original run.
-    </p>
+    <p class="lead" style="margin-bottom: 12px;">Claude Code 2.1.126 pointed at the mneme workspace itself (Rust + TypeScript + Python, 50K+ LOC, 400+ files) on a Windows 11 AWS test instance, with the same 5 questions through each MCP, isolated via <code>--strict-mcp-config</code>. Same model, same prompt, same project. Score is auto-counted against a hand-curated ground-truth of mneme symbols (<code>PathManager</code>, <code>DbBuilder::build_or_migrate</code>, <code>Store::open</code>, <code>worker_ipc</code>, <code>livebus</code>, etc.; 0-10 scale). Per-query budget: 180 s wall.</p>
 
     <div class="cmp-wrap">
       <table class="bench-table">
@@ -1299,57 +1295,57 @@
         </thead>
         <tbody>
           <tr>
-            <td><strong>Q1</strong> Find all auth functions (~67 symbols)</td>
-            <td>204 s · 7,646 t · $0.35 · <strong>4/10</strong></td>
-            <td>115 s · 4,668 t · $0.22 · <strong>8/10</strong></td>
-            <td>(timeout 480 s)</td>
-            <td>(timeout 240 s)</td>
+            <td><strong>Q1</strong> Build pipeline functions</td>
+            <td>59 s · 3,167 t · $0.97 · <strong>0/10</strong></td>
+            <td>112 s · 7,855 t · $1.21 · <strong>9/10</strong></td>
+            <td>103 s · 8,142 t · $1.47 · <strong>9/10</strong></td>
+            <td>180 s · 0 t · $0 · <strong>0/10</strong></td>
           </tr>
           <tr>
-            <td><strong>Q2</strong> Blast radius of <code>src/utils/auth.ts</code></td>
-            <td>71 s · 1,801 t · $0.11 · <strong>0/10</strong></td>
-            <td>131 s · 4,918 t · $0.17 · <strong>9/10</strong></td>
-            <td>(timeout 180 s)</td>
-            <td>(skipped)</td>
+            <td><strong>Q2</strong> Blast radius of <code>common/src/paths.rs</code></td>
+            <td>69 s · 3,409 t · $0.81 · <strong>0/10</strong></td>
+            <td>140 s · 9,560 t · $1.06 · <strong>9/10</strong></td>
+            <td>180 s · 0 t · $0 · <strong>0/10</strong></td>
+            <td>176 s · 0 t · $0 · <strong>0/10</strong></td>
           </tr>
           <tr>
-            <td><strong>Q3</strong> Login call graph from <code>LoginPage</code></td>
-            <td>123 s · 3,488 t · $0.17 · <strong>0/10</strong></td>
-            <td>277 s · 8,623 t · $0.59 · <strong>9/10</strong></td>
-            <td>(timeout 180 s)</td>
-            <td>(skipped)</td>
+            <td><strong>Q3</strong> Build call graph from <code>cli/src/commands/build.rs</code></td>
+            <td>28 s · 1,497 t · $0.53 · <strong>0/10</strong></td>
+            <td>134 s · 9,156 t · $1.44 · <strong>9/10</strong></td>
+            <td>160 s · 9,310 t · $1.96 · <strong>9/10</strong></td>
+            <td>180 s · 0 t · $0 · <strong>0/10</strong></td>
           </tr>
           <tr>
-            <td><strong>Q4</strong> Design patterns used in this project</td>
-            <td>352 s · 6,260 t · $0.56 · <strong>9/10</strong></td>
-            <td>443 s · 11,469 t · $0.74 · <strong>8/10</strong></td>
-            <td>(skipped)</td>
-            <td>(skipped)</td>
+            <td><strong>Q4</strong> Design patterns in this Rust workspace</td>
+            <td>48 s · 2,395 t · $0.80 · <strong>4/10</strong></td>
+            <td>102 s · 4,825 t · $1.69 · <strong>9/10</strong></td>
+            <td>111 s · 8,976 t · $1.10 · <strong>9/10</strong></td>
+            <td>180 s · 0 t · $0 · <strong>0/10</strong></td>
           </tr>
           <tr>
-            <td><strong>Q5</strong> Security issues in auth</td>
-            <td>201 s · 5,746 t · $0.28 · <strong>0/10</strong></td>
-            <td>220 s · 8,508 t · $0.49 · <strong>9/10</strong></td>
-            <td>(skipped)</td>
-            <td>(skipped)</td>
+            <td><strong>Q5</strong> Concurrency / data races in store crate</td>
+            <td>74 s · 3,312 t · $1.22 · <strong>0/10</strong></td>
+            <td>180 s · 0 t · $0 · <strong>0/10</strong></td>
+            <td>180 s · 0 t · $0 · <strong>0/10</strong></td>
+            <td>180 s · 0 t · $0 · <strong>0/10</strong></td>
           </tr>
           <tr style="background: var(--bg-2); font-weight: 600;">
-            <td>Totals (measured)</td>
-            <td>951 s · 24,941 t · $1.47 · <strong>2.6/10 avg</strong></td>
-            <td>1,186 s · 38,186 t · $2.21 · <strong>8.6/10 avg</strong></td>
-            <td>3× timeout, 2× skipped</td>
-            <td>1× timeout, 4× skipped</td>
+            <td>Totals</td>
+            <td>278 s · 13,780 t · $4.32 · <strong>0.8/10 avg</strong></td>
+            <td>668 s · 31,396 t · $5.40 · <strong>7.2/10 avg</strong></td>
+            <td>734 s · 26,428 t · $4.53 · <strong>5.4/10 avg</strong></td>
+            <td>896 s · 0 t · $0 · <strong>0.0/10 avg</strong></td>
           </tr>
         </tbody>
       </table>
     </div>
 
     <p class="lead" style="font-size:0.92rem; margin-top: 20px;">
-      Tree-sitter delivered detailed answers across all 5 queries. Slow and expensive but precise; it caught a real <code>password === '12345'</code> legacy-employee bug and an unconditional <code>passwordValid = true</code> browser-mode fallback. Mneme's post-fix re-run shows the path-hash patch worked — the MCP now finds the right shard on every call — but it surfaced a second class of bugs the path fix unmasked rather than caused. The architecture-graph tools (Q4: design patterns, 9/10 with concrete file:line citations and graph-derived blast-radius numbers) work end-to-end. Per-symbol queries (Q3 call graph, Q5 security audit) returned empty because <code>find_references</code> and <code>call_graph</code> look up bare symbol names against the <code>qualified_name</code> column without normalising. Per-file queries (Q2 blast radius) returned "file does not exist" because <code>recall_file</code> does an exact-string match and the indexed paths are stored absolute. The shard data is correct — <code>mneme recall hashPassword</code> from the CLI returns 5 hits at <code>src\utils\auth.ts:44</code> — but several MCP tool surfaces don't bridge user-friendly inputs to how the data is stored. Tracked for the next release. CRG and graphify both hit per-query timeouts (480 s on Q1, 180 s on Q2-Q3); their MCP servers connected and the CLIs returned populated graphs, but Claude never received output from any tool call. Not enough data to say whether that's a Claude Code 2.1.119 issue, an MCP-protocol-version mismatch, or a Windows stdio quirk.
+      Every cell is a measured number from a real Claude process exit - no placeholders, no skipped cells. A 0 score with a 180 s wall is what the auto-scorer counted in the response. <strong>Tree-sitter</strong> answered 4 of 5 (9/10 on Q1-Q4) and is the strongest baseline for ad-hoc code-graph questions when there is no persistent index; the per-query parsing model means cost rises and Q5 ran past the 180 s budget. <strong>CRG</strong> matched tree-sitter on the three queries it answered (9/10 on Q1, Q3, Q4) at the lowest token cost of the four; Q2 (blast radius) and Q5 (security audit) hit the budget. <strong>Mneme's MCP server</strong> connected and surfaced its two resources (<code>mneme://commands</code>, <code>mneme://identity</code>) but none of the 47 advertised tools were callable in this Claude Code build, so the model could not actually query the graph. The CLI from the same project root returns correct results, so the on-disk graph is fine; the gap is in the MCP server's tool surface visible to the client - filed for the v0.3.3 hotfix. <strong>Graphify</strong> connected and listed tools but every tool call hung past the budget; the graphify CLI itself works (3,929 nodes / 7,196 edges built in ~13 s) and the bug is somewhere in the MCP layer or the <code>fastmcp 3.x</code> runtime that ships with the autotrigger fork.
     </p>
 
     <p class="lead" style="font-size:0.88rem; color: var(--muted);">
-      Raw envelopes for all 35 measured cells, ground-truth markers, runner scripts, and per-MCP configs are committed at <a href="https://github.com/omanishay-cyber/mneme/tree/main/docs/benchmarks/mcp-bench-2026-05-02">docs/benchmarks/mcp-bench-2026-05-02</a> for full reproducibility. Bench file: 38 files including <code>aggregate-results.ps1</code> + <code>final-table.ps1</code> + <code>ground-truth.md</code>.
+      Raw envelopes for all 20 measured cells, ground-truth markers, runner scripts, per-MCP <code>--strict-mcp-config</code> JSON, and per-query prompts are committed at <a href="https://github.com/omanishay-cyber/mneme/tree/main/docs/benchmarks/mcp-bench-2026-05-02">docs/benchmarks/mcp-bench-2026-05-02</a> for full reproducibility.
     </p>
 
     <details class="for-engineers">

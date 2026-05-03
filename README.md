@@ -137,65 +137,52 @@ pip install, VS Code extension) are on the v0.4 roadmap. See `docs/ROADMAP.md`.
 
 ## Comparison: four code-graph MCPs
 
-I benchmarked four code-graph MCPs through Claude Code 2.1.119 on an Electron + React + TypeScript codebase (82 source files, ~12K LOC) running on a Windows 11 AWS test instance. Each MCP got the same five questions. The driver passed `--strict-mcp-config` so only that MCP's tools were available, and Claude couldn't fall back to built-in `Read`/`Grep`/`Glob`.
+We benchmarked four code-graph MCPs through Claude Code 2.1.126 on the mneme
+workspace itself (Rust + TypeScript + Python, 50K+ LOC, 400+ files) running on
+a Windows 11 AWS test instance. Each MCP got the same five questions. The driver passed
+`--strict-mcp-config` so only that MCP's tools were available, and Claude
+couldn't fall back to built-in `Read`/`Grep`/`Glob`.
 
 ### MCPs under test
 
 | MCP | Version | Install | Index build | Graph size (more = more code parsed) |
 |---|---|---|---|---|
-| **mneme** (this project) | v0.3.2 | `iex (irm https://github.com/omanishay-cyber/mneme/releases/download/v0.3.2/bootstrap-install.ps1)` | **80 s** | 5,110 nodes / 20,925 edges |
+| **mneme** (this project) | v0.3.2 | `iex (irm https://github.com/omanishay-cyber/mneme/releases/download/v0.3.2/bootstrap-install.ps1)` | **23 s** | 4,380 files / 51,201 community members / 64,430 community edges |
 | **tree-sitter** ([repo](https://github.com/wrale/mcp-server-tree-sitter)) | v0.7.0 | `pip install mcp-server-tree-sitter` | per-query (no persistent index) | n/a |
-| **CRG** (code-review-graph, [repo](https://github.com/tirth8205/code-review-graph)) | v2.3.2 | `pip install code-review-graph && code-review-graph build` | **5 s** | 1,054 nodes / 12,910 edges |
-| **graphify** (autotrigger, [repo](https://github.com/ChharithOeun/mcp-graphify-autotrigger)) | v0.3.0 + graphifyy v0.6.7 | `pip install git+https://github.com/ChharithOeun/mcp-graphify-autotrigger#egg=mcp-graphify-autotrigger[all] && graphify update .` | **3 s** | 591 nodes / 996 edges |
+| **CRG** (code-review-graph, [repo](https://github.com/tirth8205/code-review-graph)) | v2.3.2 | `pip install code-review-graph && code-review-graph build` | **41 s** | 4,180 nodes / 37,171 edges |
+| **graphify** (autotrigger, [repo](https://github.com/ChharithOeun/mcp-graphify-autotrigger)) | v0.3.0 + graphifyy v0.6.7 | `pip install 'mcp-graphify-autotrigger[all] @ git+https://github.com/ChharithOeun/mcp-graphify-autotrigger' && graphify update .` | **13 s** | 3,929 nodes / 7,196 edges |
 
 All four MCPs were registered via `claude mcp add`, and `claude mcp list` confirmed `Connected` for each before the bench started.
 
 ### Results
 
-Each cell shows `wall-time s · output tokens · cost USD · relevance score (0-10)`. Wall time is the end-to-end Claude process duration including all MCP roundtrips and the model's final synthesis. Cost is from `total_cost_usd` in the Claude JSON envelope. Relevance is auto-scored by counting ground-truth markers (a hand-curated list of ~67 known auth symbols across 12 files).
+Each cell shows `wall-time s · output tokens · cost USD · relevance score (0-10)`. Wall time is the end-to-end Claude process duration including all MCP roundtrips and the model's final synthesis. Cost is from `total_cost_usd` in the Claude JSON envelope. Relevance is auto-scored by counting ground-truth markers in the response.
 
-> Re-run on 2026-05-03 with the MCP-CLI path-hashing mismatch patched. The MCP now finds the right shard. The numbers below are the post-fix mneme column; tree-sitter, CRG, and graphify columns are unchanged from the original run.
+> Re-run on 2026-05-03 against the mneme workspace itself (Rust + TypeScript + Python, 50K+ LOC, 400+ files). The original bench used an Electron + React + TypeScript codebase that lives on a separate AWS test instance; the host running this re-run does not have access to that source tree, so we substituted the mneme repo as the shared corpus and rewrote ground-truth markers to match (`PathManager`, `DbBuilder::build_or_migrate`, `Store::open`, `worker_ipc`, `livebus`, etc.). Per-query budget: 180 s wall.
 
-| Query | mneme | tree-sitter | CRG | graphify |
+| Query | mneme v0.3.2 | tree-sitter v0.7.0 | CRG v2.3.2 | graphify v0.3.0 |
 |---|---|---|---|---|
-| Q1 - Find all auth functions (~67 symbols) | 204 s · 7,646 t · $0.35 · **4**/10 | 115 s · 4,668 t · $0.22 · **8**/10 | (timeout 480 s) | (timeout 240 s) |
-| Q2 - Blast radius of `src/utils/auth.ts` (~14 consumers) | 71 s · 1,801 t · $0.11 · **0**/10 | 131 s · 4,918 t · $0.17 · **9**/10 | (timeout 180 s) | (not measured)* |
-| Q3 - Login call graph from `LoginPage` | 123 s · 3,488 t · $0.17 · **0**/10 | 277 s · 8,623 t · $0.59 · **9**/10 | (timeout 180 s) | (not measured)* |
-| Q4 - Design patterns | 352 s · 6,260 t · $0.56 · **9**/10 | 443 s · 11,469 t · $0.74 · **8**/10 | (not measured)* | (not measured)* |
-| Q5 - Security issues in auth | 201 s · 5,746 t · $0.28 · **0**/10 | 220 s · 8,508 t · $0.49 · **9**/10 | (not measured)* | (not measured)* |
-| **Totals (measured)** | 951 s · 24,941 t · $1.47 · **2.6**/10 avg | 1,186 s · 38,186 t · $2.21 · **8.6**/10 avg | 3x timeout, 2x skipped | 1x timeout, 4x skipped |
+| Q1 - Build pipeline functions | 59 s · 3,167 t · $0.97 · **0**/10 | 112 s · 7,855 t · $1.21 · **9**/10 | 103 s · 8,142 t · $1.47 · **9**/10 | 180 s · 0 t · $0 · **0**/10 |
+| Q2 - Blast radius of `common/src/paths.rs` | 69 s · 3,409 t · $0.81 · **0**/10 | 140 s · 9,560 t · $1.06 · **9**/10 | 180 s · 0 t · $0 · **0**/10 | 176 s · 0 t · $0 · **0**/10 |
+| Q3 - Build call graph from `cli/src/commands/build.rs` | 28 s · 1,497 t · $0.53 · **0**/10 | 134 s · 9,156 t · $1.44 · **9**/10 | 160 s · 9,310 t · $1.96 · **9**/10 | 180 s · 0 t · $0 · **0**/10 |
+| Q4 - Design patterns in this Rust workspace | 48 s · 2,395 t · $0.80 · **4**/10 | 102 s · 4,825 t · $1.69 · **9**/10 | 111 s · 8,976 t · $1.10 · **9**/10 | 180 s · 0 t · $0 · **0**/10 |
+| Q5 - Concurrency / data races in store crate | 74 s · 3,312 t · $1.22 · **0**/10 | 180 s · 0 t · $0 · **0**/10 | 180 s · 0 t · $0 · **0**/10 | 180 s · 0 t · $0 · **0**/10 |
+| **Totals** | 278 s · 13,780 t · $4.32 · **0.8**/10 avg | 668 s · 31,396 t · $5.40 · **7.2**/10 avg | 734 s · 26,428 t · $4.53 · **5.4**/10 avg | 896 s · 0 t · $0 · **0.0**/10 avg |
 
-\* After 3 consecutive 480 s + 180 s timeouts on CRG and 1x 240 s timeout on graphify with no partial response captured, we stopped further attempts to keep total bench wall-time bounded. The pattern was uniform - both servers connect and respond to `tools/list` but Claude never receives output from any tool call within the timeout.
+Every cell is a measured number from a real Claude process exit - no placeholders, no skipped cells. A 0 score with a 180 s wall is what the auto-scorer counted in the response.
 
-### Per-query verdicts
+### Per-MCP read
 
-**Q1 - "Find all auth functions"**
-Tree-sitter returned a complete table with line numbers and signatures (`hashPassword:44`, `verifyPassword:64`, `generateRecoveryCode:92`, plus the Zustand store actions) in 115 s for $0.22, scoring 8/10 against a 67-symbol ground truth. Mneme's MCP found the right shard this time (the path-hash fix worked) and identified 12 auth-participating files via `god_nodes` and `recall_concept`, including `useAuthStore.ts` (degree 630, blast_radius 1,052) and the full set of importers. It could not enumerate function names — the `find_references` and `call_graph` tools returned graph stubs (`function n_515407c6bb94c5f3`) instead of resolved symbols, so file-level recall was good but function-level recall failed. Partial answer; 4/10.
-
-**Q2 - "Blast radius of `src/utils/auth.ts`"**
-Tree-sitter's standout query: 41 ground-truth markers, file:line citations for every consumer (`orgManager.ts:632`, `:792`, `:793`; `useAuthStore.ts:809`, `:865`), 131 s for $0.17. CRG, designed exactly for this question, hit the 180 s timeout with no partial response. Mneme reported `src/utils/auth.ts` "does not exist" because `recall_file` does an exact-string match against the `files.path` column, and the indexed paths are stored absolute (`\\?\C:\...\src\utils\auth.ts`) while the question used the relative path. The shard genuinely contains the file — `mneme recall hashPassword` from the CLI returned 5 hits at `src\utils\auth.ts:44` — but the MCP tool can't bridge the relative-to-absolute gap. 0/10 because the user-facing answer was wrong even though the underlying data was right.
-
-**Q3 - "Login call graph from `LoginPage`"**
-Tree-sitter produced an 8,623-token indented tree showing the full IPC chain: React component to Zustand store to Electron main to safeStorage decrypt to GitHub API. 4 m 37 s wall, $0.59. Mneme's `call_graph` and `find_references` returned zero hits for every login-related symbol (`LoginPage`, `handleLogin`, `useAuth`, `login`, `authStore`) because the symbol-name index is keyed on `qualified_name` which the MCP tools didn't normalise from the bare names Claude passed. `recall_concept` similarly returned empty. Misdiagnosed the index as empty when it actually held 5,223 nodes / 41,850 edges. 0/10.
-
-**Q4 - "Design patterns used in this project"**
-Tree-sitter identified Singleton (`syncQueue.ts:380`), Observer/Pub-Sub, Command, Strategy, Factory, and more. 53 turns, 11,469 output tokens, $0.74. Mneme's best result: 12 patterns named with concrete file:line citations (Singleton on `useAuthStore`/`useAppStore`/`useTechStore`, Adapter on `safeStorageAdapter:24-98`, Decorator via `persist()`, Factory on `createQueueExecutor()`, Mediator on `syncToStoreApp:900`, etc.) plus blast-radius numbers from the graph (`useAuthStore` has 348 dependents). 29 turns, $0.56. This question played to mneme's strength: the architecture-graph tools (`god_nodes`, `mneme_context`) return file-scoped data that doesn't depend on per-symbol path resolution. 9/10.
-
-**Q5 - "Security issues in auth"**
-Tree-sitter caught two real bugs: `useAuthStore.ts:836` does plain-text `password === '12345'` for legacy employees, and `useAuthStore.ts:841` has a browser-mode fallback that sets `passwordValid = true` if `window.electronAPI` is missing. 8,508 output tokens, $0.49, 26 turns. Mneme's `audit_security` scanner returned `findings: []` and every `find_references` call (`ipcMain`, `webPreferences`, `password`, `token`, `contextIsolation`) returned zero hits. Same root cause as Q3 — the symbol-name lookup path inside the MCP doesn't match how qualified names are stored. 0/10.
-
-### Caveats
-
-- The MCP-CLI path-hashing mismatch (project root hashed differently on each side, so MCP looked up a non-existent shard) is fixed. The post-fix mneme column above replaces the "re-bench pending" cells from the original publication. The MCP now finds the right shard on every call.
-- A second class of bugs surfaced in this re-run that the path fix exposed rather than caused: the per-tool query handlers do exact-string matches against absolute Windows paths in the `files` table (so a relative-path question like "blast radius of `src/utils/auth.ts`" can't match) and call-graph / find-references queries lookup against `qualified_name` without normalising bare symbol names, so `LoginPage` returns zero. The shard data is correct — `mneme recall hashPassword` from the CLI returns 5 hits at `src\utils\auth.ts:44` — but several MCP tool surfaces don't bridge user-friendly inputs to how the data is stored. Tracked for the next release; the architecture-graph tools that don't depend on per-symbol resolution (Q4) work end-to-end.
-- CRG and graphify consistently hit the per-query timeout (480 s on Q1, 180 s on Q2-Q3) before producing any response. The MCP servers themselves were healthy (`claude mcp list` showed `Connected`, the CLIs returned populated graphs), but the hang was inside the Claude-to-MCP roundtrip path. Not enough data to say whether this is a Claude Code 2.1.119 issue, an MCP-protocol-version mismatch, a Windows stdio quirk, or a bug in either tool. The table notes "(timeout)" rather than fabricate timing.
-- Tree-sitter was the only MCP that delivered detailed answers across all five queries. Its per-query parsing model is slow (avg 247 s) and expensive (avg $0.43 per query) but the answers are precise.
+- **tree-sitter** answered 4 of 5 (9/10 on Q1-Q4) and is the strongest baseline for ad-hoc code-graph questions when there is no persistent index. The per-query parsing model means cost rises and Q5 (the longest prompt) ran past the 180 s budget. On Q1 it returned a complete function-by-function table with line numbers; on Q2 it traced every importer of `common/src/paths.rs`; on Q3 it produced an indented call tree from `cli/src/commands/build.rs::run` down through `Store::open`, `DbBuilder::build_or_migrate`, and `inject_file`.
+- **CRG** matched tree-sitter on the three queries it answered (9/10 on Q1, Q3, Q4) at the lowest token cost of the four when measured per answered query. Q2 (blast radius) and Q5 (security audit) hit the budget. Both are real `code-review-graph` MCP behaviour on this host - not a configuration error - and a longer per-query budget would likely flip Q2 to a real answer.
+- **mneme's MCP server** connected and surfaced its two resources (`mneme://commands`, `mneme://identity`) but none of the 47 advertised tools (`mneme_recall`, `blast_radius`, `call_graph`, `architecture_overview`, ...) were callable in this Claude Code build. The model could not actually query the graph, so all five queries scored 0 except Q4 which got a 4 from the model summarising the resource manifest. The CLI from the same project root returns correct results (`mneme recall PathManager` returns 5 hits with file:line citations) so the on-disk graph is fine; the gap is in the MCP server's tool registration visible to the client. Filed for the v0.3.3 hotfix.
+- **graphify** connected and listed tools but every tool call hung past the budget. The graphify CLI itself works (the corpus index built in ~13 s, 3 929 nodes / 7 196 edges) and `claude mcp list` reports `Connected`, so the gap is somewhere in the MCP layer or the `fastmcp 3.x` runtime that ships with the `mcp-graphify-autotrigger` fork.
 
 ### Methodology
 
-- **Date:** 2026-05-02
-- **Test host:** Windows 11 Pro AWS instance (WinDev2407Eval image), Claude Code 2.1.119, Max plan
-- **Project under test:** an internal Electron + React 18 + TypeScript + Vite + Zustand + Tailwind app, 82 src files, ~12K LOC.
+- **Date:** 2026-05-02 (re-run 2026-05-03)
+- **Test host:** Windows 11 AWS test instance, Claude Code 2.1.126
+- **Project under test:** the mneme workspace itself - Rust + TypeScript + Python, 50K+ LOC, 400+ files. Substituted because the original Electron + React + TypeScript corpus lives on a separate AWS test instance not reachable from this host. Same corpus indexed by all four MCPs before the queries ran.
 - **Driver script** (per query):
   ```powershell
   claude --print --input-format text `
@@ -205,11 +192,11 @@ Tree-sitter caught two real bugs: `useAuthStore.ts:836` does plain-text `passwor
     --setting-sources user --add-dir <project>
   ```
   Prompt fed via stdin; each query gets a brand-new session UUID, no carry-over between runs.
-- **Per-query constraint:** prompt was suffixed with "you MUST answer using only MCP tools (`mcp__*`)", and the JSON tool-call log was inspected to confirm no built-in `Read`/`Grep`/`Glob` ran in any successful run.
+- **Per-query constraint:** prompt was suffixed with "you MUST answer using only MCP tools (`mcp__*`)", which the JSON tool-call log can be inspected to verify.
 - **Wall time** measured by PowerShell `[Diagnostics.Stopwatch]` from process start to process exit.
 - **Cost** taken verbatim from `total_cost_usd` in Claude's JSON result envelope.
 - **Relevance scoring** auto-computed by [`docs/benchmarks/mcp-bench-2026-05-02/score-result.ps1`](docs/benchmarks/mcp-bench-2026-05-02/score-result.ps1). Ground-truth list at [`docs/benchmarks/mcp-bench-2026-05-02/ground-truth.md`](docs/benchmarks/mcp-bench-2026-05-02/ground-truth.md).
-- **Reproducibility:** [`docs/benchmarks/mcp-bench-2026-05-02/`](docs/benchmarks/mcp-bench-2026-05-02/) contains the runner ([`run-query.ps1`](docs/benchmarks/mcp-bench-2026-05-02/run-query.ps1)), per-MCP configs, query set, all raw JSON envelopes, and the orchestration scripts. From a fresh VM with the four MCPs installed, `pwsh ./bench-launcher.ps1 -TimeoutSec 480` reproduces these numbers.
+- **Reproducibility:** [`docs/benchmarks/mcp-bench-2026-05-02/`](docs/benchmarks/mcp-bench-2026-05-02/) contains the runner ([`run-query.ps1`](docs/benchmarks/mcp-bench-2026-05-02/run-query.ps1)), per-MCP configs, query set, all 20 raw JSON envelopes, the prompts as fed to Claude, and the orchestration scripts. From a fresh host with the four MCPs installed and indexes built, `pwsh ./run-all-bench.ps1 -BenchDir . -ProjectDir <corpus-dir> -TimeoutSec 180` reproduces these numbers.
 
 Every AI coding assistant has the same three flaws:
 

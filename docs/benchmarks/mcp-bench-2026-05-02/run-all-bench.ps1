@@ -1,41 +1,34 @@
-﻿param(
-    [string]$ProjectDir = '<project root>',
-    [string]$OutputDir = '<home>\Desktop\mcp-bench-results',
-    [string]$RunnerPath = '<home>\Desktop\run-query.ps1',
-    [string]$ProgressLog = '<home>\Desktop\mcp-bench-progress.log',
+param(
+    [string]$BenchDir = 'C:\Users\Anish\Desktop\temp\mcp-bench-2026-05-02',
+    [string]$ProjectDir = 'D:\Mneme Dome\Mneme-Home-Handoff-2026-04-30-2027\source',
     [int]$TimeoutSec = 240
 )
 
-# Configure
+$OutputDir = Join-Path $BenchDir 'results'
+$RunnerPath = Join-Path $BenchDir 'run-query.ps1'
+$ProgressLog = Join-Path $BenchDir 'progress.log'
+
 $mcps = @(
-    @{ name = 'mneme';             config = '<home>/Desktop/mcp-mneme-only.json' },
-    @{ name = 'tree-sitter';       config = '<home>/Desktop/mcp-treesitter-only.json' },
-    @{ name = 'code-review-graph'; config = '<home>/Desktop/mcp-crg-only.json' },
-    @{ name = 'graphify';          config = '<home>/Desktop/mcp-graphify-only.json' }
+    @{ name = 'mneme';             config = (Join-Path $BenchDir 'mcp-mneme-only.json') },
+    @{ name = 'tree-sitter';       config = (Join-Path $BenchDir 'mcp-treesitter-only.json') },
+    @{ name = 'code-review-graph'; config = (Join-Path $BenchDir 'mcp-crg-only.json') },
+    @{ name = 'graphify';          config = (Join-Path $BenchDir 'mcp-graphify-only.json') }
 )
 
-$queries = @(
-    @{ id = 'Q1'; prompt = 'Find all functions related to authentication in this project. List each function with its file path and a 1-line description. Cite the actual files you used.' },
-    @{ id = 'Q2'; prompt = 'What is the blast radius of changing src/utils/auth.ts in this project? List every file that would need to be re-tested or updated if its public API changed. Cite each file with reasoning.' },
-    @{ id = 'Q3'; prompt = 'Show me the call graph for the login flow in this internal-app app. Start from the LoginPage component and follow every function/IPC/store call until you reach the data layer. Output as an indented tree.' },
-    @{ id = 'Q4'; prompt = 'What design patterns are used in this project? For each pattern, name it and cite at least one concrete file/function where it appears.' },
-    @{ id = 'Q5'; prompt = 'Find any security issues in the auth implementation of this Electron + React + TypeScript app. For each issue cite the exact file:line and explain the vulnerability concretely (no generic advice).' }
-)
+$queriesObj = Get-Content (Join-Path $BenchDir 'queries.json') -Raw | ConvertFrom-Json
+$queries = $queriesObj.queries
 
-# Filter MCPs by env var: BENCH_MCPS = comma-separated list (e.g. "tree-sitter,code-review-graph,graphify")
 if ($env:BENCH_MCPS) {
     $allowed = $env:BENCH_MCPS -split ','
     $mcps = $mcps | Where-Object { $_.name -in $allowed }
     Write-Host "Filtered MCPs by BENCH_MCPS: $($mcps.name -join ', ')"
 }
-# Filter queries by env var: BENCH_QUERIES = comma-separated list (e.g. "Q1,Q3,Q5")
 if ($env:BENCH_QUERIES) {
     $qAllowed = $env:BENCH_QUERIES -split ','
     $queries = $queries | Where-Object { $_.id -in $qAllowed }
-    Write-Host "Filtered queries by BENCH_QUERIES: $($queries.id -join ', ')"
+    Write-Host "Filtered queries by BENCH_QUERIES: $(($queries | ForEach-Object { $_.id }) -join ', ')"
 }
 
-# Reset progress log
 "--- BENCH RUN START $(Get-Date -Format o) ---" | Set-Content -Path $ProgressLog
 $total = $mcps.Count * $queries.Count
 $counter = 0
@@ -75,7 +68,6 @@ foreach ($mcp in $mcps) {
     }
 }
 
-# Write summary
 $summary = $results | ConvertTo-Json -Depth 10
 Set-Content -Path (Join-Path $OutputDir 'summary.json') -Value $summary -Encoding utf8
 "--- BENCH RUN END $(Get-Date -Format o) ---" | Add-Content -Path $ProgressLog
