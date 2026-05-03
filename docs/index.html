@@ -1025,7 +1025,7 @@
   </div>
 
   <!-- ============================================================ -->
-  <!--  MEASURED-WIN RIBBON - human-voice user outcomes              -->
+  <!--  WHAT MNEME DOES                                              -->
   <!-- ============================================================ -->
   <div class="ribbon">
     <div class="ribbon-inner reveal">
@@ -1050,7 +1050,7 @@
   <div class="install-hero reveal">
     <div class="install-pane">
       <div class="install-eyebrow">install * one command per OS * no admin needed * auto-detects arch</div>
-      <div class="install-title">One command. No ceremony. No admin needed.</div>
+      <div class="install-title">One command per OS. No admin needed.</div>
       <div class="install-cmd"><strong style="color:#41E1B5">windows (PowerShell):</strong><br/>iex (irm https://github.com/omanishay-cyber/mneme/releases/download/v0.3.2/bootstrap-install.ps1)</div>
       <div class="install-cmd" style="margin-top:8px"><strong style="color:#41E1B5">macOS (Intel + Apple Silicon):</strong><br/>curl -fsSL https://github.com/omanishay-cyber/mneme/releases/download/v0.3.2/install-mac.sh | bash</div>
       <div class="install-cmd" style="margin-top:8px"><strong style="color:#41E1B5">linux (x64 + ARM64):</strong><br/>curl -fsSL https://github.com/omanishay-cyber/mneme/releases/download/v0.3.2/install-linux.sh | bash</div>
@@ -1108,7 +1108,7 @@
   <!-- ============================================================ -->
   <section class="reveal">
     <h2>How mneme stacks up</h2>
-    <p class="lead">Real comparison against every tool in the AI-code-context space - measured numbers where we have them, honest "yes / partial / no" where we don't. Both wins and losses included.</p>
+    <p class="lead">Compared against every tool in the AI-code-context space. Measured numbers where I have them, "yes / partial / no" where I don't. Wins and losses both.</p>
 
     <!-- Speed callout strip -->
     <div class="speed-strip">
@@ -1242,7 +1242,7 @@
             <td>MIT</td>
             <td>MIT</td>
           </tr>
-          <tr class="cmp-divider"><td colspan="5"><em>Where the others win - honest losses:</em></td></tr>
+          <tr class="cmp-divider"><td colspan="5"><em>Where the others win:</em></td></tr>
           <tr>
             <td class="cmp-q">One-shot install (`pip install`)?</td>
             <td class="cmp-mneme"><span class="cmp-no">No</span> (Rust + Bun toolchain)</td>
@@ -1276,14 +1276,14 @@
     </div>
 
     <p class="lead" style="font-size:0.92rem; color: var(--muted); margin-top: 24px;">
-      <strong>The shape of it:</strong> mneme is the heaviest tool in the space - a multi-process Rust supervisor that runs between your AI sessions, survives compaction at the architecture level, enforces your rules in real time, and gives every AI tool you use the same memory. The others are lighter and easier to install but stop short of the persistent-memory + drift + 48-tool MCP surface.
+      Mneme is the heaviest tool here. It's a Rust supervisor that runs between your AI sessions, survives Claude's context wipes at the architecture level, enforces your rules live, and gives every AI tool you use the same memory. The others are lighter and easier to install but stop short of the persistent-memory + drift + 48-tool MCP surface.
     </p>
 
-    <h3 class="cmp-h3" style="margin-top:48px;">Live head-to-head benchmark (2026-05-02)</h3>
-    <p class="lead" style="margin-bottom: 12px;">We pointed Claude Code 2.1.119 at a real Electron + React + TypeScript codebase (~12K LOC, 82 source files) on a Windows 11 AWS instance and asked the same 5 questions through each MCP, isolated via <code>--strict-mcp-config</code>. Same model, same prompt, same project. Score is auto-counted against a hand-curated ground-truth of ~67 known auth symbols across 12 files (0-10 scale).</p>
+    <h3 class="cmp-h3" style="margin-top:48px;">Benchmark (2026-05-02)</h3>
+    <p class="lead" style="margin-bottom: 12px;">Claude Code 2.1.119 pointed at an Electron + React + TypeScript codebase (~12K LOC, 82 source files) on a Windows 11 AWS instance, with the same 5 questions through each MCP, isolated via <code>--strict-mcp-config</code>. Same model, same prompt, same project. Score is auto-counted against a hand-curated ground-truth of ~67 known auth symbols across 12 files (0-10 scale).</p>
 
     <p class="lead" style="margin-bottom: 14px; padding: 12px 16px; background: var(--bg-2); border-left: 3px solid var(--accent-green); border-radius: 6px; font-size:0.92rem;">
-      The bench below was run on a release that had a Windows MCP-CLI path-hashing mismatch — the MCP looked for a shard at a different hash than the CLI built. The CLI from the same directory returned correct results, so the graph data was fine; only the MCP-side lookup was broken. The fix shipped in the current zip and a re-run is in progress.
+      The bench below ran on a release that had a Windows MCP-CLI path-hashing mismatch — the MCP looked for a shard at a different hash than the CLI built. The CLI from the same directory returned correct results, so the graph data was fine; only the MCP-side lookup was broken. The fix shipped in the current zip and a re-run is in progress.
     </p>
 
     <div class="cmp-wrap">
@@ -1345,7 +1345,7 @@
     </div>
 
     <p class="lead" style="font-size:0.92rem; margin-top: 20px;">
-      <strong>The honest verdict:</strong> tree-sitter delivered detailed answers across all 5 queries (slow + expensive but precise; caught a real <code>password === '12345'</code> legacy-employee bug + an unconditional <code>passwordValid = true</code> browser-mode fallback). Mneme's MCP server hit a CLI/MCP project-resolution mismatch on Windows in v0.3.2 (the CLI built the shard at one project-hash while the MCP looked it up at another - same data, couldn't find each other; filed as <strong>B-023</strong> for v0.3.3). The mneme CLI itself, run from the same cwd, returned 5 hits for <code>hashPassword</code> with file:line citations - so the underlying graph data was correct, the bug is purely in the MCP's project-resolution lookup. CRG and graphify both consistently hit per-query timeouts (480 s on Q1, 180 s on Q2-Q3) - their MCP servers connected fine and the CLIs returned populated graphs from disk, but Claude never received output from any tool call. We don't have enough data to say whether this is a Claude Code 2.1.119 issue, an MCP-protocol-version mismatch, or a Windows-specific stdio quirk in those tools.
+      Tree-sitter delivered detailed answers across all 5 queries. Slow and expensive but precise; it caught a real <code>password === '12345'</code> legacy-employee bug and an unconditional <code>passwordValid = true</code> browser-mode fallback. Mneme's MCP server hit a CLI/MCP project-resolution mismatch on Windows in v0.3.2: the CLI built the shard at one project-hash while the MCP looked it up at another. Same data, couldn't find each other. Filed as <strong>B-023</strong> for v0.3.3. The mneme CLI from the same cwd returned 5 hits for <code>hashPassword</code> with file:line citations, so the underlying graph data was correct. The bug is purely in the MCP's project-resolution lookup. CRG and graphify both hit per-query timeouts (480 s on Q1, 180 s on Q2-Q3); their MCP servers connected and the CLIs returned populated graphs, but Claude never received output from any tool call. Not enough data to say whether that's a Claude Code 2.1.119 issue, an MCP-protocol-version mismatch, or a Windows stdio quirk.
     </p>
 
     <p class="lead" style="font-size:0.88rem; color: var(--muted);">
@@ -1383,7 +1383,7 @@ cargo run --release -p cli --bin mneme -- build /path/to/repo
 ./target/release/bench_retrieval.exe bench-recall       /path/to/repo benchmarks/fixtures/golden.json --format json
 ./target/release/bench_retrieval.exe bench-token-reduction /path/to/repo --format json
 
-## 5. CRG head-to-head (requires Python 3.10+)
+## 5. CRG comparison (requires Python 3.10+)
 cd benchmarks/crg-compare
 python -m venv .venv
 .venv/Scripts/python.exe -m pip install code-review-graph
@@ -1596,7 +1596,7 @@ python run_crg_bench.py</code></pre>
       <a href="https://github.com/omanishay-cyber/mneme/issues">Issues</a>
       <a href="https://github.com/omanishay-cyber/mneme/discussions">Discussions</a>
     </div>
-    <p>© 2026 <strong>Anish Trivedi & Kruti Trivedi</strong>. Apache-2.0 - open-source, free to use, commercial restrictions apply.</p>
+    <p>© 2026 <strong>Anish Trivedi & Kruti Trivedi</strong>. Apache-2.0.</p>
     <p style="margin-top:8px;opacity:0.6;">🌳 Named after Mneme, the Greek muse of memory.</p>
   </footer>
 

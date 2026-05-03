@@ -71,12 +71,10 @@ curl -fsSL https://github.com/omanishay-cyber/mneme/releases/download/v0.3.2/ins
 
 ## Feature matrix vs Code Review Graph and Graphify
 
-Honest head-to-head against the two closest projects in the AI-code-context space -
-[Code Review Graph (CRG)](https://github.com/tirth8205/code-review-graph) and
-[Graphify](https://github.com/tirth8205/graphify) - plus
-[Tree-sitter](https://tree-sitter.github.io/tree-sitter/) for the parsing layer
-context. Wins and losses both. Last refreshed 2026-05-02 against current public
-repos.
+Compared against the two closest projects in the AI-code-context space:
+[Code Review Graph (CRG)](https://github.com/tirth8205/code-review-graph),
+[Graphify](https://github.com/tirth8205/graphify), and
+[Tree-sitter](https://tree-sitter.github.io/tree-sitter/) for the parsing layer.
 
 | Capability | **Mneme v0.3.2** | Code Review Graph | Graphify | Tree-sitter |
 |---|---|---|---|---|
@@ -115,34 +113,31 @@ repos.
 | **Hosted browser demo / playground** | ❌ planned v0.5.5 (Tier 1.5.G) | ✅ | ✅ | ✅ web playground |
 | **Standalone library / SDK (Rust + Python + JS bindings)** | ❌ planned v0.4.5 (Tier 1.5.F) | n/a | n/a | ✅ flagship |
 
-> **Note**: rows marked "planned vX.Y" reference [`docs/ROADMAP.md`](ROADMAP.md) and the v0.4 vision document - every gap has an explicit ship target.
+Rows marked "planned vX.Y" reference [`docs/ROADMAP.md`](ROADMAP.md) and the v0.4 vision document. Every gap has a ship target.
 
 ### Why Mneme
 
-**Code Review Graph** is a polished review-focused graph with a clean VS Code
-extension. **Graphify** is a universal knowledge-graph builder for code +
-multimodal content. **Tree-sitter** is a parser library, not a competitor -
-mneme uses it under the hood.
+Code Review Graph is a review-focused graph with a VS Code extension.
+Graphify is a knowledge-graph builder for code plus multimodal content.
+Tree-sitter is the parser library mneme uses under the hood.
 
-Mneme is the heavier, more architectural tool: a **persistent daemon** that
-runs between sessions, **survives compaction** at the architecture level (not
-the prompt level), enforces your `CLAUDE.md` rules in real time, federates
+Mneme is the heaviest tool of the three. It's a Rust supervisor that runs
+between your AI sessions, survives Claude's context wipes at the architecture
+level (not the prompt level), enforces your `CLAUDE.md` rules live, federates
 patterns across all your projects, and gives every AI tool you use the same
-memory. 22 workers, 11 scanners, 48 MCP tools, 14 WebGL views - built once,
-runs everywhere, never forgets.
+memory. Bigger install, more capabilities.
 
-If you want a **one-command install for a single project review session**, use
-CRG. If you want a **multimodal knowledge graph for documents + audio**, use
-Graphify. If you want **an AI superbrain that lives on your machine for years
-and never forgets across N projects + N AI tools**, use Mneme.
+Pick CRG if you want one-command install for a single project review.
+Pick Graphify if you want a multimodal knowledge graph for documents and audio.
+Pick mneme if you want a persistent memory layer that runs across many projects
+and many AI tools without forgetting.
 
-The DeepSeek-flagged gaps above (graph diff, exports, smart questions, seed
-concepts, pip install, VS Code extension) are explicitly on the v0.4 roadmap -
-see `docs/ROADMAP.md` and the v0.4 vision document for ship dates.
+The gaps in the table (graph diff, exports, smart questions, seed concepts,
+pip install, VS Code extension) are on the v0.4 roadmap. See `docs/ROADMAP.md`.
 
-## Why mneme? Side-by-side comparison
+## Comparison: four code-graph MCPs
 
-We benchmarked four code-graph MCPs through Claude Code 2.1.119 on a real Electron + React + TypeScript codebase (82 source files, ~12K LOC), running on a Windows 11 AWS test instance. Each MCP got the same five questions. The driver passed `--strict-mcp-config`, so only that MCP's tools were available - Claude was forbidden from falling back to built-in `Read`/`Grep`/`Glob`.
+I benchmarked four code-graph MCPs through Claude Code 2.1.119 on an Electron + React + TypeScript codebase (82 source files, ~12K LOC) running on a Windows 11 AWS test instance. Each MCP got the same five questions. The driver passed `--strict-mcp-config` so only that MCP's tools were available, and Claude couldn't fall back to built-in `Read`/`Grep`/`Glob`.
 
 ### MCPs under test
 
@@ -175,25 +170,25 @@ Each cell shows `wall-time s · output tokens · cost USD · relevance score (0-
 ### Per-query verdicts
 
 **Q1 - "Find all auth functions"**
-Tree-sitter returned a complete table with line numbers and signatures (`hashPassword:44`, `verifyPassword:64`, `generateRecoveryCode:92`, plus all the Zustand store actions) in 115 s for $0.22 — 8/10 against a 67-symbol ground truth. Mneme's MCP returned "shard not found" because of a Windows path-hashing mismatch between MCP and CLI (now fixed). The mneme CLI from the same directory returned 5 hits for `hashPassword` with file:line citations, so the graph data was correct — only the MCP-side lookup was broken.
+Tree-sitter returned a complete table with line numbers and signatures (`hashPassword:44`, `verifyPassword:64`, `generateRecoveryCode:92`, plus the Zustand store actions) in 115 s for $0.22, scoring 8/10 against a 67-symbol ground truth. Mneme's MCP returned "shard not found" because of a Windows path-hashing mismatch between MCP and CLI (now fixed). The mneme CLI from the same directory returned 5 hits for `hashPassword` with file:line citations, so the graph data was correct. Only the MCP-side lookup was broken.
 
 **Q2 - "Blast radius of `src/utils/auth.ts`"**
-Tree-sitter's standout query: 41 ground-truth markers, file:line citations for every consumer (`orgManager.ts:632`, `:792`, `:793`; `useAuthStore.ts:809`, `:865`), 131 s for $0.17. CRG, designed exactly for this question, hit the 180 s timeout with no partial response captured. Mneme MCP again hit the project-resolution bug.
+Tree-sitter's standout query: 41 ground-truth markers, file:line citations for every consumer (`orgManager.ts:632`, `:792`, `:793`; `useAuthStore.ts:809`, `:865`), 131 s for $0.17. CRG, designed exactly for this question, hit the 180 s timeout with no partial response. Mneme MCP again hit the project-resolution bug.
 
 **Q3 - "Login call graph from `LoginPage`"**
-Tree-sitter produced an 8,623-token indented multi-page tree showing the full IPC chain: React component to Zustand store to Electron main to safeStorage decrypt to GitHub API. 4 m 37 s wall, $0.59 - the most expensive query in the suite. A persistent-graph tool should be 10x faster and cheaper on this query (single SQL traversal vs. 20 MCP roundtrips); tree-sitter pays the per-query parsing tax to be always-fresh.
+Tree-sitter produced an 8,623-token indented tree showing the full IPC chain: React component to Zustand store to Electron main to safeStorage decrypt to GitHub API. 4 m 37 s wall, $0.59. A persistent-graph tool should be 10x faster and cheaper on this query (single SQL traversal vs 20 MCP roundtrips). Tree-sitter pays the per-query parsing tax to stay fresh.
 
 **Q4 - "Design patterns used in this project"**
-Tree-sitter identified Singleton (`syncQueue.ts:380`), Observer/Pub-Sub, Command, Strategy, Factory, plus more - 53 turns, 11,469 output tokens, $0.74 (the longest answer in the bench). This is a fuzzy semantic question that suits Claude's reasoning but punishes any tool that has to enumerate everything.
+Tree-sitter identified Singleton (`syncQueue.ts:380`), Observer/Pub-Sub, Command, Strategy, Factory, and more. 53 turns, 11,469 output tokens, $0.74. This is a fuzzy semantic question that suits Claude's reasoning but punishes any tool that has to enumerate everything.
 
 **Q5 - "Security issues in auth"**
-Tree-sitter caught a real bug: `useAuthStore.ts:836` does plain-text `password === '12345'` for legacy employees, and `useAuthStore.ts:841` has a browser-mode fallback that sets `passwordValid = true` unconditionally if `window.electronAPI` is missing. 8,508 output tokens, $0.49, 26 turns. Mneme has a dedicated `audit_security` scanner — re-run pending against the fixed MCP.
+Tree-sitter caught two real bugs: `useAuthStore.ts:836` does plain-text `password === '12345'` for legacy employees, and `useAuthStore.ts:841` has a browser-mode fallback that sets `passwordValid = true` if `window.electronAPI` is missing. 8,508 output tokens, $0.49, 26 turns. Mneme has a dedicated `audit_security` scanner; re-run pending against the fixed MCP.
 
-### Honest caveats
+### Caveats
 
-- **The MCP-CLI path-hashing mismatch is fixed in the current v0.3.2 zip.** The CLI built shards keyed off the project root path; the MCP looked them up with a slightly different normalisation, so it returned "shard not found" on Windows. Both sides now hash the same way. Re-bench in progress.
-- **CRG and graphify** consistently hit the per-query timeout (480 s on Q1, then 180 s on Q2-Q3) before producing any response. The MCP servers themselves were healthy (`claude mcp list` showed `Connected`, the CLIs `code-review-graph status` and `graphify update .` both returned populated graphs) - the hang was inside the Claude to MCP roundtrip path. We don't have enough data to say whether this is a Claude Code 2.1.119 issue, an MCP-protocol-version mismatch, a Windows-specific stdio quirk, or a bug in either tool. We note "(timeout)" rather than fabricate timing.
-- **tree-sitter** is the only MCP that consistently delivered detailed answers across all five queries. Its per-query parsing model is slow (avg 247 s) and expensive (avg $0.43 per query) but the answers are remarkably precise.
+- The MCP-CLI path-hashing mismatch is fixed in the current v0.3.2 zip. The CLI built shards keyed off the project root path; the MCP looked them up with a slightly different normalisation, so it returned "shard not found" on Windows. Both sides now hash the same way. Re-bench in progress.
+- CRG and graphify consistently hit the per-query timeout (480 s on Q1, 180 s on Q2-Q3) before producing any response. The MCP servers themselves were healthy (`claude mcp list` showed `Connected`, the CLIs returned populated graphs), but the hang was inside the Claude-to-MCP roundtrip path. Not enough data to say whether this is a Claude Code 2.1.119 issue, an MCP-protocol-version mismatch, a Windows stdio quirk, or a bug in either tool. The table notes "(timeout)" rather than fabricate timing.
+- Tree-sitter was the only MCP that delivered detailed answers across all five queries. Its per-query parsing model is slow (avg 247 s) and expensive (avg $0.43 per query) but the answers are precise.
 
 ### Methodology
 
@@ -352,7 +347,7 @@ The **Step Ledger** is a numbered, verification-gated plan that lives in SQLite.
 
 ## 📊 Benchmarks
 
-Measured against [code-review-graph](https://github.com/tirth8205/code-review-graph), the state-of-the-art code-graph MCP. Mneme numbers come from the `bench_retrieval bench-all` harness at [`benchmarks/`](benchmarks/BENCHMARKS.md); CRG numbers are from their public README. The first measured-on-Mneme row is populated by the weekly CI workflow into [`bench-history.csv`](bench-history.csv); rows we cannot yet measure honestly are marked `TBD (v0.3)`.
+Measured against [code-review-graph](https://github.com/tirth8205/code-review-graph). Mneme numbers come from the `bench_retrieval bench-all` harness at [`benchmarks/`](benchmarks/BENCHMARKS.md); CRG numbers are from their public README. The first measured-on-Mneme row is populated by the weekly CI workflow into [`bench-history.csv`](bench-history.csv); rows not yet measurable are marked `TBD (v0.3)`.
 
 | | CRG (the current SoTA) | **mneme (measured)** | What it means |
 |---|---|---|---|
@@ -366,7 +361,7 @@ Measured against [code-review-graph](https://github.com/tirth8205/code-review-gr
 | Visualization views | 1 (D3 force) | **14** (WebGL) | `vision/src/views/*.tsx` |
 | Languages | 23 | **28** | counted from `parsers/src/language.rs` Language enum |
 | Platforms supported | 10 | **19** | counted from `cli/src/platforms/mod.rs` Platform enum |
-| Compaction survival | ❌ | ✅ **category-defining** | Step Ledger, §7 design doc |
+| Compaction survival | ❌ | ✅ | Step Ledger, §7 design doc |
 | Multimodal (PDF/audio/video) | ❌ | ✅ | `workers/multimodal/` Python sidecar |
 | Live push updates | ❌ | ✅ | `livebus/` SSE+WebSocket |
 
@@ -473,7 +468,7 @@ Full architecture deep-dive -> [`ARCHITECTURE.md`](ARCHITECTURE.md) * Per-module
 
 ## 🧭 v0.3.2 Status - what's shipped, what's partial, what's deferred
 
-Honest inventory as of the v0.3.2 hotfix (2026-05-02). Most surfaces flipped from "partial" to "✅ shipped" in this release.
+Inventory as of the v0.3.2 hotfix (2026-05-02). Most surfaces flipped from "partial" to "shipped" in this release.
 
 | Surface | Status | Notes |
 |---|---|---|
@@ -723,14 +718,9 @@ Copyright © 2026 **Anish Trivedi & Kruti Trivedi**.
 <br/>
 
 <sub>
-  Built with obsessive care by <a href="https://github.com/omanishay-cyber"><strong>Anish Trivedi & Kruti Trivedi</strong></a>.<br/>
+  by <a href="https://github.com/omanishay-cyber"><strong>Anish Trivedi & Kruti Trivedi</strong></a>.<br/>
   Because the hardest problem in AI coding is remembering, not generating.
 </sub>
-
-<br/><br/>
-
-<em>"Memory is the engine of creativity."</em><br/>
-<sub>- the idea behind Mneme, named after the Greek muse of memory</sub>
 
 <br/><br/>
 
@@ -751,6 +741,6 @@ Copyright © 2026 **Anish Trivedi & Kruti Trivedi**.
 
 <div align="center">
 
-<sub>Every claim in this README is backed by something that actually runs.</sub>
+<sub>Every claim here is backed by something that runs.</sub>
 
 </div>
