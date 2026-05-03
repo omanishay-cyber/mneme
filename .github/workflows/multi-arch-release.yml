@@ -197,6 +197,7 @@ jobs:
         run: |
           pwsh -NoProfile -ExecutionPolicy Bypass -File scripts/test/stage-release-zip.ps1 `
             -SourceRoot . `
+            -TargetTriple "${{ matrix.target }}" `
             -OutZip "./${{ matrix.artifact }}" `
             -StageDir "./stage-${{ matrix.target }}" `
             -Force

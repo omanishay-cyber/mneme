@@ -26,6 +26,14 @@ param(
     [string]$Version = "0.3.2",
     [string]$OutZip = "$env:USERPROFILE\Desktop\mneme-v0.3.2-windows-x64.zip",
     [string]$StageDir = "$env:USERPROFILE\Desktop\mneme-stage",
+    # Optional Rust target triple (e.g. x86_64-pc-windows-msvc). When set,
+    # binaries are read from target/<triple>/release/ instead of target/release/.
+    # CI workflows that pass --target=<triple> to cargo MUST set this; local
+    # `cargo build --release` (no --target) leaves it empty and uses
+    # target/release/. Fixes the chronic CI-only "missing release binaries"
+    # failure on the multi-arch-release.yml workflow (see GH Actions runs
+    # 25261952169 + 25266802464).
+    [string]$TargetTriple,
     [switch]$IncludeVisionTauri,
     [switch]$Force
 )
@@ -45,9 +53,26 @@ function Fail($msg) { Write-Host "     FAIL: $msg" -ForegroundColor Red; throw $
 # ---------------------------------------------------------------------------
 
 Section "Pre-flight"
-$target = Join-Path $SourceRoot "target\release"
-if (-not (Test-Path $target)) {
-    Fail "target/release/ not found at $target. Run 'cargo build --workspace --release' first."
+# Resolve target dir: if -TargetTriple was passed (CI), use target/<triple>/release;
+# otherwise fall back to target/release (local dev cargo build --release).
+if ($TargetTriple) {
+    $target = Join-Path $SourceRoot "target\$TargetTriple\release"
+    if (-not (Test-Path $target)) {
+        # Try the plain target/release/ as a secondary fallback in case the
+        # caller passed a triple but cargo didn't actually use --target.
+        $altTarget = Join-Path $SourceRoot "target\release"
+        if (Test-Path $altTarget) {
+            Write-Host "  -> target/$TargetTriple/release/ not found, falling back to target/release/" -ForegroundColor Yellow
+            $target = $altTarget
+        } else {
+            Fail "Neither target/$TargetTriple/release/ nor target/release/ found. Run 'cargo build --release --target $TargetTriple' first."
+        }
+    }
+} else {
+    $target = Join-Path $SourceRoot "target\release"
+    if (-not (Test-Path $target)) {
+        Fail "target/release/ not found at $target. Run 'cargo build --workspace --release' first (or pass -TargetTriple <triple>)."
+    }
 }
 $mcp = Join-Path $SourceRoot "mcp"
 $visionDist = Join-Path $SourceRoot "vision\dist"
