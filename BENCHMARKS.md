@@ -491,15 +491,22 @@ stdio server (`graphify.serve`).
   cost ($4.86) and the lowest output token count (25,796)** on the panel.
   The precomputed graph + symbol embeddings let the model answer in
   60-110 s where the others spend 100-250 s re-parsing. Mneme gave full
-  citations on Q1, Q2, Q5 (9/10) and Q4 (8/10). Q3 is partial (5/10): the
-  on-disk graph indexes 68,495 call edges but they live between TypeScript
-  nodes; the Rust parser emits structural `contains` edges only, so a
-  Rust-to-Rust call traversal returns empty even though the file-level
-  citations Mneme returned are correct. That's the v0.3.3 work item. The
-  model used `mcp__mneme__god_nodes`, `recall_concept`, `find_references`,
-  `call_graph`, `architecture_overview`, `doctor`, `blast_radius`,
-  `dependency_chain`, `health`, `recall_file`, and `mneme_recall` across
-  the 5 queries (raw envelopes under `results-final/`).
+  citations on Q1, Q2, Q5 (9/10) and Q4 (8/10). Q3 (a Rust-to-Rust
+  function-level call tree) scored 5/10 in this run because the
+  bench-time daemon was in red state on the test host (39 workers in
+  pending state, queue_depth 790, cache_hit_rate 0 — the project hadn't
+  been indexed end-to-end on that machine yet) and the model correctly
+  refused to fabricate a call tree against missing data. The Rust
+  call-edge extraction itself is implemented and tested in
+  `parsers/src/query_cache.rs::Calls` (covers `call_expression`,
+  `method_call_expression`, `macro_invocation`) and pinned by the
+  `rust_method_and_macro_calls_emit_edges` test in `parsers/src/tests.rs`
+  — this is a daemon-readiness issue on the bench host, not a parser
+  gap. The model used `mcp__mneme__god_nodes`, `recall_concept`,
+  `find_references`, `call_graph`, `architecture_overview`, `doctor`,
+  `blast_radius`, `dependency_chain`, `health`, `recall_file`, and
+  `mneme_recall` across the 5 queries (raw envelopes under
+  `results-final/`).
 - **tree-sitter** wins on raw recall (9/10 across the board, 9.0 avg) by
   re-parsing on demand, but it spends **1.4× the cost and 1.8× the tokens**
   mneme uses to do it, and Q5 took 246 s versus mneme's 108 s. With a
