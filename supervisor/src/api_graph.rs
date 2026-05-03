@@ -247,9 +247,7 @@ struct MetaProjectRow {
 /// an empty map when meta.db doesn't exist (fresh install) or any read
 /// fails — every consumer treats missing data as "no extra info" and
 /// falls back to the legacy hash-only display.
-fn load_meta_projects(
-    state: &ApiGraphState,
-) -> std::collections::HashMap<String, MetaProjectRow> {
+fn load_meta_projects(state: &ApiGraphState) -> std::collections::HashMap<String, MetaProjectRow> {
     let meta_path = state.paths.meta_db();
     if !meta_path.is_file() {
         return std::collections::HashMap::new();
@@ -505,11 +503,7 @@ fn find_active_layer_db(
         // Defensive: prevent path traversal via ".." segments. Every
         // legitimate project id is hex SHA-256 so it never contains
         // separators or dots; reject anything else outright.
-        if !hash.is_empty()
-            && !hash.contains('/')
-            && !hash.contains('\\')
-            && !hash.contains("..")
-        {
+        if !hash.is_empty() && !hash.contains('/') && !hash.contains('\\') && !hash.contains("..") {
             let candidate = projects_root.join(hash).join(format!("{}.db", layer));
             if candidate.is_file() {
                 return Some(candidate);
@@ -654,44 +648,45 @@ async fn api_graph_nodes(
     State(state): State<ApiGraphState>,
     Query(q): Query<ProjectQuery>,
 ) -> impl IntoResponse {
-    let nodes: Vec<GraphNodeOut> = with_layer_db_sync(&state, "graph", q.project.as_deref(), |conn| {
-        let mut stmt = conn
-            .prepare(
-                "SELECT qualified_name, name, kind, file_path \
+    let nodes: Vec<GraphNodeOut> =
+        with_layer_db_sync(&state, "graph", q.project.as_deref(), |conn| {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT qualified_name, name, kind, file_path \
                  FROM nodes ORDER BY id LIMIT 2000",
-            )
-            .ok()?;
-        let rows = stmt
-            .query_map([], |r| {
-                Ok((
-                    r.get::<_, String>(0)?,
-                    r.get::<_, Option<String>>(1)?,
-                    r.get::<_, String>(2)?,
-                    r.get::<_, Option<String>>(3)?,
-                ))
-            })
-            .ok()?;
-        Some(
-            rows.filter_map(|r| r.ok())
-                .map(|(id, name, kind, fp)| {
-                    let label = name.clone().unwrap_or_else(|| id.clone());
-                    GraphNodeOut {
-                        id,
-                        label,
-                        kind_tag: kind.clone(),
-                        size: size_for_kind(&kind),
-                        color: color_for_kind(&kind).to_string(),
-                        meta: GraphNodeMeta {
-                            kind,
-                            file_path: fp,
-                            source: "shard",
-                        },
-                    }
+                )
+                .ok()?;
+            let rows = stmt
+                .query_map([], |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, Option<String>>(1)?,
+                        r.get::<_, String>(2)?,
+                        r.get::<_, Option<String>>(3)?,
+                    ))
                 })
-                .collect(),
-        )
-    })
-    .unwrap_or_default();
+                .ok()?;
+            Some(
+                rows.filter_map(|r| r.ok())
+                    .map(|(id, name, kind, fp)| {
+                        let label = name.clone().unwrap_or_else(|| id.clone());
+                        GraphNodeOut {
+                            id,
+                            label,
+                            kind_tag: kind.clone(),
+                            size: size_for_kind(&kind),
+                            color: color_for_kind(&kind).to_string(),
+                            meta: GraphNodeMeta {
+                                kind,
+                                file_path: fp,
+                                source: "shard",
+                            },
+                        }
+                    })
+                    .collect(),
+            )
+        })
+        .unwrap_or_default();
     Json(nodes)
 }
 
@@ -700,40 +695,41 @@ async fn api_graph_edges(
     State(state): State<ApiGraphState>,
     Query(q): Query<ProjectQuery>,
 ) -> impl IntoResponse {
-    let edges: Vec<GraphEdgeOut> = with_layer_db_sync(&state, "graph", q.project.as_deref(), |conn| {
-        let mut stmt = conn
-            .prepare(
-                "SELECT id, source_qualified, target_qualified, kind \
+    let edges: Vec<GraphEdgeOut> =
+        with_layer_db_sync(&state, "graph", q.project.as_deref(), |conn| {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT id, source_qualified, target_qualified, kind \
                  FROM edges ORDER BY id LIMIT 8000",
-            )
-            .ok()?;
-        let rows = stmt
-            .query_map([], |r| {
-                Ok((
-                    r.get::<_, i64>(0)?,
-                    r.get::<_, String>(1)?,
-                    r.get::<_, String>(2)?,
-                    r.get::<_, String>(3)?,
-                ))
-            })
-            .ok()?;
-        Some(
-            rows.filter_map(|r| r.ok())
-                .map(|(id, src, tgt, kind)| GraphEdgeOut {
-                    id: id.to_string(),
-                    source: src,
-                    target: tgt,
-                    kind_tag: kind.clone(),
-                    weight: 1,
-                    meta: GraphEdgeMeta {
-                        kind,
-                        source: "shard",
-                    },
+                )
+                .ok()?;
+            let rows = stmt
+                .query_map([], |r| {
+                    Ok((
+                        r.get::<_, i64>(0)?,
+                        r.get::<_, String>(1)?,
+                        r.get::<_, String>(2)?,
+                        r.get::<_, String>(3)?,
+                    ))
                 })
-                .collect(),
-        )
-    })
-    .unwrap_or_default();
+                .ok()?;
+            Some(
+                rows.filter_map(|r| r.ok())
+                    .map(|(id, src, tgt, kind)| GraphEdgeOut {
+                        id: id.to_string(),
+                        source: src,
+                        target: tgt,
+                        kind_tag: kind.clone(),
+                        weight: 1,
+                        meta: GraphEdgeMeta {
+                            kind,
+                            source: "shard",
+                        },
+                    })
+                    .collect(),
+            )
+        })
+        .unwrap_or_default();
     Json(edges)
 }
 
@@ -811,27 +807,28 @@ async fn api_graph_files(
     State(state): State<ApiGraphState>,
     Query(q): Query<ProjectQuery>,
 ) -> impl IntoResponse {
-    let files: Vec<ShardFileRow> = with_layer_db_sync(&state, "graph", q.project.as_deref(), |conn| {
-        let mut stmt = conn
-            .prepare(
-                "SELECT path, language, line_count, byte_count, last_parsed_at \
+    let files: Vec<ShardFileRow> =
+        with_layer_db_sync(&state, "graph", q.project.as_deref(), |conn| {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT path, language, line_count, byte_count, last_parsed_at \
                  FROM files ORDER BY line_count DESC LIMIT 2000",
-            )
-            .ok()?;
-        let rows = stmt
-            .query_map([], |r| {
-                Ok(ShardFileRow {
-                    path: r.get::<_, String>(0)?,
-                    language: r.get::<_, Option<String>>(1)?,
-                    line_count: r.get::<_, Option<i64>>(2)?,
-                    byte_count: r.get::<_, Option<i64>>(3)?,
-                    last_parsed_at: r.get::<_, Option<String>>(4)?,
+                )
+                .ok()?;
+            let rows = stmt
+                .query_map([], |r| {
+                    Ok(ShardFileRow {
+                        path: r.get::<_, String>(0)?,
+                        language: r.get::<_, Option<String>>(1)?,
+                        line_count: r.get::<_, Option<i64>>(2)?,
+                        byte_count: r.get::<_, Option<i64>>(3)?,
+                        last_parsed_at: r.get::<_, Option<String>>(4)?,
+                    })
                 })
-            })
-            .ok()?;
-        Some(rows.filter_map(|r| r.ok()).collect())
-    })
-    .unwrap_or_default();
+                .ok()?;
+            Some(rows.filter_map(|r| r.ok()).collect())
+        })
+        .unwrap_or_default();
     Json(files)
 }
 
@@ -854,10 +851,11 @@ async fn api_graph_findings(
     State(state): State<ApiGraphState>,
     Query(q): Query<ProjectQuery>,
 ) -> impl IntoResponse {
-    let findings: Vec<ShardFindingRow> = with_layer_db_sync(&state, "findings", q.project.as_deref(), |conn| {
-        let mut stmt = conn
-            .prepare(
-                "SELECT id, rule_id, scanner, severity, file, line_start, line_end, \
+    let findings: Vec<ShardFindingRow> =
+        with_layer_db_sync(&state, "findings", q.project.as_deref(), |conn| {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT id, rule_id, scanner, severity, file, line_start, line_end, \
                         message, suggestion, created_at \
                  FROM findings WHERE resolved_at IS NULL \
                  ORDER BY CASE severity \
@@ -868,27 +866,27 @@ async fn api_graph_findings(
                             ELSE 0 END DESC, \
                           created_at DESC \
                  LIMIT 2000",
-            )
-            .ok()?;
-        let rows = stmt
-            .query_map([], |r| {
-                Ok(ShardFindingRow {
-                    id: r.get(0)?,
-                    rule_id: r.get(1)?,
-                    scanner: r.get(2)?,
-                    severity: r.get(3)?,
-                    file: r.get(4)?,
-                    line_start: r.get(5)?,
-                    line_end: r.get(6)?,
-                    message: r.get(7)?,
-                    suggestion: r.get::<_, Option<String>>(8)?,
-                    created_at: r.get::<_, Option<String>>(9)?,
+                )
+                .ok()?;
+            let rows = stmt
+                .query_map([], |r| {
+                    Ok(ShardFindingRow {
+                        id: r.get(0)?,
+                        rule_id: r.get(1)?,
+                        scanner: r.get(2)?,
+                        severity: r.get(3)?,
+                        file: r.get(4)?,
+                        line_start: r.get(5)?,
+                        line_end: r.get(6)?,
+                        message: r.get(7)?,
+                        suggestion: r.get::<_, Option<String>>(8)?,
+                        created_at: r.get::<_, Option<String>>(9)?,
+                    })
                 })
-            })
-            .ok()?;
-        Some(rows.filter_map(|r| r.ok()).collect())
-    })
-    .unwrap_or_default();
+                .ok()?;
+            Some(rows.filter_map(|r| r.ok()).collect())
+        })
+        .unwrap_or_default();
     Json(findings)
 }
 
@@ -1050,10 +1048,11 @@ async fn api_graph_kind_flow(
     State(state): State<ApiGraphState>,
     Query(q): Query<ProjectQuery>,
 ) -> impl IntoResponse {
-    let payload: KindFlowPayloadOut = with_layer_db_sync(&state, "graph", q.project.as_deref(), |conn| {
-        let mut stmt = conn
-            .prepare(
-                "SELECT ns.kind AS source_kind, nt.kind AS target_kind, \
+    let payload: KindFlowPayloadOut =
+        with_layer_db_sync(&state, "graph", q.project.as_deref(), |conn| {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT ns.kind AS source_kind, nt.kind AS target_kind, \
                         e.kind AS edge_kind, COUNT(*) AS c \
                  FROM edges e \
                  JOIN nodes ns ON ns.qualified_name = e.source_qualified \
@@ -1061,62 +1060,62 @@ async fn api_graph_kind_flow(
                  GROUP BY ns.kind, nt.kind, e.kind \
                  ORDER BY c DESC \
                  LIMIT 50000",
-            )
-            .ok()?;
-        let rows: Vec<(String, String, String, i64)> = stmt
-            .query_map([], |r| {
-                Ok((
-                    r.get::<_, String>(0)?,
-                    r.get::<_, String>(1)?,
-                    r.get::<_, String>(2)?,
-                    r.get::<_, i64>(3)?,
-                ))
-            })
-            .ok()?
-            .filter_map(|r| r.ok())
-            .collect();
+                )
+                .ok()?;
+            let rows: Vec<(String, String, String, i64)> = stmt
+                .query_map([], |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, String>(1)?,
+                        r.get::<_, String>(2)?,
+                        r.get::<_, i64>(3)?,
+                    ))
+                })
+                .ok()?
+                .filter_map(|r| r.ok())
+                .collect();
 
-        // Build the node set with stable insertion order — TS uses
-        // `Set` iteration which is insertion-ordered, so we mirror it.
-        let mut node_ids: Vec<String> = Vec::new();
-        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
-        for (sk, tk, _ek, _c) in &rows {
-            let s_id = format!("src:{}", sk);
-            let t_id = format!("tgt:{}", tk);
-            if seen.insert(s_id.clone()) {
-                node_ids.push(s_id);
-            }
-            if seen.insert(t_id.clone()) {
-                node_ids.push(t_id);
-            }
-        }
-
-        let nodes: Vec<KindFlowNodeOut> = node_ids
-            .into_iter()
-            .map(|id| {
-                let (side, kind) = match id.split_once(':') {
-                    Some((s, k)) => (s.to_string(), k.to_string()),
-                    None => ("src".to_string(), id.clone()),
-                };
-                KindFlowNodeOut {
-                    id: format!("{}:{}", side, kind),
-                    kind,
-                    side,
+            // Build the node set with stable insertion order — TS uses
+            // `Set` iteration which is insertion-ordered, so we mirror it.
+            let mut node_ids: Vec<String> = Vec::new();
+            let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+            for (sk, tk, _ek, _c) in &rows {
+                let s_id = format!("src:{}", sk);
+                let t_id = format!("tgt:{}", tk);
+                if seen.insert(s_id.clone()) {
+                    node_ids.push(s_id);
                 }
-            })
-            .collect();
-        let links: Vec<KindFlowLinkOut> = rows
-            .into_iter()
-            .map(|(sk, tk, ek, c)| KindFlowLinkOut {
-                source: format!("src:{}", sk),
-                target: format!("tgt:{}", tk),
-                value: c,
-                edge_kind: ek,
-            })
-            .collect();
-        Some(KindFlowPayloadOut { nodes, links })
-    })
-    .unwrap_or_default();
+                if seen.insert(t_id.clone()) {
+                    node_ids.push(t_id);
+                }
+            }
+
+            let nodes: Vec<KindFlowNodeOut> = node_ids
+                .into_iter()
+                .map(|id| {
+                    let (side, kind) = match id.split_once(':') {
+                        Some((s, k)) => (s.to_string(), k.to_string()),
+                        None => ("src".to_string(), id.clone()),
+                    };
+                    KindFlowNodeOut {
+                        id: format!("{}:{}", side, kind),
+                        kind,
+                        side,
+                    }
+                })
+                .collect();
+            let links: Vec<KindFlowLinkOut> = rows
+                .into_iter()
+                .map(|(sk, tk, ek, c)| KindFlowLinkOut {
+                    source: format!("src:{}", sk),
+                    target: format!("tgt:{}", tk),
+                    value: c,
+                    edge_kind: ek,
+                })
+                .collect();
+            Some(KindFlowPayloadOut { nodes, links })
+        })
+        .unwrap_or_default();
     Json(payload)
 }
 
@@ -1150,67 +1149,68 @@ async fn api_graph_domain_flow(
     State(state): State<ApiGraphState>,
     Query(q): Query<ProjectQuery>,
 ) -> impl IntoResponse {
-    let payload: DomainFlowPayloadOut = with_layer_db_sync(&state, "graph", q.project.as_deref(), |conn| {
-        let mut stmt = conn
-            .prepare(
-                "SELECT ns.file_path AS src_path, nt.file_path AS tgt_path, COUNT(*) AS c \
+    let payload: DomainFlowPayloadOut =
+        with_layer_db_sync(&state, "graph", q.project.as_deref(), |conn| {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT ns.file_path AS src_path, nt.file_path AS tgt_path, COUNT(*) AS c \
                  FROM edges e \
                  JOIN nodes ns ON ns.qualified_name = e.source_qualified \
                  JOIN nodes nt ON nt.qualified_name = e.target_qualified \
                  WHERE ns.file_path IS NOT NULL AND nt.file_path IS NOT NULL \
                  GROUP BY ns.file_path, nt.file_path \
                  LIMIT 50000",
-            )
-            .ok()?;
-        let rows = stmt
-            .query_map([], |r| {
-                Ok((
-                    r.get::<_, Option<String>>(0)?,
-                    r.get::<_, Option<String>>(1)?,
-                    r.get::<_, i64>(2)?,
-                ))
-            })
-            .ok()?;
+                )
+                .ok()?;
+            let rows = stmt
+                .query_map([], |r| {
+                    Ok((
+                        r.get::<_, Option<String>>(0)?,
+                        r.get::<_, Option<String>>(1)?,
+                        r.get::<_, i64>(2)?,
+                    ))
+                })
+                .ok()?;
 
-        let mut agg: std::collections::HashMap<(String, String), i64> =
-            std::collections::HashMap::new();
-        // Preserve domain insertion order (TS uses `Set` which is
-        // insertion-ordered) so the rendered sankey is stable.
-        let mut domains: Vec<String> = Vec::new();
-        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
-        for r in rows.flatten() {
-            let s = domain_of(r.0.as_deref());
-            let t = domain_of(r.1.as_deref());
-            if s == t {
-                continue;
+            let mut agg: std::collections::HashMap<(String, String), i64> =
+                std::collections::HashMap::new();
+            // Preserve domain insertion order (TS uses `Set` which is
+            // insertion-ordered) so the rendered sankey is stable.
+            let mut domains: Vec<String> = Vec::new();
+            let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+            for r in rows.flatten() {
+                let s = domain_of(r.0.as_deref());
+                let t = domain_of(r.1.as_deref());
+                if s == t {
+                    continue;
+                }
+                if seen.insert(s.clone()) {
+                    domains.push(s.clone());
+                }
+                if seen.insert(t.clone()) {
+                    domains.push(t.clone());
+                }
+                *agg.entry((s, t)).or_insert(0) += r.2;
             }
-            if seen.insert(s.clone()) {
-                domains.push(s.clone());
-            }
-            if seen.insert(t.clone()) {
-                domains.push(t.clone());
-            }
-            *agg.entry((s, t)).or_insert(0) += r.2;
-        }
 
-        let nodes: Vec<DomainFlowNodeOut> = domains
-            .into_iter()
-            .map(|d| DomainFlowNodeOut {
-                id: d.clone(),
-                domain: d,
-            })
-            .collect();
-        let links: Vec<DomainFlowLinkOut> = agg
-            .into_iter()
-            .map(|((s, t), v)| DomainFlowLinkOut {
-                source: s,
-                target: t,
-                value: v,
-            })
-            .collect();
-        Some(DomainFlowPayloadOut { nodes, links })
-    })
-    .unwrap_or_default();
+            let nodes: Vec<DomainFlowNodeOut> = domains
+                .into_iter()
+                .map(|d| DomainFlowNodeOut {
+                    id: d.clone(),
+                    domain: d,
+                })
+                .collect();
+            let links: Vec<DomainFlowLinkOut> = agg
+                .into_iter()
+                .map(|((s, t), v)| DomainFlowLinkOut {
+                    source: s,
+                    target: t,
+                    value: v,
+                })
+                .collect();
+            Some(DomainFlowPayloadOut { nodes, links })
+        })
+        .unwrap_or_default();
     Json(payload)
 }
 
@@ -1367,10 +1367,11 @@ async fn api_graph_commits(
     State(state): State<ApiGraphState>,
     Query(q): Query<ProjectQuery>,
 ) -> impl IntoResponse {
-    let commits: Vec<CommitRowOut> = with_layer_db_sync(&state, "git", q.project.as_deref(), |conn| {
-        let mut stmt = conn
-            .prepare(
-                "SELECT c.sha, c.author_name, c.committed_at, c.message, \
+    let commits: Vec<CommitRowOut> =
+        with_layer_db_sync(&state, "git", q.project.as_deref(), |conn| {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT c.sha, c.author_name, c.committed_at, c.message, \
                         COUNT(cf.file_path) AS files_changed, \
                         COALESCE(SUM(cf.additions), 0) AS insertions, \
                         COALESCE(SUM(cf.deletions), 0) AS deletions \
@@ -1379,24 +1380,24 @@ async fn api_graph_commits(
                  GROUP BY c.sha \
                  ORDER BY c.committed_at DESC \
                  LIMIT 500",
-            )
-            .ok()?;
-        let rows = stmt
-            .query_map([], |r| {
-                Ok(CommitRowOut {
-                    sha: r.get::<_, String>(0)?,
-                    author: r.get::<_, Option<String>>(1)?,
-                    date: r.get::<_, String>(2)?,
-                    message: r.get::<_, String>(3)?,
-                    files_changed: r.get::<_, i64>(4)?,
-                    insertions: r.get::<_, i64>(5)?,
-                    deletions: r.get::<_, i64>(6)?,
+                )
+                .ok()?;
+            let rows = stmt
+                .query_map([], |r| {
+                    Ok(CommitRowOut {
+                        sha: r.get::<_, String>(0)?,
+                        author: r.get::<_, Option<String>>(1)?,
+                        date: r.get::<_, String>(2)?,
+                        message: r.get::<_, String>(3)?,
+                        files_changed: r.get::<_, i64>(4)?,
+                        insertions: r.get::<_, i64>(5)?,
+                        deletions: r.get::<_, i64>(6)?,
+                    })
                 })
-            })
-            .ok()?;
-        Some(rows.filter_map(|r| r.ok()).collect())
-    })
-    .unwrap_or_default();
+                .ok()?;
+            Some(rows.filter_map(|r| r.ok()).collect())
+        })
+        .unwrap_or_default();
     Json(commits)
 }
 
@@ -1717,78 +1718,79 @@ async fn api_graph_test_coverage(
     State(state): State<ApiGraphState>,
     Query(q): Query<ProjectQuery>,
 ) -> impl IntoResponse {
-    let rows: Vec<TestCoverageRowOut> = with_layer_db_sync(&state, "graph", q.project.as_deref(), |conn| {
-        let mut files_stmt = conn
-            .prepare(
-                "SELECT path, language, line_count FROM files \
+    let rows: Vec<TestCoverageRowOut> =
+        with_layer_db_sync(&state, "graph", q.project.as_deref(), |conn| {
+            let mut files_stmt = conn
+                .prepare(
+                    "SELECT path, language, line_count FROM files \
                  ORDER BY line_count DESC",
-            )
-            .ok()?;
-        let all_files: Vec<(String, Option<String>, Option<i64>)> = files_stmt
-            .query_map([], |r| {
-                Ok((
-                    r.get::<_, String>(0)?,
-                    r.get::<_, Option<String>>(1)?,
-                    r.get::<_, Option<i64>>(2)?,
-                ))
-            })
-            .ok()?
-            .filter_map(|r| r.ok())
-            .collect();
+                )
+                .ok()?;
+            let all_files: Vec<(String, Option<String>, Option<i64>)> = files_stmt
+                .query_map([], |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, Option<String>>(1)?,
+                        r.get::<_, Option<i64>>(2)?,
+                    ))
+                })
+                .ok()?
+                .filter_map(|r| r.ok())
+                .collect();
 
-        let mut node_stmt = conn
-            .prepare(
-                "SELECT file_path, COUNT(*) AS c FROM nodes \
+            let mut node_stmt = conn
+                .prepare(
+                    "SELECT file_path, COUNT(*) AS c FROM nodes \
                  WHERE is_test = 1 AND file_path IS NOT NULL \
                  GROUP BY file_path",
-            )
-            .ok()?;
-        let mut test_node_by_file: std::collections::HashMap<String, i64> =
-            std::collections::HashMap::new();
-        if let Ok(it) =
-            node_stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))
-        {
-            for r in it.flatten() {
-                test_node_by_file.insert(r.0, r.1);
-            }
-        }
-
-        // Bucket by test-vs-source.
-        let test_paths: std::collections::HashSet<String> = all_files
-            .iter()
-            .filter(|f| is_test_path(&f.0))
-            .map(|f| f.0.clone())
-            .collect();
-        let source_files: Vec<&(String, Option<String>, Option<i64>)> = all_files
-            .iter()
-            .filter(|f| !is_test_path(&f.0))
-            .take(2000)
-            .collect();
-
-        let out: Vec<TestCoverageRowOut> = source_files
-            .into_iter()
-            .map(|(path, language, line_count)| {
-                let candidates = test_filename_candidates(path);
-                let test_file = candidates.into_iter().find(|c| test_paths.contains(c));
-                let own = test_node_by_file.get(path).copied().unwrap_or(0);
-                let external = test_file
-                    .as_ref()
-                    .map(|tf| test_node_by_file.get(tf).copied().unwrap_or(1))
-                    .unwrap_or(0);
-                let total = own + external;
-                TestCoverageRowOut {
-                    file: path.clone(),
-                    language: language.clone(),
-                    line_count: line_count.unwrap_or(0),
-                    test_file,
-                    test_count: total,
-                    covered: total > 0,
+                )
+                .ok()?;
+            let mut test_node_by_file: std::collections::HashMap<String, i64> =
+                std::collections::HashMap::new();
+            if let Ok(it) =
+                node_stmt.query_map([], |r| Ok((r.get::<_, String>(0)?, r.get::<_, i64>(1)?)))
+            {
+                for r in it.flatten() {
+                    test_node_by_file.insert(r.0, r.1);
                 }
-            })
-            .collect();
-        Some(out)
-    })
-    .unwrap_or_default();
+            }
+
+            // Bucket by test-vs-source.
+            let test_paths: std::collections::HashSet<String> = all_files
+                .iter()
+                .filter(|f| is_test_path(&f.0))
+                .map(|f| f.0.clone())
+                .collect();
+            let source_files: Vec<&(String, Option<String>, Option<i64>)> = all_files
+                .iter()
+                .filter(|f| !is_test_path(&f.0))
+                .take(2000)
+                .collect();
+
+            let out: Vec<TestCoverageRowOut> = source_files
+                .into_iter()
+                .map(|(path, language, line_count)| {
+                    let candidates = test_filename_candidates(path);
+                    let test_file = candidates.into_iter().find(|c| test_paths.contains(c));
+                    let own = test_node_by_file.get(path).copied().unwrap_or(0);
+                    let external = test_file
+                        .as_ref()
+                        .map(|tf| test_node_by_file.get(tf).copied().unwrap_or(1))
+                        .unwrap_or(0);
+                    let total = own + external;
+                    TestCoverageRowOut {
+                        file: path.clone(),
+                        language: language.clone(),
+                        line_count: line_count.unwrap_or(0),
+                        test_file,
+                        test_count: total,
+                        covered: total > 0,
+                    }
+                })
+                .collect();
+            Some(out)
+        })
+        .unwrap_or_default();
     Json(rows)
 }
 
@@ -1912,49 +1914,50 @@ async fn api_graph_layers(
     State(state): State<ApiGraphState>,
     Query(q): Query<ProjectQuery>,
 ) -> impl IntoResponse {
-    let payload: LayerTierPayloadOut = with_layer_db_sync(&state, "graph", q.project.as_deref(), |conn| {
-        let mut stmt = conn
-            .prepare(
-                "SELECT path, language, line_count FROM files \
+    let payload: LayerTierPayloadOut =
+        with_layer_db_sync(&state, "graph", q.project.as_deref(), |conn| {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT path, language, line_count FROM files \
                  ORDER BY line_count DESC LIMIT 5000",
-            )
-            .ok()?;
-        let rows = stmt
-            .query_map([], |r| {
-                Ok((
-                    r.get::<_, String>(0)?,
-                    r.get::<_, Option<String>>(1)?,
-                    r.get::<_, Option<i64>>(2)?,
-                ))
+                )
+                .ok()?;
+            let rows = stmt
+                .query_map([], |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, Option<String>>(1)?,
+                        r.get::<_, Option<i64>>(2)?,
+                    ))
+                })
+                .ok()?;
+            let entries: Vec<LayerTierEntryOut> = rows
+                .filter_map(|r| r.ok())
+                .map(|(path, language, line_count)| {
+                    let tier = tier_of(Some(&path)).to_string();
+                    let domain = domain_of(Some(&path));
+                    LayerTierEntryOut {
+                        file: path,
+                        language,
+                        line_count: line_count.unwrap_or(0),
+                        tier,
+                        domain,
+                    }
+                })
+                .collect();
+            Some(LayerTierPayloadOut {
+                tiers: vec![
+                    "presentation",
+                    "api",
+                    "intelligence",
+                    "data",
+                    "foundation",
+                    "other",
+                ],
+                entries,
             })
-            .ok()?;
-        let entries: Vec<LayerTierEntryOut> = rows
-            .filter_map(|r| r.ok())
-            .map(|(path, language, line_count)| {
-                let tier = tier_of(Some(&path)).to_string();
-                let domain = domain_of(Some(&path));
-                LayerTierEntryOut {
-                    file: path,
-                    language,
-                    line_count: line_count.unwrap_or(0),
-                    tier,
-                    domain,
-                }
-            })
-            .collect();
-        Some(LayerTierPayloadOut {
-            tiers: vec![
-                "presentation",
-                "api",
-                "intelligence",
-                "data",
-                "foundation",
-                "other",
-            ],
-            entries,
         })
-    })
-    .unwrap_or_default();
+        .unwrap_or_default();
     Json(payload)
 }
 
@@ -2132,68 +2135,70 @@ async fn api_graph_theme_palette(
     State(state): State<ApiGraphState>,
     Query(q): Query<ProjectQuery>,
 ) -> impl IntoResponse {
-    let rows: Vec<ThemeSwatchRowOut> = with_layer_db_sync(&state, "findings", q.project.as_deref(), |conn| {
-        let mut stmt = conn
-            .prepare(
-                "SELECT id, file, line_start, message, suggestion, rule_id, severity \
+    let rows: Vec<ThemeSwatchRowOut> =
+        with_layer_db_sync(&state, "findings", q.project.as_deref(), |conn| {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT id, file, line_start, message, suggestion, rule_id, severity \
                  FROM findings \
                  WHERE scanner = 'theme' AND resolved_at IS NULL \
                  ORDER BY severity DESC, created_at DESC \
                  LIMIT 2000",
-            )
-            .ok()?;
-        #[allow(clippy::type_complexity)]
-        let raw: Vec<(i64, String, i64, String, Option<String>, String, String)> = stmt
-            .query_map([], |r| {
-                Ok((
-                    r.get::<_, i64>(0)?,
-                    r.get::<_, String>(1)?,
-                    r.get::<_, i64>(2)?,
-                    r.get::<_, String>(3)?,
-                    r.get::<_, Option<String>>(4)?,
-                    r.get::<_, String>(5)?,
-                    r.get::<_, String>(6)?,
-                ))
-            })
-            .ok()?
-            .filter_map(|r| r.ok())
-            .collect();
+                )
+                .ok()?;
+            #[allow(clippy::type_complexity)]
+            let raw: Vec<(i64, String, i64, String, Option<String>, String, String)> = stmt
+                .query_map([], |r| {
+                    Ok((
+                        r.get::<_, i64>(0)?,
+                        r.get::<_, String>(1)?,
+                        r.get::<_, i64>(2)?,
+                        r.get::<_, String>(3)?,
+                        r.get::<_, Option<String>>(4)?,
+                        r.get::<_, String>(5)?,
+                        r.get::<_, String>(6)?,
+                    ))
+                })
+                .ok()?
+                .filter_map(|r| r.ok())
+                .collect();
 
-        // First pass: extract colour tokens, accumulate global counts.
-        let mut swatches: Vec<ThemeSwatchRowOut> = Vec::new();
-        let mut counts: std::collections::HashMap<String, i64> = std::collections::HashMap::new();
-        for (_id, file, line, message, suggestion, rule_id, severity) in raw {
-            let combined = format!("{} {}", message, suggestion.as_deref().unwrap_or(""));
-            for token in extract_color_tokens(&combined) {
-                *counts.entry(token.clone()).or_insert(0) += 1;
-                swatches.push(ThemeSwatchRowOut {
-                    file: file.clone(),
-                    line,
-                    declaration: rule_id.clone(),
-                    value: token,
-                    severity: severity.clone(),
-                    message: message.clone(),
-                    used_count: 0,
-                });
+            // First pass: extract colour tokens, accumulate global counts.
+            let mut swatches: Vec<ThemeSwatchRowOut> = Vec::new();
+            let mut counts: std::collections::HashMap<String, i64> =
+                std::collections::HashMap::new();
+            for (_id, file, line, message, suggestion, rule_id, severity) in raw {
+                let combined = format!("{} {}", message, suggestion.as_deref().unwrap_or(""));
+                for token in extract_color_tokens(&combined) {
+                    *counts.entry(token.clone()).or_insert(0) += 1;
+                    swatches.push(ThemeSwatchRowOut {
+                        file: file.clone(),
+                        line,
+                        declaration: rule_id.clone(),
+                        value: token,
+                        severity: severity.clone(),
+                        message: message.clone(),
+                        used_count: 0,
+                    });
+                }
             }
-        }
-        // Second pass: fill used_count from the global map.
-        for s in swatches.iter_mut() {
-            s.used_count = counts.get(&s.value).copied().unwrap_or(1);
-        }
-        // Deduplicate by (file, line, value) — scanners sometimes emit
-        // multiple findings on the same line for the same token.
-        let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
-        let mut deduped: Vec<ThemeSwatchRowOut> = Vec::with_capacity(swatches.len());
-        for s in swatches {
-            let key = format!("{}:{}:{}", s.file, s.line, s.value);
-            if seen.insert(key) {
-                deduped.push(s);
+            // Second pass: fill used_count from the global map.
+            for s in swatches.iter_mut() {
+                s.used_count = counts.get(&s.value).copied().unwrap_or(1);
             }
-        }
-        Some(deduped)
-    })
-    .unwrap_or_default();
+            // Deduplicate by (file, line, value) — scanners sometimes emit
+            // multiple findings on the same line for the same token.
+            let mut seen: std::collections::HashSet<String> = std::collections::HashSet::new();
+            let mut deduped: Vec<ThemeSwatchRowOut> = Vec::with_capacity(swatches.len());
+            for s in swatches {
+                let key = format!("{}:{}:{}", s.file, s.line, s.value);
+                if seen.insert(key) {
+                    deduped.push(s);
+                }
+            }
+            Some(deduped)
+        })
+        .unwrap_or_default();
     Json(rows)
 }
 
@@ -2330,30 +2335,31 @@ async fn api_graph_hierarchy(
     State(state): State<ApiGraphState>,
     Query(q): Query<ProjectQuery>,
 ) -> impl IntoResponse {
-    let tree: HierarchyNodeOut = with_layer_db_sync(&state, "graph", q.project.as_deref(), |conn| {
-        let mut stmt = conn
-            .prepare(
-                "SELECT qualified_name, kind, file_path FROM nodes \
+    let tree: HierarchyNodeOut =
+        with_layer_db_sync(&state, "graph", q.project.as_deref(), |conn| {
+            let mut stmt = conn
+                .prepare(
+                    "SELECT qualified_name, kind, file_path FROM nodes \
                  WHERE kind IN ('module', 'class', 'file') \
                  ORDER BY qualified_name LIMIT 4000",
-            )
-            .ok()?;
-        let rows = stmt
-            .query_map([], |r| {
-                Ok((
-                    r.get::<_, String>(0)?,
-                    r.get::<_, String>(1)?,
-                    r.get::<_, Option<String>>(2)?,
-                ))
-            })
-            .ok()?;
-        let mut root = HierarchyNodeOut::new("project");
-        for r in rows.flatten() {
-            insert_into_hierarchy(&mut root, &r.0, &r.1, r.2);
-        }
-        Some(root)
-    })
-    .unwrap_or_else(|| HierarchyNodeOut::new("project"));
+                )
+                .ok()?;
+            let rows = stmt
+                .query_map([], |r| {
+                    Ok((
+                        r.get::<_, String>(0)?,
+                        r.get::<_, String>(1)?,
+                        r.get::<_, Option<String>>(2)?,
+                    ))
+                })
+                .ok()?;
+            let mut root = HierarchyNodeOut::new("project");
+            for r in rows.flatten() {
+                insert_into_hierarchy(&mut root, &r.0, &r.1, r.2);
+            }
+            Some(root)
+        })
+        .unwrap_or_else(|| HierarchyNodeOut::new("project"));
     Json(tree)
 }
 

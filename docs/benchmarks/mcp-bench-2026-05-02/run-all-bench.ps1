@@ -1,7 +1,7 @@
 param(
     [string]$BenchDir = 'C:\Users\Anish\Desktop\temp\mcp-bench-2026-05-02',
     [string]$ProjectDir = 'D:\Mneme Dome\Mneme-Home-Handoff-2026-04-30-2027\source',
-    [int]$TimeoutSec = 240
+    [int]$TimeoutSec = 600
 )
 
 $OutputDir = Join-Path $BenchDir 'results'

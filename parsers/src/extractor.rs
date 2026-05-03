@@ -199,11 +199,28 @@ impl Extractor {
     ) -> Result<(), ParserError> {
         let q = get_query(self.language, query_kind)?;
         let name_idx = q.capture_index_for_name("name");
+        // The OUTER capture is the whole function/class/decorator/comment
+        // node. Tree-sitter 0.25 returns captures in start-byte order, so for
+        // a pattern like `(function_item name: (identifier) @name) @function`
+        // the OUTER `@function` capture comes BEFORE the inner `@name`
+        // capture (the function_item starts before its identifier child).
+        // The pre-fix code used `m.captures.last()` and silently picked the
+        // inner identifier — that gave every Function/Class node a
+        // 3-character byte range AND a stable_id that didn't match the
+        // start-byte `enclosing_callable` uses when anchoring call edges.
+        // Result: ~80% of `calls` source_qualified IDs orphaned, no call
+        // graph at all. Mirrors the same fix `collect_imports` already
+        // applies to its `@import` capture.
+        let outer_idx = q.capture_index_for_name(outer_capture_for(query_kind));
         let mut cursor = QueryCursor::new();
         let mut matches = cursor.matches(&q, tree.root_node(), bytes);
         while let Some(m) = matches.next() {
-            // We always want the OUTER capture (the whole function/class).
-            let outer = m.captures.last().map(|c| c.node);
+            // Prefer the named outer capture; fall back to last() for
+            // single-capture patterns like `(arrow_function) @function`
+            // (where outer == only).
+            let outer = outer_idx
+                .and_then(|idx| m.captures.iter().find(|c| c.index == idx).map(|c| c.node))
+                .or_else(|| m.captures.last().map(|c| c.node));
             let Some(outer) = outer else { continue };
             let name = name_idx
                 .and_then(|idx| {
@@ -680,6 +697,27 @@ fn collect_js_namespace_name(ns: TsNode<'_>, bytes: &[u8]) -> Option<String> {
         }
     }
     None
+}
+
+/// Return the canonical OUTER capture name for a [`QueryKind`], matching
+/// the `@xxx` suffix used by every per-language pattern in
+/// [`crate::query_cache::pattern_for`]. Used by [`Extractor::collect_named`]
+/// to look up the whole-node capture by name (instead of the brittle
+/// `m.captures.last()` shortcut, which silently returned the inner
+/// `@name` identifier and produced corrupt byte ranges + mismatched
+/// stable_ids).
+fn outer_capture_for(kind: QueryKind) -> &'static str {
+    match kind {
+        QueryKind::Functions => "function",
+        QueryKind::Classes => "class",
+        QueryKind::Decorators => "decorator",
+        QueryKind::Comments => "comment",
+        // Calls / Imports / Errors aren't routed through `collect_named` —
+        // they have their own callers with their own outer-capture names.
+        QueryKind::Calls => "call",
+        QueryKind::Imports => "import",
+        QueryKind::Errors => "error",
+    }
 }
 
 fn stable_id(path: &Path, start_byte: usize, kind: NodeKind) -> String {

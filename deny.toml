@@ -66,6 +66,7 @@ allow = [
     "OpenSSL",
     "WTFPL",       # Do What The F*** You Want To Public License — permissive, no restrictions
     "Unlicense",   # Public-domain dedication — most permissive license possible
+    "CDLA-Permissive-2.0", # Linux Foundation Community Data License Agreement, Permissive 2.0 — used by webpki-roots (transitive via reqwest -> hyper-rustls). Permissive, no copyleft.
 ]
 # cargo-deny 0.15+ removed `deny = [...]` — use allow-only model. Anything
 # not in `allow` above is rejected by default. To flag copyleft explicitly,

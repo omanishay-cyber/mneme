@@ -419,16 +419,14 @@ fn hex_lower(bytes: &[u8]) -> String {
     out
 }
 
-/// Compute the install-target `bin/` directory under `~/.mneme/`. Honors
-/// `MNEME_HOME` indirectly via `dirs::home_dir()` first then explicit env
-/// override (so that integration tests can point at a tempdir).
+/// Compute the install-target `bin/` directory under the canonical mneme
+/// root. Resolution is delegated to `PathManager::try_default_root()` so
+/// `MNEME_HOME` overrides + the OS-default fallback chain stay consistent
+/// with every other path in the workspace.
 pub fn install_bin_dir() -> CliResult<PathBuf> {
-    if let Ok(custom) = env::var("MNEME_HOME") {
-        return Ok(PathBuf::from(custom).join("bin"));
-    }
-    let home = dirs::home_dir()
-        .ok_or_else(|| CliError::Other("could not resolve user home directory".into()))?;
-    Ok(home.join(".mneme").join("bin"))
+    let paths = mneme_common::paths::PathManager::try_default_root()
+        .map_err(|e| CliError::Other(format!("could not resolve mneme root: {e}")))?;
+    Ok(paths.root().join("bin"))
 }
 
 // ---------------------------------------------------------------------------

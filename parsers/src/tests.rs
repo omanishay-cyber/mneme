@@ -211,6 +211,245 @@ async fn extracts_rust_functions() {
 }
 
 // ---------------------------------------------------------------------------
+// Outer-capture fix — Function/Class node byte_range covers the WHOLE
+// item, not just its `@name` identifier child. Pre-fix, every function
+// row had `byte_range == (id_start, id_end)` (3-7 bytes wide), and its
+// `stable_id` didn't match the id `enclosing_callable` produced when
+// anchoring call edges → call_graph returned zero hops on Rust corpora.
+// These tests pin the corrected behavior so the regression can't sneak
+// back in.
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn rust_function_node_byte_range_covers_whole_item() {
+    let pool = pool();
+    let inc = IncrementalParser::new(pool);
+    // The body must be wider than the identifier; `add` is 3 bytes,
+    // the whole `pub fn add(...) -> i32 { a + b }` is 35+.
+    let src = "pub fn add(a: i32, b: i32) -> i32 { a + b }\n";
+    let tree = parse_once(&inc, "lib.rs", Language::Rust, src).await;
+    let extractor = Extractor::new(Language::Rust);
+    let g = extractor
+        .extract(&tree, src.as_bytes(), &PathBuf::from("lib.rs"))
+        .expect("extract");
+    let add = g
+        .nodes
+        .iter()
+        .find(|n| n.kind == NodeKind::Function && n.name == "add")
+        .expect("add fn node missing");
+    let width = add.byte_range.1 - add.byte_range.0;
+    assert!(
+        width > "add".len(),
+        "function node byte_range should span the WHOLE item, not just the \
+         identifier — got width {} (range {:?})",
+        width,
+        add.byte_range
+    );
+    assert_eq!(
+        add.byte_range.0, 0,
+        "Rust `pub fn add` starts at byte 0 in this fixture"
+    );
+    assert!(
+        add.byte_range.1 >= src.trim_end().len(),
+        "function should cover at least through the closing brace"
+    );
+}
+
+#[tokio::test]
+async fn rust_class_node_byte_range_covers_whole_item() {
+    // Same regression check for struct/enum/trait nodes (NodeKind::Class).
+    let pool = pool();
+    let inc = IncrementalParser::new(pool);
+    let src = "pub struct Counter { n: i32, kind: u8 }\n";
+    let tree = parse_once(&inc, "lib.rs", Language::Rust, src).await;
+    let extractor = Extractor::new(Language::Rust);
+    let g = extractor
+        .extract(&tree, src.as_bytes(), &PathBuf::from("lib.rs"))
+        .expect("extract");
+    let counter = g
+        .nodes
+        .iter()
+        .find(|n| n.kind == NodeKind::Class && n.name == "Counter")
+        .expect("Counter struct node missing");
+    let width = counter.byte_range.1 - counter.byte_range.0;
+    assert!(
+        width > "Counter".len(),
+        "struct node byte_range should span the WHOLE struct_item, got \
+         width {} (range {:?})",
+        width,
+        counter.byte_range
+    );
+}
+
+#[tokio::test]
+async fn rust_call_edge_source_resolves_to_existing_function_node() {
+    // The contract that drove the outer-capture fix: every `Calls` edge
+    // emitted from inside a function body must have its `from` ID match
+    // the `id` of an actual Function node in the same graph. Pre-fix,
+    // `m.captures.last()` stamped Function nodes with the start_byte of
+    // their identifier child, while `enclosing_callable` used the start
+    // of the function_item itself — the IDs collided for ~80% of Rust
+    // functions and the call graph stayed empty.
+    let pool = pool();
+    let inc = IncrementalParser::new(pool);
+    let src = r#"
+fn helper(x: i32) -> i32 { x + 1 }
+pub fn caller() -> i32 {
+    helper(7)
+}
+"#;
+    let path = PathBuf::from("lib.rs");
+    let tree = parse_once(&inc, "lib.rs", Language::Rust, src).await;
+    let extractor = Extractor::new(Language::Rust);
+    let g = extractor
+        .extract(&tree, src.as_bytes(), &path)
+        .expect("extract");
+
+    // Pull every Calls edge AND the set of all Function node IDs.
+    let fn_ids: std::collections::HashSet<&str> = g
+        .nodes
+        .iter()
+        .filter(|n| n.kind == NodeKind::Function)
+        .map(|n| n.id.as_str())
+        .collect();
+    let calls: Vec<_> = g
+        .edges
+        .iter()
+        .filter(|e| matches!(e.kind, crate::job::EdgeKind::Calls))
+        .collect();
+    assert!(
+        !calls.is_empty(),
+        "Rust extractor should emit at least one Calls edge for `helper(7)`"
+    );
+
+    // EVERY non-file-anchored Calls edge must originate at a known
+    // Function node. (File-anchored = top-level expressions; their
+    // `from` is the File node — also valid, just out of scope here.)
+    let file_id = g
+        .nodes
+        .iter()
+        .find(|n| n.kind == NodeKind::File)
+        .map(|n| n.id.as_str())
+        .expect("File node missing");
+    let mut orphan = Vec::new();
+    for e in &calls {
+        if e.from == file_id {
+            continue;
+        }
+        if !fn_ids.contains(e.from.as_str()) {
+            orphan.push(e);
+        }
+    }
+    assert!(
+        orphan.is_empty(),
+        "every fn-anchored Calls edge must point back to a real Function \
+         node id; orphans: {:?}\nknown fn ids: {:?}",
+        orphan,
+        fn_ids
+    );
+
+    // And the specific edge `caller --calls--> helper` must exist with
+    // `caller`'s id as `from`.
+    let caller = g
+        .nodes
+        .iter()
+        .find(|n| n.kind == NodeKind::Function && n.name == "caller")
+        .expect("caller fn missing");
+    assert!(
+        calls.iter().any(|e| e.from == caller.id),
+        "expected at least one Calls edge sourced at `caller` ({})",
+        caller.id
+    );
+}
+
+#[tokio::test]
+async fn rust_method_and_macro_calls_emit_edges() {
+    // Method-call (`x.method()`) and macro-invocation (`vec![]`) sites
+    // both emit Calls edges via the Rust query in query_cache.rs:
+    //   (call_expression function: (_) @callee) @call
+    //   (macro_invocation macro: (_) @callee) @call
+    // Pin behavior so a future query refactor can't drop coverage
+    // silently.
+    let pool = pool();
+    let inc = IncrementalParser::new(pool);
+    let src = r#"
+struct Bag;
+impl Bag {
+    fn put(&self, _x: i32) {}
+}
+pub fn driver() {
+    let b = Bag;
+    b.put(1);
+    let _v = vec![1, 2, 3];
+    println!("hi");
+}
+"#;
+    let tree = parse_once(&inc, "lib.rs", Language::Rust, src).await;
+    let extractor = Extractor::new(Language::Rust);
+    let g = extractor
+        .extract(&tree, src.as_bytes(), &PathBuf::from("lib.rs"))
+        .expect("extract");
+
+    let driver = g
+        .nodes
+        .iter()
+        .find(|n| n.kind == NodeKind::Function && n.name == "driver")
+        .expect("driver fn missing");
+    let driver_calls: Vec<&str> = g
+        .edges
+        .iter()
+        .filter(|e| matches!(e.kind, crate::job::EdgeKind::Calls) && e.from == driver.id)
+        .filter_map(|e| e.unresolved_target.as_deref())
+        .collect();
+
+    // Should contain at least one of each: a method (`b.put` lowers to
+    // `b.put` callee text), a macro (`vec`/`println`).
+    assert!(
+        driver_calls.iter().any(|t| t.contains("put")),
+        "expected `b.put(...)` edge, got {:?}",
+        driver_calls
+    );
+    assert!(
+        driver_calls.iter().any(|t| t.contains("vec")),
+        "expected `vec![]` macro edge, got {:?}",
+        driver_calls
+    );
+    assert!(
+        driver_calls.iter().any(|t| t.contains("println")),
+        "expected `println!()` macro edge, got {:?}",
+        driver_calls
+    );
+}
+
+#[tokio::test]
+async fn ts_function_node_byte_range_covers_whole_item() {
+    // Same regression bar for TypeScript named functions — the
+    // `(function_declaration name: (identifier) @name) @function`
+    // pattern has the same outer/inner capture shape that broke Rust.
+    let pool = pool();
+    let inc = IncrementalParser::new(pool);
+    let src = "function alpha(x: number): number { return x + 1; }\n";
+    let tree = parse_once(&inc, "alpha.ts", Language::TypeScript, src).await;
+    let extractor = Extractor::new(Language::TypeScript);
+    let g = extractor
+        .extract(&tree, src.as_bytes(), &PathBuf::from("alpha.ts"))
+        .expect("extract");
+    let alpha = g
+        .nodes
+        .iter()
+        .find(|n| n.kind == NodeKind::Function && n.name == "alpha")
+        .expect("alpha fn missing");
+    let width = alpha.byte_range.1 - alpha.byte_range.0;
+    assert!(
+        width > "alpha".len(),
+        "TS function byte_range should span the whole declaration, got \
+         width {} (range {:?})",
+        width,
+        alpha.byte_range
+    );
+}
+
+// ---------------------------------------------------------------------------
 // Incremental re-parse (bytes unchanged → reuse; bytes changed → reuse old tree)
 // ---------------------------------------------------------------------------
 

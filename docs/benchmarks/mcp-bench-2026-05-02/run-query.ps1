@@ -5,7 +5,7 @@ param(
     [Parameter(Mandatory=$true)][string]$Prompt,
     [Parameter(Mandatory=$true)][string]$ProjectDir,
     [Parameter(Mandatory=$true)][string]$OutputDir,
-    [int]$TimeoutSec = 240
+    [int]$TimeoutSec = 600
 )
 
 # Setup PATH (User + Machine, plus python scripts dir for graphify/CRG)
