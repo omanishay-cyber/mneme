@@ -107,6 +107,18 @@ uuid = { workspace = true }
 # Using the workspace-pinned regex version keeps every crate on the
 # same engine (lock-file dedup; no extra binary size).
 regex = { workspace = true }
+# `mneme self-update`: HTTP client for the GitHub Releases API + asset
+# stream download. `rustls-tls` keeps the dep tree off the system
+# OpenSSL on Linux/musl builds while staying compatible with native-tls
+# on the platforms that already pull it in transitively.
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json", "stream"] }
+# `mneme self-update`: zip extraction for Windows release archives.
+# `deflate` is the only compressor we need; `bzip2`/`zstd` would pull
+# in extra C deps for archives we never publish.
+zip = { version = "0.6", default-features = false, features = ["deflate"] }
+# `mneme self-update`: gzip + tar for Linux/macOS release archives.
+flate2 = "1"
+tar = "0.4"
 
 [target.'cfg(windows)'.dependencies]
 # Windows path normalisation so manifest paths produced on Win look POSIX

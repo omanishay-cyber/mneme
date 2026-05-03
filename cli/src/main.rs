@@ -14,6 +14,7 @@
 //! mneme models <op>            # status | install | install-onnx-runtime
 //! mneme build [project_path]
 //! mneme update [project_path]
+//! mneme self-update [--force] [--check-only]
 //! mneme status
 //! mneme view [--web]
 //! mneme audit [--scope=theme|security|all]
@@ -107,6 +108,14 @@ enum Command {
     Build(commands::build::BuildArgs),
     /// Incremental update.
     Update(commands::update::UpdateArgs),
+    /// Replace the installed `mneme` binary set with the latest
+    /// GitHub release. Distinct from `mneme update`, which is the
+    /// project-incremental re-index command. Naming follows the
+    /// convention of `rustup self update`, `gh self-update`, and
+    /// `cargo install --self`: "update the binary itself" vs
+    /// "update the project index".
+    #[command(name = "self-update")]
+    SelfUpdate(commands::self_update::SelfUpdateArgs),
     /// Print graph stats / drift findings count / last build time.
     Status(commands::status::StatusArgs),
     /// Open the vision app (Tauri or browser).
@@ -206,6 +215,7 @@ async fn dispatch(cli: Cli) -> CliResult<()> {
         Command::Models(args) => commands::models::run(args).await,
         Command::Build(args) => commands::build::run(args, socket_override).await,
         Command::Update(args) => commands::update::run(args, socket_override).await,
+        Command::SelfUpdate(args) => commands::self_update::run(args).await,
         Command::Status(args) => commands::status::run(args, socket_override).await,
         Command::View(args) => commands::view::run(args).await,
         Command::Audit(args) => commands::audit::run(args, socket_override).await,

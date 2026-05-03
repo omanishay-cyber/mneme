@@ -26,6 +26,7 @@ pub mod rebuild;
 pub mod recall;
 pub mod register_mcp;
 pub mod rollback;
+pub mod self_update;
 pub mod session_end;
 pub mod session_prime;
 pub mod shard_summary;
