@@ -6,7 +6,7 @@
 
 **Test host:** Local VMware Workstation VM `testingpc` (WinDev2407Eval / Win11 Eval) at `192.168.1.193`. Replaces the EC2 t3.micro from prior cycles - local VM has 58 GB free vs EC2's 3 GB.
 
-**Testing protocol:** fix on host PC only; build -> zip -> upload to VM -> uninstall old install (preserve creds + models) -> install fresh -> run targeted + comprehensive tests. Fix on host, not VM.
+**Testing protocol:** fix on host PC only; build -> zip -> upload to VM -> uninstall old install (preserve creds + models) -> install fresh -> run targeted and full-coverage tests. Fix on host, not VM.
 
 ---
 
@@ -101,7 +101,7 @@ Acceptance criteria:
 
 (filled by orchestrator)
 
-### Phase 8 - Comprehensive S5 lifecycle
+### Phase 8 - Full S5 lifecycle
 
 5 cycles of daemon start -> status -> stop -> verify clean. Acceptance: `clean_cycles == 5`.
 

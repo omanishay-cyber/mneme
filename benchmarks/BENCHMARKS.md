@@ -176,7 +176,7 @@ only measured numbers, or `TBD` until the next run.
 - Added `justfile` with one recipe per bench.
 - Added weekly GitHub Actions workflow with `bench-history.csv` trend file.
 - Replaced every "target" entry in the main README benchmark table with
-  either a measured figure or an honest `TBD (v0.3)` marker.
+  either a measured figure or a `TBD (v0.3)` marker.
 
 ### v0.1
 

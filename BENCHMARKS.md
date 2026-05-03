@@ -289,8 +289,8 @@ current retrieval primitive.
    `'%target'` in addition to `LIKE '%target%'`, since qualified names are
    fully-qualified (`crate::module::fn`) and bare-token matches are rare.
 4. **CRG parity ceiling.** With the above three fixes mneme should land at
-   ~6/10 query-level hits, matching CRG's reported score in the head-to-head
-   above. Until then the gap is a real retrieval-semantics gap, not a
+   ~6/10 query-level hits, matching CRG's reported score in the comparison
+   above. Until then the gap is a retrieval-semantics gap, not a
    fixture-freshness gap.
 
 Source of truth for this refresh:
@@ -299,9 +299,9 @@ Source of truth for this refresh:
 
 ## Mneme vs CRG
 
-Head-to-head comparison between **Mneme v0.2.0** (this repo, Rust) and
+Comparison between **Mneme v0.2.0** (this repo, Rust) and
 **code-review-graph v2.3.2** (`tirth8205/code-review-graph`, Python + tree-sitter
-+ networkx + SQLite), both indexing the same fixture - the mneme / datatree
++ networkx + SQLite), both indexing the same fixture: the mneme / datatree
 repository itself.
 
 ### Methodology
