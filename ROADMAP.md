@@ -1,12 +1,28 @@
 # Mneme Roadmap
 
-Public milestones. Current version: **v0.3.2** (hotfix 2026-05-02). Updated 2026-05-02.
+Public milestones. Current version: **v0.3.2** (hotfix 2026-05-03). Updated 2026-05-03.
 
 Detailed engineering backlog lives in [`docs/dev/v0.4-backlog.md`](docs/dev/v0.4-backlog.md).
 
 ---
 
 ## Shipped
+
+### v0.3.2 hotfix-2 - MCP tool surface + bench fairness (2026-05-03)
+
+- **MCP dist-mode tool registration** - the bundled `mcp/dist/index.js` was registering 0 of 48 tools because the hot-reload registry tried to dynamically import `.ts` source files that don't exist in the dist layout. Resolver now honours `MNEME_MCP_TOOLS_DIR` env, then sibling `tools/`, then `../src/tools/`. All 48 tools register in dist mode.
+- **MCP path normalization** - `recall_file` and `blast_radius` were doing exact UNC-path matches and missing relative paths like `src/utils/auth.ts`. Now tries exact, project-root-resolved, slash variants, and basename LIKE fallbacks.
+- **MCP symbol normalization** - `find_references` and `call_graph` were doing exact `qualified_name` matches and missing bare names like `Store`. Now matches against `name`, fully-qualified, Rust `::` suffix, and TS `.` suffix.
+- **Bench rerun against the same corpus** - mneme retrieval went from **0.8/10** (broken bundle) to **7.0/10** (matches tree-sitter 7.2 within margin, beats CRG 5.4, lowest token cost of the four working MCPs).
+- **Linux store-worker stale-socket cleanup** - the worker now unlinks any prior `store.sock` before binding, mirroring the supervisor's own pattern. Fixes restart-loop on Linux when `mneme-daemon` respawns the worker after a crash.
+- **arm64 cross-compile fixed** - the `target-cpu=x86-64-v3` rustflag was being applied unconditionally and rejecting non-x86 targets; scoped to `cfg(target_arch="x86_64")` so arm64 inherits a clean flag set. All 5 platforms (Linux x64/arm64, macOS arm64, Windows x64/arm64) now build cleanly in CI.
+- **GitHub Pages redesign** - sticky top nav with theme toggle and live GitHub stars badge; full dark mode (auto-pick via `prefers-color-scheme`, manual toggle persisted in localStorage); OS-aware tabbed install picker with copy-to-clipboard; codeword cards become click-to-copy buttons; 4-column footer with project/docs/community grouping; SoftwareApplication JSON-LD + canonical link + theme-color meta for SEO; bench-table animated bars and color-coded score chips; speed-strip mini-bars; terminal demo replay loop. 10 commits, 25 audit findings addressed.
+- **v0.3.3 cocktail features landed early under the v0.3.2 tag** (no version bump):
+  - winget package manifest at `winget/Anish/Mneme/0.3.2/` (x64 + arm64) - ready for the microsoft/winget-pkgs PR.
+  - `mneme self-update` CLI subcommand - cross-OS binary self-update with SHA-256 verification, daemon lifecycle handling, and atomic rename swap. Distinct from `mneme update` (project-incremental re-index).
+  - Vision SPA project picker - `?project=<hash>` URL param + dropdown UI in the topbar; all 17 `/api/graph/*` endpoints now scope by project hash with path-traversal defence.
+  - `mneme graph-diff <from> <to>` CLI - structural diff between two graph snapshots in JSON/table/markdown, with rename detection (blake3 fingerprint), kind/file/max filters.
+  - `pip install mneme-mcp` Python wrapper - `mneme` console script that downloads the official bootstrap and runs it. PyPI submission in `pip/PUBLISH.md`.
 
 ### v0.3.2 hotfix - AWS production install hardening (2026-05-02)
 
