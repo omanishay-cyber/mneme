@@ -455,10 +455,10 @@ Raw CRG output: [`benchmarks/results/crg-2026-04-23.json`](benchmarks/results/cr
 
 Same five questions, same corpus, same Claude Code model, isolated per MCP via
 `--strict-mcp-config`. Corpus = the mneme workspace itself
-(Rust + TypeScript + Python, 50K+ LOC, 400+ files); we previously ran the
+(Rust + TypeScript + Python, 50K+ LOC, 400+ files). We previously ran the
 same harness against an Electron + React + TypeScript codebase on a separate
-AWS test instance, but the host running this re-run does not have access to
-that source tree from the AWS test instance running this re-run, so we substituted the mneme repo as the shared corpus and
+AWS test instance, but the host running this run does not have access to that
+source tree, so we substituted the mneme repo as the shared corpus and
 rewrote ground-truth markers accordingly. The ground-truth list and the
 auto-scorer rubric are committed at
 [`docs/benchmarks/mcp-bench-2026-05-02/ground-truth.md`](docs/benchmarks/mcp-bench-2026-05-02/ground-truth.md).
@@ -467,16 +467,18 @@ Per-query budget: 180 s wall. Each cell shows
 `wall-time s · output tokens · cost USD · score (0-10)`. Cost comes verbatim
 from `total_cost_usd` in Claude's JSON envelope. A 0 score with a 180 s wall
 means the MCP did not return a usable answer in budget - the 0 score is what
-the auto-scorer counted in the response, not a placeholder.
+the auto-scorer counted in the response, not a placeholder. Mneme's row was
+re-measured on 2026-05-02 after a tool-loader fix (see "Mneme MCP fix" below);
+the other three MCPs were not re-run because their setup did not change.
 
 | Query | mneme v0.3.2 | tree-sitter v0.7.0 | CRG v2.3.2 | graphify v0.3.0 |
 |---|---|---|---|---|
-| Q1 build pipeline functions | 59 s · 3,167 t · $0.97 · **0**/10 | 112 s · 7,855 t · $1.21 · **9**/10 | 103 s · 8,142 t · $1.47 · **9**/10 | 180 s · 0 t · $0 · **0**/10 |
-| Q2 blast radius of `common/src/paths.rs` | 69 s · 3,409 t · $0.81 · **0**/10 | 140 s · 9,560 t · $1.06 · **9**/10 | 180 s · 0 t · $0 · **0**/10 | 176 s · 0 t · $0 · **0**/10 |
-| Q3 build call graph from `cli/src/commands/build.rs` | 28 s · 1,497 t · $0.53 · **0**/10 | 134 s · 9,156 t · $1.44 · **9**/10 | 160 s · 9,310 t · $1.96 · **9**/10 | 180 s · 0 t · $0 · **0**/10 |
-| Q4 design patterns | 48 s · 2,395 t · $0.80 · **4**/10 | 102 s · 4,825 t · $1.69 · **9**/10 | 111 s · 8,976 t · $1.10 · **9**/10 | 180 s · 0 t · $0 · **0**/10 |
-| Q5 concurrency / data races in store crate | 74 s · 3,312 t · $1.22 · **0**/10 | 180 s · 0 t · $0 · **0**/10 | 180 s · 0 t · $0 · **0**/10 | 180 s · 0 t · $0 · **0**/10 |
-| **Totals** | 278 s · 13,780 t · $4.32 · **0.8**/10 avg | 668 s · 31,396 t · $5.40 · **7.2**/10 avg | 734 s · 26,428 t · $4.53 · **5.4**/10 avg | 896 s · 0 t · $0 · **0.0**/10 avg |
+| Q1 build pipeline functions | 76 s · 5,601 t · $1.05 · **4**/10 | 112 s · 7,855 t · $1.21 · **9**/10 | 103 s · 8,142 t · $1.47 · **9**/10 | 180 s · 0 t · $0 · **0**/10 |
+| Q2 blast radius of `common/src/paths.rs` | 28 s · 1,655 t · $0.54 · **0**/10 | 140 s · 9,560 t · $1.06 · **9**/10 | 180 s · 0 t · $0 · **0**/10 | 176 s · 0 t · $0 · **0**/10 |
+| Q3 build call graph from `cli/src/commands/build.rs` | 33 s · 1,840 t · $0.54 · **0**/10 | 134 s · 9,156 t · $1.44 · **9**/10 | 160 s · 9,310 t · $1.96 · **9**/10 | 180 s · 0 t · $0 · **0**/10 |
+| Q4 design patterns | 110 s · 6,743 t · $1.09 · **5**/10 | 102 s · 4,825 t · $1.69 · **9**/10 | 111 s · 8,976 t · $1.10 · **9**/10 | 180 s · 0 t · $0 · **0**/10 |
+| Q5 concurrency / data races in store crate | 51 s · 2,870 t · $0.58 · **0**/10 | 180 s · 0 t · $0 · **0**/10 | 180 s · 0 t · $0 · **0**/10 | 180 s · 0 t · $0 · **0**/10 |
+| **Totals** | 298 s · 18,709 t · $3.81 · **1.8**/10 avg | 668 s · 31,396 t · $5.40 · **7.2**/10 avg | 734 s · 26,428 t · $4.53 · **5.4**/10 avg | 896 s · 0 t · $0 · **0.0**/10 avg |
 
 ### What we read out of this
 
@@ -487,21 +489,48 @@ the auto-scorer counted in the response, not a placeholder.
 - **CRG** matched tree-sitter on three of the four queries it answered
   (9/10 on Q1, Q3, Q4) and used the cheapest tokens of the four when it did
   answer. Q2 (blast radius) and Q5 (security) hit the 180 s budget. Both
-  reflect real `code-review-graph` MCP behaviour on the host - not a
-  configuration error - and would justify a longer per-query budget on a
+  reflect real `code-review-graph` MCP behaviour on the host, not a
+  configuration error, and would justify a longer per-query budget on a
   re-run.
-- **mneme** returned only its two MCP resources (`mneme://commands`,
-  `mneme://identity`) on every query - none of the 47 advertised tools
-  (`mneme_recall`, `blast_radius`, `call_graph`, `architecture_overview`,
-  ...) were surfaced as callable MCP tools in this Claude Code build. The
-  CLI from the same project root returned correct results, so the graph
-  data on disk is fine; the gap is in the MCP server's tool registration
-  visible to the client. Filed for the v0.3.3 hotfix.
+- **mneme** registered all 48 tools after the tool-loader fix and was fully
+  callable. The model used `mcp__mneme__god_nodes`, `recall_concept`,
+  `find_references`, `call_graph`, `architecture_overview`, `doctor`,
+  `blast_radius`, `dependency_chain`, `health`, `recall_file`, and
+  `mneme_recall` across the 5 queries (raw envelopes under `results-final/`).
+  Q1 and Q4 returned partial answers (4/10, 5/10). Q2, Q3, Q5 came back as
+  explicit "cannot answer" responses; the auto-scorer correctly counted those
+  as 0. The graph data on disk is fine (14,100 nodes / 64,430 edges /
+  663 files indexed for this corpus, per `mneme_doctor`), but the schema
+  stores Rust symbols as content-addressed node IDs (e.g. `n_05a5280e65b7d1db`)
+  rather than resolved function names, so symbol-name lookups via
+  `find_references` and `call_graph` return empty for bare names like
+  `build_graph` or `Store::new`. Path-based lookups (`recall_file`,
+  `blast_radius`) need the full indexed path form rather than a relative or
+  basename. Both are real product gaps tracked for v0.3.3.
 - **graphify** connected and listed tools but every tool call hung past the
   180 s budget. The graphify CLI itself works (the corpus index built in
   ~13 s, 3 929 nodes / 7 196 edges) and `claude mcp list` reports
   `Connected`, so the gap is somewhere in the MCP surface or in the
   `fastmcp 3.x` runtime that ships with the autotrigger fork.
+
+### Mneme MCP fix (2026-05-02)
+
+The first run of this bench showed mneme at 0.8/10 avg with all five queries
+returning the same shape: only the two MCP resources (`mneme://commands`,
+`mneme://identity`) were visible to the model, with zero callable tools.
+JSON-RPC probes against `mcp/dist/index.js` reproduced this directly: the
+bundled entry returned `{"tools":[]}` to `tools/list` and stderr showed 48
+`failed to load <name>.ts` errors per boot. Root cause: the hot-reload tool
+registry resolved the tools directory from `import.meta.url`, which under the
+bundled layout pointed at `mcp/dist/` rather than `mcp/src/tools/`, so every
+tool's dynamic `import("./recall_decision.ts")` missed. The `mneme.exe mcp
+stdio` path was unaffected because it execs `bun mcp/src/index.ts` directly,
+which kept `import.meta.url` inside `mcp/src/tools/`. Fix: the registry now
+also walks up to `../src/tools/` from the bundled location, with a
+`MNEME_MCP_TOOLS_DIR` env override, and re-bundling restores 48/48 tools to
+both entry points. After the fix, the same five queries against the same
+corpus produced the row above. Raw envelopes under `results-final/` for the
+mneme cells; the other three MCP rows are unchanged from the first run.
 
 ### Reproduction
 
@@ -522,4 +551,6 @@ pwsh ./final-table.ps1 -ResultsDir ./results
 Raw envelopes for all 20 cells, the prompts as fed to Claude, the auto-score
 rubric, and the per-MCP `--strict-mcp-config` JSON files are committed under
 [`docs/benchmarks/mcp-bench-2026-05-02/`](docs/benchmarks/mcp-bench-2026-05-02/).
+Post-fix mneme envelopes are under
+[`docs/benchmarks/mcp-bench-2026-05-02/results-final/`](docs/benchmarks/mcp-bench-2026-05-02/results-final/).
 

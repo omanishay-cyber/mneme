@@ -1,0 +1,26 @@
+﻿[
+    {
+        "mcp":  "mneme",
+        "query":  "Q2",
+        "wall_sec":  31,
+        "output_file":  "C:\\Users\\Anish\\Desktop\\temp\\mcp-bench-2026-05-02\\results\\mneme-Q2.json"
+    },
+    {
+        "mcp":  "mneme",
+        "query":  "Q3",
+        "wall_sec":  36,
+        "output_file":  "C:\\Users\\Anish\\Desktop\\temp\\mcp-bench-2026-05-02\\results\\mneme-Q3.json"
+    },
+    {
+        "mcp":  "mneme",
+        "query":  "Q4",
+        "wall_sec":  113,
+        "output_file":  "C:\\Users\\Anish\\Desktop\\temp\\mcp-bench-2026-05-02\\results\\mneme-Q4.json"
+    },
+    {
+        "mcp":  "mneme",
+        "query":  "Q5",
+        "wall_sec":  54,
+        "output_file":  "C:\\Users\\Anish\\Desktop\\temp\\mcp-bench-2026-05-02\\results\\mneme-Q5.json"
+    }
+]

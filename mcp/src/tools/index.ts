@@ -250,9 +250,50 @@ class ToolRegistry extends EventEmitter {
 
 // ---------------------------------------------------------------------------
 // Default instance — used by the MCP server.
+//
+// Bug TS-12 (2026-05-02): the bundled `dist/index.js` is loaded by bun as a
+// single JS file, so `import.meta.url` resolves to `…/dist/index.js`. The
+// hot-reload registry then tried to `await import("…/dist/<name>.ts")` —
+// no `.ts` files live in `dist/`, so all 48 tools failed to load and the
+// MCP server exposed an empty `tools/list`. Repro: the 0.8/10 score in the
+// 2026-05-02 4-MCP bench was caused entirely by this — the bench wrapper
+// pointed at `dist/index.js` and saw 0 of 47 tools register.
+//
+// Resolution logic, in order:
+//   1. `MNEME_MCP_TOOLS_DIR` env override (escape hatch for unusual layouts)
+//   2. Sibling `tools/` next to this module (the source-tree case)
+//   3. `../src/tools/` next to this module (the bundled `dist/` case where
+//      the source tree was shipped alongside the bundle)
+//
+// Falls back to (2) regardless if neither (1) nor (3) resolves to a real
+// directory — the existing on-disk-stat error reporting in `load()` will
+// surface the missing-file case clearly to the user.
 // ---------------------------------------------------------------------------
 
-const defaultToolsDir = dirname(fileURLToPath(import.meta.url));
+import { existsSync as _existsSync } from "node:fs";
+
+function resolveDefaultToolsDir(): string {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const envOverride = process.env.MNEME_MCP_TOOLS_DIR;
+  if (envOverride && envOverride.length > 0 && _existsSync(envOverride)) {
+    return envOverride;
+  }
+  // Source-tree case: this file lives at `mcp/src/tools/index.ts`, so
+  // `here` is `…/mcp/src/tools` — return as-is.
+  const sibling = here;
+  if (_existsSync(join(sibling, "recall_decision.ts"))) {
+    return sibling;
+  }
+  // Bundled case: this file is `mcp/dist/index.js`, so `here` is
+  // `…/mcp/dist`. Walk up to `…/mcp/src/tools` if it exists.
+  const bundledFallback = join(here, "..", "src", "tools");
+  if (_existsSync(join(bundledFallback, "recall_decision.ts"))) {
+    return bundledFallback;
+  }
+  return sibling;
+}
+
+const defaultToolsDir = resolveDefaultToolsDir();
 export const registry = new ToolRegistry(defaultToolsDir);
 
 export type { ToolDescriptor };
