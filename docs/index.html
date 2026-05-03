@@ -630,6 +630,67 @@
       .terminal-line { opacity: 1 !important; transform: none !important; }
       .bench-table .bar-cell .bar { width: var(--bar-w, 50%) !important; transition: none !important; }
     }
+
+    /* ============================================================ */
+    /*  DARK THEME - same warmth, inverted. Brand accents preserved. */
+    /* ============================================================ */
+    [data-theme="dark"] {
+      --bg: #0b0c0e;
+      --bg-2: #131418;
+      --bg-3: #181a1f;
+      --bg-elev: #1d2025;
+      --text: #e6e8ec;
+      --text-strong: #ffffff;
+      --muted: #a3a6ad;
+      --muted-2: #777a82;
+      --line: #25272d;
+      --line-strong: #34373f;
+
+      /* punchier accents on dark */
+      --accent-blue:    #4191E1;
+      --accent-green:   #41E1B5;
+      --accent-cyan:    #22D3EE;
+      --accent-magenta: #f472b6;
+      --accent-amber:   #fbbf24;
+      --accent-purple:  #a78bfa;
+      --accent-red:     #f87171;
+
+      --shadow-card: 0 1px 2px rgba(0,0,0,0.4), 0 4px 14px rgba(0,0,0,0.35);
+      --shadow-card-hover: 0 2px 4px rgba(0,0,0,0.5), 0 8px 28px rgba(0,0,0,0.5);
+      --shadow-cta: 0 1px 2px rgba(65,145,225,0.25), 0 8px 24px rgba(65,145,225,0.30);
+    }
+
+    /* Auto-pick dark when no explicit choice */
+    @media (prefers-color-scheme: dark) {
+      :root:not([data-theme="light"]) {
+        --bg: #0b0c0e; --bg-2: #131418; --bg-3: #181a1f; --bg-elev: #1d2025;
+        --text: #e6e8ec; --text-strong: #ffffff; --muted: #a3a6ad; --muted-2: #777a82;
+        --line: #25272d; --line-strong: #34373f;
+        --accent-blue: #4191E1; --accent-green: #41E1B5; --accent-cyan: #22D3EE;
+        --accent-magenta: #f472b6; --accent-amber: #fbbf24; --accent-purple: #a78bfa;
+        --accent-red: #f87171;
+      }
+    }
+
+    /* CTA primary readability on dark */
+    [data-theme="dark"] .cta-primary {
+      background: var(--accent-green);
+      color: #0a0a0c;
+    }
+    [data-theme="dark"] .cta-primary:hover {
+      background: #5cf0c5;
+      box-shadow: 0 6px 16px rgba(65,225,181,0.35);
+    }
+
+    /* Body grain + ambient mesh re-tinted for dark */
+    [data-theme="dark"] body::before { opacity: 0.04; mix-blend-mode: screen; }
+    [data-theme="dark"] body::after {
+      background:
+        radial-gradient(ellipse 65% 45% at 12% 8%,  rgba(65,145,225,0.10), transparent 70%),
+        radial-gradient(ellipse 55% 40% at 88% 22%, rgba(65,225,181,0.08), transparent 70%),
+        radial-gradient(ellipse 60% 50% at 50% 92%, rgba(244,114,182,0.06), transparent 75%);
+    }
+
     /* ============================================================ */
     /*  COMPARISON TABLE (4-way matrix)                              */
     /* ============================================================ */
@@ -1775,6 +1836,23 @@ python run_crg_bench.py</code></pre>
       });
     }, { threshold: 0.12, rootMargin: '0px 0px -40px 0px' });
     targets.forEach(function (t) { io.observe(t); });
+  })();
+
+  // Theme toggle (persists in localStorage, honors prefers-color-scheme)
+  (function () {
+    const root = document.documentElement;
+    let stored = null;
+    try { stored = localStorage.getItem('mneme-theme'); } catch (e) {}
+    const prefersDark = window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches;
+    const initial = stored || (prefersDark ? 'dark' : 'light');
+    root.setAttribute('data-theme', initial);
+    document.querySelectorAll('[data-theme-toggle]').forEach(function (btn) {
+      btn.addEventListener('click', function () {
+        const next = root.getAttribute('data-theme') === 'dark' ? 'light' : 'dark';
+        root.setAttribute('data-theme', next);
+        try { localStorage.setItem('mneme-theme', next); } catch (e) {}
+      });
+    });
   })();
 
   // Scroll-progress bar
