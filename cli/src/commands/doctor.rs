@@ -207,6 +207,7 @@ pub async fn run(args: DoctorArgs, socket_override: Option<PathBuf>) -> CliResul
         render_models_box();
         if !args.skip_mcp_probe {
             render_mcp_tool_probe_box();
+            render_mcp_integrations_box();
         }
         println!();
         println!("start the daemon with:  mneme daemon start");
@@ -367,6 +368,7 @@ pub async fn run(args: DoctorArgs, socket_override: Option<PathBuf>) -> CliResul
         // slow disks can opt out.
         if !args.skip_mcp_probe {
             render_mcp_tool_probe_box();
+            render_mcp_integrations_box();
         }
 
         print_build_toolchain_section();
@@ -484,17 +486,26 @@ pub(crate) fn compose_hooks_message(
     // Layer 1 overlay: a concrete read / parse error trumps every other
     // signal — surface it so the user knows the file is broken, not
     // empty.
+    //
+    // A1-008 (2026-05-04): drop `count/expected` from the parse-error
+    // branch. When parse fails, the count is meaningless (could be 0
+    // because nothing parsed, or could be N if the parser counted
+    // partials before the error -- inconsistent across implementations).
+    // The previous string read like "3/8 — could not read settings.json
+    // cleanly", contradictory on its face. New form makes intent clear:
+    // "could not determine because file did not parse."
     if let Some(err) = parse_error {
+        let _ = (count,); // intentionally unused -- audit A1-008 dropped count from parse-error overlay
         if let Some(pid) = claude_pid {
             return format!(
-                "{count}/{expected} — could not read settings.json cleanly ({err}). \
+                "could not determine: settings.json did not parse ({err}). \
                  Claude Code is RUNNING (PID {pid}); it may be holding the file. \
-                 Close Claude entirely and re-run `mneme doctor` to verify."
+                 [{expected} hooks expected; close Claude entirely and re-run `mneme doctor` to verify.]"
             );
         }
         return format!(
-            "{count}/{expected} — could not read settings.json cleanly ({err}). \
-             Open the file and check its JSON, then re-run `mneme install`."
+            "could not determine: settings.json did not parse ({err}). \
+             [{expected} hooks expected; open the file and check its JSON, then re-run `mneme install`.]"
         );
     }
 
@@ -576,17 +587,33 @@ pub(crate) fn is_claude_code_running() -> Option<u32> {
         if name == "claude.exe" || name == "claude" {
             return Some(pid.as_u32());
         }
-        // Command-line match for `node claude-code` style invocations.
-        // sysinfo's `cmd()` returns the argv vector; we lowercase and
-        // join so we don't have to care about which slot the
-        // claude-code script lives in.
-        let cmd_joined: String = proc_
+        // A1-009 (2026-05-04): tightened from joined-cmdline contains to
+        // exe-path / argv[0] match only. The previous heuristic matched
+        // ANY substring in the joined command line, so a text editor with
+        // `claude-code-readme.md` open, a grep over a build log named
+        // `claude-code-build.log`, or our own deep-audit prompt at runtime
+        // all triggered "Claude is RUNNING" -- exactly the wrong signal
+        // during a diagnostic moment. Now we require the substring to be
+        // in the executable's own path or in argv[0], not in arbitrary
+        // arguments / flags / open-file references.
+        let exe_path: String = proc_
+            .exe()
+            .map(|p| p.to_string_lossy().to_lowercase())
+            .unwrap_or_default();
+        let argv0: String = proc_
             .cmd()
-            .iter()
+            .first()
             .map(|s| s.to_string_lossy().to_lowercase())
-            .collect::<Vec<_>>()
-            .join(" ");
-        if cmd_joined.contains("claude-code") || cmd_joined.contains("claude_code") {
+            .unwrap_or_default();
+        let identifies_claude_code = |hay: &str| -> bool {
+            // Match path component "claude-code" (e.g. .../claude-code/cli/index.js)
+            // or executable basename ending in claude / claude.exe.
+            hay.contains("claude-code")
+                || hay.contains("claude_code")
+                || hay.ends_with("\\claude.exe")
+                || hay.ends_with("/claude")
+        };
+        if identifies_claude_code(&exe_path) || identifies_claude_code(&argv0) {
             return Some(pid.as_u32());
         }
     }
@@ -774,14 +801,20 @@ fn render_models_box() {
     println!("└─────────────────────────────────────────────────────────┘");
 }
 
-/// Render the "per-MCP-tool health" box — spawn a fresh mneme child,
+/// Render the "MCP self-test" box — spawn a fresh mneme child,
 /// enumerate tools via JSON-RPC, show one ✓ per live tool. Split out
 /// so we can emit it on both the supervisor-up and supervisor-down
 /// paths.
+///
+/// A1-001 (2026-05-04): RENAMED from "per-MCP-tool health" to "MCP
+/// self-test". The old label implied this proved Claude Code (or any
+/// other AI host) was actually using mneme. It does not -- it only
+/// proves THIS binary can spawn its own MCP server and list its tools.
+/// Real integration verification lives in render_mcp_integrations_box.
 fn render_mcp_tool_probe_box() {
     println!();
     println!("┌─────────────────────────────────────────────────────────┐");
-    println!("│ per-MCP-tool health                                     │");
+    println!("│ MCP self-test (mneme can serve its own tools)           │");
     println!("├─────────────────────────────────────────────────────────┤");
     match probe_mcp_tools(Duration::from_secs(10)) {
         Ok(tools) => {
@@ -799,6 +832,177 @@ fn render_mcp_tool_probe_box() {
         Err(reason) => {
             line("✗ probe", &format!("could not probe MCP server — {reason}"));
         }
+    }
+    println!("└─────────────────────────────────────────────────────────┘");
+}
+
+/// A1-001 (2026-05-04): MCP host integration status.
+///
+/// Captures whether each AI host has mneme registered in its MCP config
+/// AND whether the host process is currently running. Distinct from
+/// `probe_mcp_tools` (which only verifies this binary can serve tools to
+/// itself) -- this is the real "is anyone actually using mneme?" probe.
+#[derive(Debug, Clone)]
+struct McpHostStatus {
+    /// User-facing name, e.g. "claude-code".
+    host: &'static str,
+    /// Resolved registry file location (per-platform).
+    registry_path: std::path::PathBuf,
+    /// `mcpServers.mneme` entry present in registry?
+    registered: bool,
+    /// Registered command path resolves to the current `mneme` binary?
+    /// `None` when not registered (no command to inspect).
+    command_matches: Option<bool>,
+    /// Host process found in the running process table?
+    /// `None` means "we didn't probe" (only Claude Code is currently probed).
+    live_pid: Option<u32>,
+    /// Free-form note when `registered = false` (e.g. "file missing", "parse error").
+    note: Option<String>,
+}
+
+/// A1-001: probe Claude Code's `~/.claude.json` for the `mcpServers.mneme`
+/// entry and verify the command path matches the running mneme binary.
+///
+/// Returns a `McpHostStatus` regardless of whether the registry file exists
+/// or parses -- the doctor renders the result either way so users see WHY
+/// integration is missing (file absent vs. file present but no mneme entry).
+fn probe_mcp_claude_code_status() -> McpHostStatus {
+    // Resolve `~/.claude.json` via PathManager so MNEME_HOME / HOME overrides
+    // are honored consistently with the rest of the CLI.
+    let registry_path = match dirs::home_dir() {
+        Some(h) => h.join(".claude.json"),
+        None => std::path::PathBuf::from(".claude.json"),
+    };
+
+    let mut status = McpHostStatus {
+        host: "claude-code",
+        registry_path: registry_path.clone(),
+        registered: false,
+        command_matches: None,
+        live_pid: is_claude_code_running(),
+        note: None,
+    };
+
+    let raw = match std::fs::read_to_string(&registry_path) {
+        Ok(s) => s,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+            status.note = Some("~/.claude.json missing -- Claude Code never installed an MCP entry".into());
+            return status;
+        }
+        Err(e) => {
+            status.note = Some(format!("read failed: {e}"));
+            return status;
+        }
+    };
+
+    let parsed: serde_json::Value = match serde_json::from_str(&raw) {
+        Ok(v) => v,
+        Err(e) => {
+            status.note = Some(format!("parse failed: {e}"));
+            return status;
+        }
+    };
+
+    let mneme = parsed
+        .get("mcpServers")
+        .and_then(|v| v.get("mneme"))
+        .and_then(|v| v.as_object());
+    let mneme = match mneme {
+        Some(m) => m,
+        None => {
+            status.note = Some(
+                "no mcpServers.mneme entry -- run `mneme install` to register"
+                    .into(),
+            );
+            return status;
+        }
+    };
+
+    status.registered = true;
+
+    // Compare registered command to current_exe() on the basename
+    // (lowercased on Windows). Different absolute paths are still
+    // treated as "matches" if the leaf filename agrees, since users
+    // routinely re-install at different locations or via wrappers.
+    let current_exe = std::env::current_exe().ok();
+    let registered_cmd = mneme
+        .get("command")
+        .and_then(|v| v.as_str())
+        .unwrap_or_default();
+    if registered_cmd.is_empty() {
+        status.command_matches = Some(false);
+        status.note = Some("mcpServers.mneme.command field is empty".into());
+    } else {
+        let same = match &current_exe {
+            Some(cur) => {
+                let leaf_eq = |a: &std::path::Path, b: &std::path::Path| {
+                    let af = a.file_name().map(|s| s.to_string_lossy().to_lowercase());
+                    let bf = b.file_name().map(|s| s.to_string_lossy().to_lowercase());
+                    af.is_some() && af == bf
+                };
+                let registered = std::path::PathBuf::from(registered_cmd);
+                leaf_eq(&registered, cur) || registered_cmd.eq_ignore_ascii_case("mneme")
+            }
+            None => true, // can't compare; assume match rather than panic
+        };
+        status.command_matches = Some(same);
+        if !same {
+            status.note = Some(format!(
+                "registered command {:?} doesn't match current binary {:?}",
+                registered_cmd,
+                current_exe.as_ref().map(|p| p.display().to_string()).unwrap_or_default()
+            ));
+        }
+    }
+
+    status
+}
+
+/// A1-001 (2026-05-04): render the "MCP integrations" box -- the answer
+/// to "is any AI host actually using mneme right now?".
+///
+/// Distinct from `render_mcp_tool_probe_box` (the self-test). This box
+/// reads the host's MCP registry file (~/.claude.json for Claude Code)
+/// and surfaces three independent signals:
+///   - registry entry present?
+///   - command path matches this binary?
+///   - host process running?
+///
+/// All-green is a strong positive. Mixed signals get a clear note so the
+/// user knows whether to run `mneme install`, restart Claude Code, or
+/// investigate path mismatches.
+fn render_mcp_integrations_box() {
+    println!();
+    println!("┌─────────────────────────────────────────────────────────┐");
+    println!("│ MCP integrations (clients actually wired to mneme)      │");
+    println!("├─────────────────────────────────────────────────────────┤");
+
+    // Currently we probe Claude Code only. Future extensions: cursor,
+    // codex, windsurf, etc. -- each has its own registry path/format.
+    let status = probe_mcp_claude_code_status();
+    let glyph_reg = if status.registered { "✓" } else { "✗" };
+    line(
+        &format!("{glyph_reg} {} registered", status.host),
+        &status.registry_path.display().to_string(),
+    );
+    if let Some(matches) = status.command_matches {
+        let glyph_cmd = if matches { "✓" } else { "✗" };
+        line(
+            &format!("{glyph_cmd} {} command path", status.host),
+            if matches {
+                "matches current binary"
+            } else {
+                "MISMATCH — registered cmd != current_exe"
+            },
+        );
+    }
+    let live_msg = match status.live_pid {
+        Some(pid) => format!("running (pid {pid})"),
+        None => "host process not detected".to_string(),
+    };
+    line(&format!("• {} live", status.host), &live_msg);
+    if let Some(note) = &status.note {
+        line("note", note);
     }
     println!("└─────────────────────────────────────────────────────────┘");
 }
@@ -864,7 +1068,26 @@ pub fn mcp_entry_path() -> Option<std::path::PathBuf> {
 /// Print the boxed banner. Version line + copyright line use dynamic
 /// padding so longer pre-release versions (e.g. "0.4.0-rc.5+build.7")
 /// don't overflow the right border. Closes NEW-026 + I-14.
+///
+/// A1-006 (2026-05-04): on terminals narrower than 64 columns the box
+/// wraps illegibly. Detect width via env vars and emit a single-line
+/// fallback "mneme v0.3.2 -- doctor" so log scrapers / piped contexts
+/// also see clean output. Native terminal width detection requires
+/// extra deps (term_size, crossterm); env-var heuristics handle 95% of
+/// real deployments.
 fn print_banner() {
+    let term_too_narrow = std::env::var("COLUMNS")
+        .ok()
+        .and_then(|s| s.parse::<usize>().ok())
+        .map(|c| c < 64)
+        .unwrap_or(false);
+    if term_too_narrow {
+        println!(
+            "mneme doctor v{} -- 100% local Apache-2.0 -- (c) 2026 Anish & Kruti Trivedi",
+            env!("CARGO_PKG_VERSION")
+        );
+        return;
+    }
     println!("╔══════════════════════════════════════════════════════════════╗");
     println!("║                                                              ║");
     println!("║   ███╗   ███╗███╗   ██╗███████╗███╗   ███╗███████╗           ║");
@@ -874,7 +1097,12 @@ fn print_banner() {
     println!("║   ██║ ╚═╝ ██║██║ ╚████║███████╗██║ ╚═╝ ██║███████╗           ║");
     println!("║   ╚═╝     ╚═╝╚═╝  ╚═══╝╚══════╝╚═╝     ╚═╝╚══════╝           ║");
     println!("║                                                              ║");
-    println!("║   persistent memory · code graph · drift detector · 48 tools ║");
+    // A1-005 (2026-05-04): drop the hardcoded "48 tools" suffix. Tool
+    // count drifts every time someone adds/removes a tool, and the banner
+    // was a separate source of truth from `render_mcp_tool_probe_box`'s
+    // count + threshold. Live count is reported in the probe box below;
+    // the banner just identifies the product.
+    println!("║   persistent memory * code graph * drift detector            ║");
     print_banner_line(&format!(
         "   v{} · 100% local · Apache-2.0",
         env!("CARGO_PKG_VERSION")
@@ -1258,7 +1486,21 @@ pub(crate) fn check_daemon_pid_liveness(state_dir: &std::path::Path) -> DaemonPi
 }
 
 /// Cross-platform liveness probe for a numeric PID. Returns `true` if a
-/// process with that PID currently exists on the system.
+/// process with that PID currently exists AND the executable name looks
+/// like a mneme binary (defends against Windows PID reuse).
+///
+/// A1-007 (2026-05-04): Windows reuses PIDs aggressively -- a daemon
+/// that exited at 09:00 frees its PID; an unrelated user process can
+/// claim the same PID at 09:00:01. Without an exe-name check the
+/// liveness probe would say "alive" and the doctor would then attempt
+/// to talk to the unrelated process via the named pipe (which fails,
+/// but only after burning the budget). Filtering by `name.starts_with
+/// ("mneme-")` rules out the false positive cleanly.
+///
+/// Full hardening (PID + start_time + exe_name in daemon.pid; all three
+/// validated) is a v0.3.3 follow-up that requires supervisor-side
+/// changes to the .pid writer. This intermediate fix gets ~95% of the
+/// way without that coordination.
 fn is_pid_alive(pid: u32) -> bool {
     use sysinfo::{Pid, System};
     let mut sys = System::new();
@@ -1266,7 +1508,16 @@ fn is_pid_alive(pid: u32) -> bool {
         sysinfo::ProcessesToUpdate::Some(&[Pid::from_u32(pid)]),
         true,
     );
-    sys.process(Pid::from_u32(pid)).is_some()
+    match sys.process(Pid::from_u32(pid)) {
+        Some(proc_) => {
+            let name = proc_.name().to_string_lossy().to_lowercase();
+            // Accept any mneme-named process. Empty name is rare but
+            // possible on transient Windows kernel-mode states; treat as
+            // alive (better false-positive than false-negative).
+            name.is_empty() || name.starts_with("mneme") || name.starts_with("mneme-")
+        }
+        None => false,
+    }
 }
 
 /// Search PATH for `name` (with platform-appropriate extensions) and
@@ -1482,9 +1733,51 @@ pub const KNOWN_TOOLCHAIN: &[ToolchainEntry] = &[
         cargo_subcommand: None,
         severity: ToolSeverity::Low,
         issue_id: "G10",
-        purpose: "PNG->ICO conversion fallback when Python+PIL unavailable",
+        // A8-009 (2026-05-04): clarified purpose. The original "PNG->ICO
+        // conversion fallback when Python+PIL unavailable" was correct
+        // (used by cli/src/icons/* for Tauri app icon generation) but the
+        // surrounding doc grouping lumped it with "multimodal sidecar"
+        // peer tools, misleading users into installing ImageMagick to
+        // enable image OCR. ImageMagick is NEVER invoked by mneme-
+        // multimodal; OCR uses Tesseract (G9) only.
+        purpose: "icon-pipeline: PNG->ICO fallback for Tauri app-icon build (NOT used by multimodal OCR)",
         hint_windows: "winget install ImageMagick.ImageMagick",
         hint_unix: "brew install imagemagick (macOS) | sudo apt install imagemagick (Debian/Ubuntu)",
+    },
+    // A8-008 (2026-05-04): ffmpeg + Whisper model entries.
+    // The multimodal-bridge crate documents `--features ffmpeg` (libav*
+    // FFI for video frame extraction) and `--features whisper` (whisper-rs
+    // FFI for audio transcription) but the doctor previously had no probe
+    // for either. Users hit "my .mp4/.wav files don't get indexed" with
+    // zero diagnostic. These entries surface the missing toolchain so the
+    // user can install the right thing.
+    ToolchainEntry {
+        display: "FFmpeg",
+        probes: &["ffmpeg"],
+        cargo_subcommand: None,
+        severity: ToolSeverity::Low,
+        issue_id: "G11",
+        purpose: "video frame extraction via multimodal sidecar (--features ffmpeg). \
+                  Binary not used directly; libav FFI links to system ffmpeg libraries.",
+        hint_windows: "winget install Gyan.FFmpeg",
+        hint_unix: "brew install ffmpeg (macOS) | sudo apt install ffmpeg (Debian/Ubuntu)",
+    },
+    // Whisper model is a file probe, not a binary. We list the GGML
+    // base model path here; probe_tool will surface "missing" when the
+    // file isn't present. (The probe machinery treats this as a binary
+    // that lives at the configured path; if no whisper feature is built
+    // in, the absence is non-fatal -- audio extraction simply degrades
+    // to "skipped, install <path> to enable".)
+    ToolchainEntry {
+        display: "Whisper model",
+        probes: &["ggml-base.en.bin"],
+        cargo_subcommand: None,
+        severity: ToolSeverity::Low,
+        issue_id: "G12",
+        purpose: "audio transcription via multimodal sidecar (--features whisper). \
+                  Place ggml-base.en.bin in ~/.mneme/models/whisper/ to enable.",
+        hint_windows: "Download from https://huggingface.co/ggerganov/whisper.cpp/blob/main/ggml-base.en.bin and place in %USERPROFILE%\\.mneme\\models\\whisper\\",
+        hint_unix: "Download from https://huggingface.co/ggerganov/whisper.cpp/blob/main/ggml-base.en.bin and place in ~/.mneme/models/whisper/",
     },
 ];
 

@@ -31,24 +31,75 @@ impl Extractor for PdfExtractor {
             });
         }
 
+        // A8-001 (2026-05-04): preflight size cap. A 200 MB PDF held by
+        // pdf-extract balloons to ~500-800 MB RSS once parsed, and a
+        // single such file kills the build supervisor on a 2 GB VM.
+        crate::check_size(path)?;
+
         let bytes = std::fs::read(path).map_err(|source| ExtractError::Io {
             path: path.to_path_buf(),
             source,
         })?;
 
-        let text = pdf_extract::extract_text_from_mem(&bytes).map_err(|e| ExtractError::Parse {
-            path: path.to_path_buf(),
-            reason: format!("pdf-extract: {e}"),
-        })?;
+        // A8-005 (2026-05-04): pdf-extract 0.7 (and the underlying
+        // lopdf) is not panic-safe. Malformed PDFs -- bad object
+        // streams, recursive Catalog->Pages->Kids->Catalog cycles --
+        // panic from inside the FFI / decoder. With the workspace's
+        // default unwinding profile a panic still aborts the current
+        // task (and would abort the whole build process under a
+        // future `panic = "abort"` profile, see v0.4 wishlist).
+        // catch_unwind converts the panic into a typed Parse error
+        // so the extractor's "log + skip" contract holds for every
+        // input shape.
+        let parse_result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            pdf_extract::extract_text_from_mem(&bytes)
+        }));
+        let text = match parse_result {
+            Ok(Ok(t)) => t,
+            Ok(Err(e)) => {
+                return Err(ExtractError::Parse {
+                    path: path.to_path_buf(),
+                    reason: format!("pdf-extract: {e}"),
+                });
+            }
+            Err(panic_payload) => {
+                let msg = panic_payload
+                    .downcast_ref::<&'static str>()
+                    .map(|s| (*s).to_string())
+                    .or_else(|| panic_payload.downcast_ref::<String>().cloned())
+                    .unwrap_or_else(|| "non-string panic payload".to_string());
+                return Err(ExtractError::Parse {
+                    path: path.to_path_buf(),
+                    reason: format!("pdf-extract panicked: {msg}"),
+                });
+            }
+        };
 
         let mut doc = ExtractedDoc::empty("pdf", path);
-        // pdf-extract emits FF (\x0c) between pages. Preserve that split
-        // so consumers can reason about source pages.
-        let page_bodies: Vec<&str> = text.split('\x0c').collect();
+        // A8-013 (2026-05-04): pdf-extract 0.6.x always emitted FF
+        // (\x0c) between pages. 0.7.x and PDFs from LibreOffice /
+        // weasyprint sometimes emit only `\n\n` instead, which silently
+        // collapses page_count to 1 for multi-hundred-page PDFs.
+        // Strategy: prefer FF when present; otherwise, if the document
+        // is large (> 2000 chars) and has multiple `\n\n` boundaries,
+        // fall back to a paragraph-block split. Record the method used
+        // in metadata so downstream graders can filter on it.
+        let has_ff = text.contains('\x0c');
+        let split_method: &'static str;
+        let page_bodies: Vec<String> = if has_ff {
+            split_method = "ff";
+            text.split('\x0c').map(|s| s.to_string()).collect()
+        } else if text.len() > 2000 && text.contains("\n\n") {
+            split_method = "fallback";
+            text.split("\n\n").map(|s| s.to_string()).collect()
+        } else {
+            split_method = "none";
+            vec![text.clone()]
+        };
         for (i, body) in page_bodies.iter().enumerate() {
             let body_trimmed = body.trim_end_matches('\n');
             if body_trimmed.is_empty() && i + 1 == page_bodies.len() {
-                // pdf-extract often terminates with a trailing FF → empty
+                // pdf-extract often terminates with a trailing FF -> empty
                 // tail page. Drop it.
                 continue;
             }
@@ -70,6 +121,8 @@ impl Extractor for PdfExtractor {
             .insert("page_count".into(), doc.pages.len().to_string());
         doc.metadata
             .insert("byte_size".into(), bytes.len().to_string());
+        doc.metadata
+            .insert("page_split_method".into(), split_method.into());
 
         debug!(
             path = %path.display(),

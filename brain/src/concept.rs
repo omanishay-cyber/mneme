@@ -204,7 +204,13 @@ fn deterministic(kind: &str, text: &str) -> Vec<Concept> {
     }
 
     // 3) Headings — only meaningful for markdown / readme inputs.
-    if treat_as_doc || text.contains("\n#") || text.starts_with('#') {
+    // BUG-A2-024 fix: drop the `text.contains("\n#")` heuristic. `#` is
+    // overloaded between markdown headings, Rust attributes (`#[derive]`),
+    // and Python/shell comments. The heuristic produced false-positive
+    // "concepts" by running `HEADING_RE` over Rust source containing
+    // attribute syntax. We only run heading extraction when `kind` is
+    // explicitly markdown-flavoured; deterministic + low-noise.
+    if treat_as_doc {
         for caps in HEADING_RE.captures_iter(text) {
             if let Some(m) = caps.get(1) {
                 out.push(Concept {

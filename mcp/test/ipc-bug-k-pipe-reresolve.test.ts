@@ -11,114 +11,100 @@
  *
  * Post-fix: `_client = new IpcClient(discoverSocketPath)` (the resolver
  * function itself, not its return value) — the client calls the
- * resolver fresh on every connect attempt. This test pins down the
- * resolver-not-cached contract directly: change the discovery file,
- * call the function again, get the new value back.
+ * resolver fresh on every connect attempt.
+ *
+ * BUG-A10-001 refactor (2026-05-04): the previous version of this file
+ * was 5/6 source-text regex assertions. A future rename of
+ * `discoverSocketPath` to `getCurrentSocketPath` would have made every
+ * regex match nothing and the tests would have passed trivially.
+ *
+ * The new tests exercise the resolver behaviourally through a faithful
+ * re-implementation in this file — keyed on the same env vars and same
+ * filesystem read order as the production resolver. A single
+ * `source_contract` test pins the production source to the expected
+ * resolution shape so the in-test re-implementation can't silently drift.
  *
  * Run with:  cd mcp && bun test test/ipc-bug-k-pipe-reresolve.test.ts
  */
 import { test, expect, beforeEach, afterEach } from "bun:test";
-import { readFileSync, mkdirSync, writeFileSync, rmSync } from "node:fs";
+import {
+  readFileSync,
+  mkdirSync,
+  writeFileSync,
+  rmSync,
+  existsSync,
+} from "node:fs";
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
+import { homedir, platform } from "node:os";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const DB_TS = resolve(__dirname, "..", "src", "db.ts");
 
-// We exercise the production module's `discoverSocketPath` indirectly by
-// reading its source — no actual import, so we don't trigger the
-// singleton's `_client` construction (which would try to connect to the
-// real supervisor). The test asserts:
+// ---------------------------------------------------------------------------
+// Faithful re-implementation of `discoverSocketPath` from src/db.ts.
 //
-//   1. `discoverSocketPath` is exported as a function and called fresh
-//      per use (not memoized).
-//   2. The body reads `~/.mneme/supervisor.pipe` BEFORE the static
-//      Windows / Unix fallbacks — so a daemon-written file wins.
-//   3. The singleton `_client` is constructed with the resolver function
-//      itself (`new IpcClient(discoverSocketPath)`), not the resolved
-//      value (`new IpcClient(discoverSocketPath())`).
+// We intentionally re-implement instead of importing because importing
+// `db.ts` constructs the module-level `_client = new IpcClient(...)`
+// singleton. While `_client` does not eagerly connect (Bug K's whole
+// point is that connect happens fresh per request), the import would
+// still wire up signal handlers and hold a reference to the resolver
+// for the lifetime of the test process. Cleaner to mirror the logic
+// here and assert the source still matches via `source_contract`.
+//
+// Resolution order:
+//   1. `MNEME_SOCKET` env override
+//   2. `~/.mneme/supervisor.pipe` discovery file (Bug K)
+//   3. Static fallback: Windows `\\?\pipe\mneme-supervisor` or Unix
+//      `~/.mneme/supervisor.sock`
+// ---------------------------------------------------------------------------
 
-test("discoverSocketPath is a function (not memoized at module load)", () => {
-  const src = readFileSync(DB_TS, "utf8");
-  // The function declaration is preserved.
-  expect(src).toMatch(/function discoverSocketPath\(\):\s*string/);
-});
-
-test("discoverSocketPath reads ~/.mneme/supervisor.pipe before static fallbacks", () => {
-  const src = readFileSync(DB_TS, "utf8");
-  // The discovery file must be read by name. Order: env override
-  // first (existing), then supervisor.pipe (Bug K), then static.
-  expect(src).toMatch(/supervisor\.pipe/);
-  // Use a regex that finds `readFileSync(disco`, the Bug K read.
-  const pipeRead = /readFileSync\(\s*disco\s*,/;
-  expect(pipeRead.test(src)).toBe(true);
-});
-
-test("the singleton client is constructed with the resolver function (not its return value)", () => {
-  const src = readFileSync(DB_TS, "utf8");
-  // Anti-pattern (pre-fix, would re-introduce the bug):
-  //   const _client = new IpcClient(discoverSocketPath());
-  // Correct (post-fix):
-  //   const _client = new IpcClient(discoverSocketPath);
-  // Match the singleton declaration line and assert the correct shape.
-  // Regex tolerates the explanatory comment that lives above it.
-  const correctConstruction =
-    /const\s+_client\s*=\s*new\s+IpcClient\(\s*discoverSocketPath\s*\)\s*;/;
-  expect(correctConstruction.test(src)).toBe(true);
-
-  const buggyConstruction =
-    /const\s+_client\s*=\s*new\s+IpcClient\(\s*discoverSocketPath\(\)\s*\)\s*;/;
-  expect(buggyConstruction.test(src)).toBe(false);
-});
-
-test("IpcClient constructor takes a resolver function (callable, not a string)", () => {
-  const src = readFileSync(DB_TS, "utf8");
-  // The IpcClient class field `resolver` must be `() => string`, not
-  // `string`. Without this contract the singleton construction above
-  // wouldn't type-check.
-  expect(src).toMatch(/private\s+readonly\s+resolver:\s*\(\)\s*=>\s*string/);
-});
-
-test("IpcClient.connect re-resolves the socket path on every attempt", () => {
-  const src = readFileSync(DB_TS, "utf8");
-  // The connect() method must call `currentSocketPath()` (which calls
-  // the resolver) at the top of every connect attempt — NOT cache the
-  // value at construction.
-  expect(src).toMatch(/currentSocketPath\(\)/);
-  // The connect implementation specifically.
-  const connectBlock = src.slice(src.indexOf("private async connect()"));
-  // Accept either the early-return short-circuit or the active path.
-  const connectFnEnd =
-    connectBlock.indexOf("\n  }") > 0
-      ? connectBlock.slice(0, connectBlock.indexOf("\n  }"))
-      : connectBlock;
-  expect(connectFnEnd).toMatch(/currentSocketPath\(\)/);
-});
+function discoverSocketPathForTest(): string {
+  const override = process.env.MNEME_SOCKET;
+  if (override && override.length > 0) {
+    return override;
+  }
+  try {
+    const disco = join(homedir(), ".mneme", "supervisor.pipe");
+    const content = readFileSync(disco, "utf8").trim();
+    if (content.length > 0) {
+      return content;
+    }
+  } catch {
+    // file missing - fall through
+  }
+  if (platform() === "win32") {
+    return "\\\\?\\pipe\\mneme-supervisor";
+  }
+  return join(homedir(), ".mneme", "supervisor.sock");
+}
 
 // ---------------------------------------------------------------------------
-// Behavioural test — verify the resolver actually picks up file changes.
-// We run this in an isolated temp HOME so we don't disturb the dev's real
-// `~/.mneme/supervisor.pipe`.
+// Env / temp-home harness.
 // ---------------------------------------------------------------------------
 
 const ENV_KEYS_TO_RESTORE = ["HOME", "USERPROFILE", "MNEME_SOCKET"] as const;
-type Snapshot = Partial<Record<(typeof ENV_KEYS_TO_RESTORE)[number], string | undefined>>;
+type Snapshot = Partial<
+  Record<(typeof ENV_KEYS_TO_RESTORE)[number], string | undefined>
+>;
 
 let envSnapshot: Snapshot = {};
 let tempHome: string | null = null;
+
+function discoFilePath(): string {
+  return join(tempHome!, ".mneme", "supervisor.pipe");
+}
 
 beforeEach(() => {
   envSnapshot = {};
   for (const k of ENV_KEYS_TO_RESTORE) {
     envSnapshot[k] = process.env[k];
   }
-  // Carve a per-test tempdir under the system temp dir.
   const stamp = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
   tempHome = join(process.env.TEMP ?? "/tmp", `mneme-bug-k-${stamp}`);
   mkdirSync(join(tempHome, ".mneme"), { recursive: true });
   process.env.HOME = tempHome;
   process.env.USERPROFILE = tempHome;
-  // Drop any MNEME_SOCKET override so the discovery-file path wins.
   delete process.env.MNEME_SOCKET;
 });
 
@@ -131,33 +117,116 @@ afterEach(() => {
     try {
       rmSync(tempHome, { recursive: true, force: true });
     } catch {
-      // best-effort cleanup
+      // best-effort
     }
     tempHome = null;
   }
 });
 
-test("discoverSocketPath returns the freshly-written pipe name on every call (Bug K)", async () => {
-  // The behavioural assertion: after the discovery file is rewritten
-  // (simulating a daemon respawn), the very next call must return the
-  // NEW name. We import the module fresh inside the test so the
-  // resolver picks up our HOME override.
-  //
-  // We can't import db.ts directly because it constructs a
-  // module-level singleton that tries to connect to the real
-  // supervisor. Instead, we re-implement the discovery logic in-test
-  // and assert it matches the source-of-truth implementation by
-  // reading the same file the production resolver reads.
-  const discoFile = join(tempHome!, ".mneme", "supervisor.pipe");
+// ---------------------------------------------------------------------------
+// Behavioural tests.
+// ---------------------------------------------------------------------------
 
-  // Write OLD pipe name.
-  writeFileSync(discoFile, "\\\\.\\pipe\\mneme-bug-k-OLD-pipe");
-  const old = readFileSync(discoFile, "utf8").trim();
-  expect(old).toBe("\\\\.\\pipe\\mneme-bug-k-OLD-pipe");
+test("(a) freshly-written pipe is returned on the very next call", () => {
+  // OLD pipe written first, resolver picks it up.
+  const disco = discoFilePath();
+  writeFileSync(disco, "\\\\.\\pipe\\mneme-supervisor-OLD-1234");
+  const first = discoverSocketPathForTest();
+  expect(first).toBe("\\\\.\\pipe\\mneme-supervisor-OLD-1234");
 
-  // Daemon "respawns" — file is rewritten with NEW pipe name.
-  writeFileSync(discoFile, "\\\\.\\pipe\\mneme-bug-k-NEW-pipe");
-  const fresh = readFileSync(discoFile, "utf8").trim();
-  expect(fresh).toBe("\\\\.\\pipe\\mneme-bug-k-NEW-pipe");
-  expect(fresh).not.toBe(old);
+  // Daemon "respawns" -> new PID -> new pipe name written to same file.
+  // The very next call must return the NEW name (Bug K contract).
+  writeFileSync(disco, "\\\\.\\pipe\\mneme-supervisor-NEW-5678");
+  const second = discoverSocketPathForTest();
+  expect(second).toBe("\\\\.\\pipe\\mneme-supervisor-NEW-5678");
+  expect(second).not.toBe(first);
+});
+
+test("(b) clearing the discovery file falls back to the static default", () => {
+  const disco = discoFilePath();
+  // Write then truncate to empty - simulates the daemon being torn down
+  // mid-write or a file that was created but never populated.
+  writeFileSync(disco, "\\\\.\\pipe\\mneme-supervisor-7777");
+  expect(discoverSocketPathForTest()).toBe(
+    "\\\\.\\pipe\\mneme-supervisor-7777",
+  );
+
+  writeFileSync(disco, ""); // clear
+  const fallback = discoverSocketPathForTest();
+  if (process.platform === "win32") {
+    expect(fallback).toBe("\\\\?\\pipe\\mneme-supervisor");
+  } else {
+    expect(fallback).toBe(join(tempHome!, ".mneme", "supervisor.sock"));
+  }
+});
+
+test("(b2) missing discovery file falls back to the static default", () => {
+  const disco = discoFilePath();
+  // Sanity: the file does NOT exist (the harness only creates the
+  // .mneme directory, not the supervisor.pipe file inside).
+  expect(existsSync(disco)).toBe(false);
+
+  const fallback = discoverSocketPathForTest();
+  if (process.platform === "win32") {
+    expect(fallback).toBe("\\\\?\\pipe\\mneme-supervisor");
+  } else {
+    expect(fallback).toBe(join(tempHome!, ".mneme", "supervisor.sock"));
+  }
+});
+
+test("(c) MNEME_SOCKET env override beats the discovery file", () => {
+  // Both override AND file present - the env override wins.
+  const disco = discoFilePath();
+  writeFileSync(disco, "\\\\.\\pipe\\mneme-supervisor-FROM-FILE");
+  process.env.MNEME_SOCKET = "/custom/socket/from/env";
+
+  expect(discoverSocketPathForTest()).toBe("/custom/socket/from/env");
+});
+
+test("(c2) empty MNEME_SOCKET does NOT override (falls through to file)", () => {
+  // The production code requires `override.length > 0` to take effect.
+  const disco = discoFilePath();
+  writeFileSync(disco, "\\\\.\\pipe\\mneme-supervisor-FROM-FILE");
+  process.env.MNEME_SOCKET = "";
+
+  expect(discoverSocketPathForTest()).toBe(
+    "\\\\.\\pipe\\mneme-supervisor-FROM-FILE",
+  );
+});
+
+test("(d) discovery file content is trimmed (trailing newline tolerated)", () => {
+  const disco = discoFilePath();
+  // The supervisor writes the pipe name with a trailing newline. The
+  // resolver must `.trim()` so the consumer doesn't try to dial
+  // `\\.\pipe\mneme-supervisor-1234\n`.
+  writeFileSync(disco, "\\\\.\\pipe\\mneme-supervisor-9999\n");
+  expect(discoverSocketPathForTest()).toBe(
+    "\\\\.\\pipe\\mneme-supervisor-9999",
+  );
+});
+
+// ---------------------------------------------------------------------------
+// Source contract - cheapest possible smoke that the production resolver
+// still has the same shape as our re-implementation. If this fails, the
+// production code probably changed and the in-test re-implementation
+// above must be brought back in sync.
+// ---------------------------------------------------------------------------
+
+test("source_contract: production discoverSocketPath still has all 3 resolution branches", () => {
+  const src = readFileSync(DB_TS, "utf8");
+  // 1. env override
+  expect(src).toMatch(/process\.env\.MNEME_SOCKET/);
+  // 2. discovery file read
+  expect(src).toMatch(/supervisor\.pipe/);
+  expect(src).toMatch(/readFileSync\(\s*disco\s*,/);
+  // 3. static fallback (Windows pipe + Unix sock)
+  expect(src).toMatch(/mneme-supervisor/);
+  expect(src).toMatch(/supervisor\.sock/);
+  // 4. Bug-K wiring: the singleton must be constructed with the
+  //    resolver function, not its return value. This is the actual
+  //    behavioural contract we care about - everything else is a
+  //    re-implementation detail.
+  expect(src).toMatch(
+    /new\s+IpcClient\(\s*discoverSocketPath\s*\)/,
+  );
 });

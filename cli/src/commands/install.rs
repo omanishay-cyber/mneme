@@ -312,7 +312,11 @@ pub async fn run(args: InstallArgs) -> CliResult<()> {
     // — both `mneme doctor --strict` and this summary read the same
     // set so the two surfaces never drift apart.
     if !args.dry_run {
-        print_capability_summary();
+        // A1-013: pass the user's --platform flag through so the summary
+        // only renders rows that actually affect the chosen integration.
+        // Cursor users no longer see red-X on Tauri-CLI / Tesseract /
+        // Java that they don't need.
+        print_capability_summary_for(args.platform.as_deref());
     }
 
     Ok(())
@@ -322,13 +326,48 @@ pub async fn run(args: InstallArgs) -> CliResult<()> {
 /// G1-G10 tool, marking missing HIGH-severity tools with a fix hint
 /// and ending with an overall verdict. Always called *after* the
 /// install report so the box-and-table flow reads top-to-bottom.
-fn print_capability_summary() {
-    let probes = probe_all_toolchain();
+/// A1-013 (2026-05-04): platform-relevant tools only. The previous
+/// implementation rendered all G1-G10 (now G1-G12) regardless of which
+/// platform the user passed `--platform=` to. Cursor users saw red ✗
+/// on Tauri-CLI / Tesseract / etc. that they don't actually need.
+///
+/// This function returns the set of issue_ids relevant to a given
+/// platform; an unspecified platform (None) still shows everything
+/// (default install scenario where user wants all integrations).
+fn relevant_tools_for_platform(platform: Option<&str>) -> Option<&'static [&'static str]> {
+    match platform.map(|s| s.to_ascii_lowercase()) {
+        // Cursor / VS Code / Zed / Codex / etc. need only baseline
+        // toolchain (Rust + Node + Git). Tauri / Tesseract / Java are
+        // for the standalone build pipeline and multimodal-bridge.
+        Some(p) if matches!(p.as_str(), "cursor" | "vscode" | "vs-code" | "zed" | "codex" | "windsurf" | "qoder" | "qwen" | "gemini") => {
+            Some(&["G1", "G3", "G5"]) // Rust, Node, Git only
+        }
+        // Claude Code, the canonical default, exercises every integration.
+        Some(p) if p == "claude-code" || p == "claude_code" => None,
+        // Unknown platform → show everything to be safe.
+        _ => None,
+    }
+}
+
+fn print_capability_summary_for(platform: Option<&str>) {
+    let all_probes = probe_all_toolchain();
+    let scope = relevant_tools_for_platform(platform);
+    let probes: Vec<_> = match scope {
+        Some(ids) => all_probes
+            .into_iter()
+            .filter(|p| ids.contains(&p.entry.issue_id))
+            .collect(),
+        None => all_probes,
+    };
 
     println!();
-    println!("──────────────────────────────────────────────────────────");
-    println!("  developer-toolchain capability check (G1-G10)");
-    println!("──────────────────────────────────────────────────────────");
+    println!("--------------------------------------------------------");
+    if let Some(p) = platform {
+        println!("  developer-toolchain capability check (--platform={})", p);
+    } else {
+        println!("  developer-toolchain capability check (G1-G12)");
+    }
+    println!("--------------------------------------------------------");
     for probe in &probes {
         render_capability_row(probe);
     }
@@ -357,9 +396,18 @@ fn print_capability_summary() {
         println!("  core capability intact. Run `mneme doctor --strict` for");
         println!("  capability gap analysis + per-tool fix instructions.");
     } else {
-        println!("  mneme installed at FULL capability — every G1-G10 dev");
+        println!("  mneme installed at FULL capability -- every relevant dev");
         println!("  tool detected. Run `mneme doctor --strict` to re-verify.");
     }
+}
+
+/// A1-013 (2026-05-04): back-compat wrapper. Existing callers that
+/// don't know about platform filtering get the legacy behavior (show
+/// every G1-G12 row). Currently no caller; reserved for tests + any
+/// future code that wants the unfiltered view.
+#[allow(dead_code)]
+fn print_capability_summary() {
+    print_capability_summary_for(None)
 }
 
 /// Render one row of the post-install capability summary. Marks present
@@ -658,8 +706,47 @@ pub fn drop_standalone_uninstaller() -> std::io::Result<()> {
     }
     #[cfg(not(windows))]
     {
-        // POSIX recovery path is a separate uninstall.sh — out of scope
-        // for K19 (Windows-only symptom in the audit).
+        // A1-011 (2026-05-04): drop ~/.mneme/uninstall.sh on POSIX, mode
+        // 0o755. Originally Windows-only (K19) because the audit
+        // observed only the Windows failure mode; in practice Linux +
+        // macOS users hit the same class of issue (corrupt update,
+        // partial install, broken binary) and need a recovery script
+        // they can run without a working `mneme` binary.
+        //
+        // The script content lives at scripts/uninstall.sh and is
+        // bundled via include_str! so the same byte-equality + chmod
+        // pattern as the Windows .ps1 case applies.
+        const UNINSTALL_SH_BYTES: &[u8] = include_bytes!("../../../scripts/uninstall.sh");
+        let home = match dirs::home_dir() {
+            Some(h) => h,
+            None => return Ok(()),
+        };
+        let mneme_dir = home.join(".mneme");
+        if !mneme_dir.exists() {
+            std::fs::create_dir_all(&mneme_dir)?;
+        }
+        let script_path = mneme_dir.join("uninstall.sh");
+        std::fs::write(&script_path, UNINSTALL_SH_BYTES)?;
+        // Post-write byte-equality check.
+        let on_disk = std::fs::read(&script_path)?;
+        if on_disk != UNINSTALL_SH_BYTES {
+            return Err(std::io::Error::other(format!(
+                "uninstall.sh write verify failed: on-disk {} bytes != expected {} bytes",
+                on_disk.len(),
+                UNINSTALL_SH_BYTES.len()
+            )));
+        }
+        // chmod +x (mode 0o755).
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(
+            &script_path,
+            std::fs::Permissions::from_mode(0o755),
+        )?;
+        info!(
+            path = %script_path.display(),
+            bytes = UNINSTALL_SH_BYTES.len(),
+            "POSIX standalone uninstaller dropped (post-write verified, mode 0755)"
+        );
         Ok(())
     }
 }
@@ -707,39 +794,17 @@ struct InstallReport {
 /// the v0.3.0 settings.json poisoning (see `platforms/claude_code.rs`)
 /// means even running-Claude-Code installs are safe today; this probe
 /// exists to prevent the cosmetic "stale config in memory" issue.
+/// A1-012 (2026-05-04): consolidated to use `doctor::is_claude_code_running`.
+///
+/// The original implementation shelled out to `tasklist` (Windows) /
+/// `pgrep` (POSIX) with image-name-only matching. doctor.rs does the
+/// same job using sysinfo (already a workspace dep), tightened post
+/// A1-009 to match argv[0]/exe-path only (no false positives from
+/// editor-open files referencing claude-code). Both surfaces now read
+/// the same answer; install.rs's warning and the doctor's "Claude is
+/// RUNNING" overlay can never disagree.
 fn claude_code_likely_running() -> bool {
-    #[cfg(windows)]
-    {
-        // M14: windowless_command(..) applies CREATE_NO_WINDOW so the
-        // tasklist probe does not flash a console window when
-        // `mneme install` is invoked from a windowless parent (CI,
-        // headless installer, future hook-driven repair).
-        let out = crate::windowless_command("tasklist")
-            .args(["/FI", "IMAGENAME eq Claude.exe", "/NH", "/FO", "CSV"])
-            .output();
-        if let Ok(o) = out {
-            let s = String::from_utf8_lossy(&o.stdout);
-            // tasklist emits `INFO: No tasks are running which match...`
-            // on stdout when nothing matches. A positive hit contains
-            // the image name in one of the CSV fields.
-            return s.contains("Claude.exe") || s.contains("claude.exe");
-        }
-        false
-    }
-    #[cfg(not(windows))]
-    {
-        // M14: windowless_command(..) on non-Windows is a no-op
-        // (returns Command::new(prog)), but using it here keeps the
-        // call site uniform with the Windows arm above and prevents
-        // future drift.
-        let out = crate::windowless_command("pgrep")
-            .args(["-f", "claude"])
-            .output();
-        if let Ok(o) = out {
-            return o.status.success() && !o.stdout.is_empty();
-        }
-        false
-    }
+    crate::commands::doctor::is_claude_code_running().is_some()
 }
 
 // ---------------------------------------------------------------------------

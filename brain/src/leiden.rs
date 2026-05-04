@@ -201,7 +201,11 @@ fn leiden_inner(
 
         // Phase 3 — aggregate using `refined` as the new node set, but
         // initialise the next partition from the *original* `partition`.
-        let agg = aggregate(adj, &refined);
+        // BUG-A2-013 fix: pass `partition` so `aggregate.parent` records the
+        // OUTER community label (not a node index). Without this, refined
+        // sub-communities from the same outer community got distinct agg
+        // labels after `compress`, undoing the Leiden contract.
+        let agg = aggregate(adj, &refined, &partition);
         let mut agg_partition: Vec<usize> = (0..agg.adj.len()).collect();
         // Map: each refined community → the (original, pre-refine) community
         // its members belonged to, used to seed the next outer iteration.
@@ -368,7 +372,11 @@ struct Aggregated {
     parent: Vec<usize>,
 }
 
-fn aggregate(adj: &[Vec<(usize, f64)>], refined: &[usize]) -> Aggregated {
+fn aggregate(
+    adj: &[Vec<(usize, f64)>],
+    refined: &[usize],
+    partition: &[usize],
+) -> Aggregated {
     let k = refined.iter().copied().max().map(|x| x + 1).unwrap_or(0);
     let mut new_adj: Vec<HashMap<usize, f64>> = vec![HashMap::new(); k];
     for (u, row) in adj.iter().enumerate() {
@@ -388,12 +396,14 @@ fn aggregate(adj: &[Vec<(usize, f64)>], refined: &[usize]) -> Aggregated {
         row.sort_by_key(|&(j, _)| j);
         out.push(row);
     }
-    // parent: arbitrary representative — here we use the first node we find
-    // for each refined community.
+    // BUG-A2-013 fix: store the OUTER community label of any member of each
+    // refined community. The first member's outer-id is canonical because
+    // refinement only subdivides outer communities — every member of
+    // `refined_id` belongs to the same outer community.
     let mut parent = vec![usize::MAX; k];
     for (u, c) in refined.iter().enumerate() {
         if parent[*c] == usize::MAX {
-            parent[*c] = u; // placeholder; caller overwrites with outer id
+            parent[*c] = partition[u];
         }
     }
     Aggregated { adj: out, parent }
@@ -406,6 +416,16 @@ fn modularity(
     two_m: f64,
     gamma: f64,
 ) -> f64 {
+    // BUG-A2-014 fix: the inner loop walks every directed edge so each
+    // undirected edge is counted twice. The textbook modularity divides
+    // the accumulated sum by 2m (a single instance of m, where 2m is the
+    // total double-counted weight). Dividing by `two_m` here would scale
+    // the doubled sum by 2m which is correct ONLY if the inner sum used
+    // each undirected pair once. Since we sum directed edges, the correct
+    // normaliser is `2 * two_m` — i.e. divide the accumulated double-
+    // counted sum by 4m to match the spec. Concretely: spec is
+    // (1/2m) * sum_{i!=j, single-counted}(...); our sum is double-counted
+    // so we divide by 2 * (2m).
     let mut q = 0.0;
     for u in 0..adj.len() {
         for &(v, w) in &adj[u] {
@@ -414,7 +434,7 @@ fn modularity(
             }
         }
     }
-    q / two_m
+    q / (2.0 * two_m)
 }
 
 /// Renumber labels to be dense `0..k` while preserving partition equivalence.

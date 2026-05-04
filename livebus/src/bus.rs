@@ -111,31 +111,54 @@ impl EventBus {
 
     /// Publish an event to all active receivers. If the channel is full the
     /// oldest pending event is dropped (counted in `dropped_events`).
+    ///
+    /// **Loss semantics:** this method is **lossy**. It returns `Ok(())`
+    /// whenever the event was accepted by the broadcast machinery -- even if
+    /// an older queued event was *evicted* to make room (overflow mode), and
+    /// even when the channel was inactive (no active receivers). Producers
+    /// that need to detect loss must call [`Self::publish_with_outcome`]
+    /// instead. See BUG-A4-008 for context.
     pub fn publish(&self, event: Event) -> Result<(), LivebusError> {
+        // Delegate to the outcome-returning variant so the counter
+        // bookkeeping lives in exactly one place.
+        match self.publish_with_outcome(event) {
+            Ok(_) => Ok(()),
+            Err(e) => Err(e),
+        }
+    }
+
+    /// Publish an event and return a tri-state describing what actually
+    /// happened to it. **BUG-A4-008 fix:** lets producers that need
+    /// exactly-once-ish semantics (drift detector emitting `DriftFinding`,
+    /// audit pipeline emitting completion events) detect overflow eviction
+    /// or queue-full drops rather than silently trusting `Ok(())`.
+    pub fn publish_with_outcome(&self, event: Event) -> Result<PublishOutcome, LivebusError> {
         match self.inner.sender.try_broadcast(event) {
             Ok(None) => {
                 self.inner.published_count.fetch_add(1, Ordering::Relaxed);
-                Ok(())
+                Ok(PublishOutcome::Delivered)
             }
-            Ok(Some(_evicted)) => {
+            Ok(Some(evicted)) => {
                 self.inner.published_count.fetch_add(1, Ordering::Relaxed);
                 self.inner.dropped_count.fetch_add(1, Ordering::Relaxed);
                 debug!("livebus: oldest event evicted by overflow");
-                Ok(())
+                Ok(PublishOutcome::Evicted(evicted))
             }
             Err(TrySendError::Full(_)) => {
                 // Should not happen because overflow is enabled, but guard
                 // anyway.
                 self.inner.dropped_count.fetch_add(1, Ordering::Relaxed);
                 warn!("livebus: broadcast queue full; event dropped");
-                Ok(())
+                Ok(PublishOutcome::Dropped)
             }
             Err(TrySendError::Closed(_)) => Err(LivebusError::BusClosed),
             Err(TrySendError::Inactive(_)) => {
                 // No active receivers right now: the event is "published"
-                // into the void. That's fine for fire-and-forget telemetry.
+                // into the void. That's fine for fire-and-forget telemetry,
+                // but producers that need delivery confirmation should treat
+                // this as a soft drop -- it never reached anyone.
                 self.inner.published_count.fetch_add(1, Ordering::Relaxed);
-                Ok(())
+                Ok(PublishOutcome::Inactive)
             }
         }
     }
@@ -261,6 +284,33 @@ pub fn topic_matches(pattern: &str, topic: &str) -> bool {
 /// Check whether a topic matches *any* of the supplied patterns.
 pub fn topic_matches_any(patterns: &[String], topic: &str) -> bool {
     patterns.iter().any(|p| topic_matches(p, topic))
+}
+
+/// Outcome of a [`EventBus::publish_with_outcome`] call.
+///
+/// BUG-A4-008 fix (2026-05-04): the legacy `publish` returns `Ok(())` on
+/// three different non-success states (overflow eviction, queue full, no
+/// active receivers), making it impossible for producers that care about
+/// delivery (drift detector, audit completion) to detect loss. This
+/// enum gives them an explicit signal.
+#[derive(Debug)]
+pub enum PublishOutcome {
+    /// The event was accepted by the broadcast and no prior event was
+    /// evicted. This is the normal happy path.
+    Delivered,
+    /// The event was accepted but the channel was already full, so the
+    /// oldest pending event was evicted to make room. Counted in
+    /// `dropped_count` as well.
+    Evicted(Event),
+    /// The event was rejected outright (channel full, overflow disabled).
+    /// Should not happen in default config (overflow=true) but kept as
+    /// an explicit case so the caller does not have to assume.
+    Dropped,
+    /// The event reached the broadcast machinery but there were no
+    /// active receivers, so the event was discarded immediately rather
+    /// than queued. The published_count still ticks (the producer's
+    /// side-effect is recorded) but no consumer ever saw the payload.
+    Inactive,
 }
 
 #[cfg(test)]

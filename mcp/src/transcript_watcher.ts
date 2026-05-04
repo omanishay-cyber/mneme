@@ -188,9 +188,16 @@ export async function persistDistilled(entry: DistilledEntry): Promise<void> {
 /**
  * Convenience orchestrator: distill + persist. Returns the distilled entry
  * (even if persistence failed) so callers can log it locally.
+ *
+ * A5-013 (2026-05-04): persistence is fire-and-forget. The prior `await`
+ * defeated the function comment's stated "best-effort so a transient
+ * supervisor hiccup can't break the Stop hook" guarantee — it serialised
+ * the Stop hook on a 200ms IPC round-trip per turn. `void` the persist
+ * promise here so the caller returns immediately with the in-memory
+ * distilled entry; `persistDistilled` already swallows its own errors.
  */
-export async function processTurn(pair: TurnPair): Promise<DistilledEntry> {
+export function processTurn(pair: TurnPair): DistilledEntry {
   const entry = distillPair(pair);
-  await persistDistilled(entry);
+  void persistDistilled(entry);
   return entry;
 }

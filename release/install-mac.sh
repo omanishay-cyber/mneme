@@ -101,6 +101,12 @@ _load_lib() {
 }
 _load_lib
 
+# A7-001 (2026-05-04): fetch the SHA-256 manifest before any download work.
+# Non-fatal if the manifest is missing -- legacy unverified-download path
+# still works and emits a single WARN. Once the manifest is published per
+# release, every pinned asset becomes hard-fail on hash mismatch.
+load_hash_manifest "${RELEASE_BASE}"
+
 # -----------------------------------------------------------------------------
 # Banner + detected-environment block (B11.5w: "user sees what the script sees")
 # -----------------------------------------------------------------------------
@@ -111,13 +117,28 @@ if [ "${OS}" != "mac" ]; then
 fi
 ARCH=$(detect_arch)
 
+# A9-002 (2026-05-04): Intel Mac (x86_64) refusal.
+# v0.3.2 ships only an aarch64-apple-darwin binary. The CI macos-13 leg was
+# removed because GitHub-hosted Intel Mac runners are chronically queue-starved.
+# Without an explicit guard here, an Intel Mac user gets ARCH=x64, then a 404
+# downloading mneme-${MNEME_REL_TAG}-macos-x64.tar.gz -- confusing failure mode.
+# Refuse early with an actionable message instead.
+if [ "${ARCH}" = "x64" ]; then
+    fail "Intel Mac (x86_64) is not supported in ${MNEME_REL_TAG}.\
+\n  v0.3.2 ships only an Apple Silicon (arm64) binary.\
+\n  Intel Mac users: build from source with\
+\n    git clone https://github.com/omanishay-cyber/mneme.git\
+\n    cd mneme && cargo build --release --workspace\
+\n  Native Intel Mac binaries may return in a later release."
+fi
+
 # Read OS version + name for the diagnostic block.
 MAC_PRODUCT_NAME=$(sw_vers -productName 2>/dev/null || echo "macOS")
 MAC_PRODUCT_VERSION=$(sw_vers -productVersion 2>/dev/null || echo "?")
 MAC_BUILD=$(sw_vers -buildVersion 2>/dev/null || echo "?")
 
 step "mneme bootstrap installer (macOS)"
-say "version    : ${VERSION}"
+say "version    : ${MNEME_REL_TAG}"
 say "user       : ${USER:-$(id -un)}"
 say "os         : ${MAC_PRODUCT_NAME} ${MAC_PRODUCT_VERSION} (${MAC_BUILD})"
 say "arch       : ${ARCH} (uname -m: $(uname -m))"
@@ -190,7 +211,35 @@ elif [ -x "/usr/local/bin/bun" ]; then
 fi
 
 if [ -n "${BUN_BIN}" ]; then
+    # A7-024 (2026-05-04): verify Bun binary architecture matches the
+    # Mac architecture. On Apple Silicon (arm64), an x86_64 Bun
+    # installed under Rosetta at /usr/local/bin/bun would still run
+    # but adds ~30% startup latency for every MCP call. We don't
+    # refuse the wrong-arch binary -- it works -- but we do warn and
+    # point at the canonical install location so the user can fix it.
+    bun_arch_warn=""
+    if command -v file >/dev/null 2>&1; then
+        bun_arch_info=$(file "${BUN_BIN}" 2>/dev/null || true)
+        if [ "${ARCH}" = "arm64" ]; then
+            case "${bun_arch_info}" in
+                *arm64*) : ;;
+                *x86_64*)
+                    bun_arch_warn="bun at ${BUN_BIN} is x86_64 -- you are on arm64 Mac. Bun runs under Rosetta with ~30% startup penalty per MCP call. Reinstall: rm -rf ~/.bun && curl -fsSL https://bun.sh/install | bash"
+                    ;;
+            esac
+        elif [ "${ARCH}" = "x64" ]; then
+            case "${bun_arch_info}" in
+                *x86_64*) : ;;
+                *arm64*)
+                    bun_arch_warn="bun at ${BUN_BIN} is arm64 -- you are on x86_64 Mac. Reinstall: rm -rf ~/.bun && curl -fsSL https://bun.sh/install | bash"
+                    ;;
+            esac
+        fi
+    fi
     ok "bun $("${BUN_BIN}" --version) present at ${BUN_BIN}"
+    if [ -n "${bun_arch_warn}" ]; then
+        warn "${bun_arch_warn}"
+    fi
 else
     say "bun not found -- installing from https://bun.sh/install"
     # Bun's installer writes to ~/.bun/bin and updates the user's shell rc.
@@ -244,7 +293,7 @@ fi
 
 step "download release tarball"
 
-ASSET="mneme-${VERSION}-macos-${ARCH}.tar.gz"
+ASSET="mneme-${MNEME_REL_TAG}-macos-${ARCH}.tar.gz"
 ASSET_URL="${RELEASE_BASE}/${ASSET}"
 
 TMP_DIR=$(mktemp -d -t mneme-bootstrap)
@@ -266,7 +315,7 @@ if ! download_with_retry "${ASSET_URL}" "${LOCAL_TARBALL}" 3; then
        URL: ${ASSET_URL}
        This usually means the macOS-${ARCH} binary has not yet been
        uploaded to the v0.3.2 release page. Check the release at:
-         https://github.com/omanishay-cyber/mneme/releases/tag/${VERSION}
+         https://github.com/omanishay-cyber/mneme/releases/tag/${MNEME_REL_TAG}
        If the asset is listed there, re-run this script. If not, the
        cross-compile workflow may still be building -- retry in ~15 min."
 fi
@@ -466,6 +515,13 @@ MODELS_EOF
     IFS=$'\n'
     for row in ${MODEL_LIST}; do
         IFS=$'\t' read -r m_name m_required m_primary m_fallback <<<"${row}"
+        # A7-022 (2026-05-04): defensive default for `set -u` safety on
+        # bash 3.2 (default macOS shell). The phi-3 row's trailing-tab
+        # padding above guarantees a 4th field exists, but bash 3.2
+        # `read` can still leave m_fallback unset on a literally-empty
+        # trailing field. Force-default so download_dual_source doesn't
+        # see an unbound variable when phi-3's GitHub fallback is empty.
+        m_fallback="${m_fallback:-}"
         IFS=$'\n'
         dest="${MODELS_DIR}/${m_name}"
         # Run in subshell so a fail() inside download_dual_source doesn't
@@ -530,7 +586,7 @@ fi
 # -----------------------------------------------------------------------------
 
 step "DONE"
-say "mneme ${VERSION} installed for macOS-${ARCH}."
+say "mneme ${MNEME_REL_TAG} installed for macOS-${ARCH}."
 echo ""
 say "Verify (in a NEW terminal so PATH picks up ~/.mneme/bin):"
 say "  mneme --version"

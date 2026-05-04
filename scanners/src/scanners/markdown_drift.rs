@@ -3,22 +3,46 @@
 //! referenced path doesn't exist on disk relative to the project root.
 
 use once_cell::sync::Lazy;
-use regex::Regex;
+use regex::{Regex, RegexBuilder};
 use std::path::{Path, PathBuf};
 
 use crate::scanner::{line_col_of, Ast, Finding, Scanner, Severity};
 
-/// Backtick-quoted POSIX-style relative paths (with at least one `/` so we
-/// don't match every backtick word). Examples:
-///   `src/auth/login.ts`
-///   `electron/handlers/auth.ts`
+/// A3-001 / A3-002 (2026-05-04): regex bomb fix.
+///
+/// Original BACKTICK_PATH was `r"`([./A-Za-z0-9_\-]+(?:/[A-Za-z0-9_\-./]+)+)`"`
+/// -- a nested `+` over two char classes that completely overlap (both
+/// contain `.`, `/`, alphanumerics, `_`, `-`). On a markdown file with
+/// many backtick-fenced strings the regex engine's NFA explores an
+/// exponential candidate-match space, giving the appearance of a hang
+/// (textbook ReDoS shape, latent in `regex` crate's RE2-style engine
+/// because `captures_iter` materializes one match per ambiguous span).
+///
+/// Fix:
+///   1. Single char class -- no overlap, no ambiguity over which branch
+///      consumes the next byte.
+///   2. Bounded length `{2,256}` -- realistic paths are well under 256
+///      chars; the cap gives the matcher a hard ceiling on per-match
+///      work even on adversarial input.
+///   3. The `>=1 slash` constraint that the original encoded structurally
+///      (so `cargo` doesn't match but `src/auth.ts` does) moves to a
+///      downstream `.contains('/')` filter in scan(). Cheaper, clearer.
+///   4. `RegexBuilder::size_limit` caps compiled NFA size at 64 KB, a
+///      hard upper bound on memory the matcher can request.
 static BACKTICK_PATH: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"`([./A-Za-z0-9_\-]+(?:/[A-Za-z0-9_\-./]+)+)`").expect("backtick path regex")
+    RegexBuilder::new(r"`([./A-Za-z0-9_\-/]{2,256})`")
+        .size_limit(64 * 1024)
+        .build()
+        .expect("backtick path regex")
 });
 
 /// Markdown link with a relative target: `[text](./foo/bar.md)`.
+/// Same regex-bomb fix as BACKTICK_PATH (see A3-001 / A3-002 comment).
 static MD_LINK: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r"\]\(([./A-Za-z0-9_\-]+(?:/[A-Za-z0-9_\-./]+)+)\)").expect("md link regex")
+    RegexBuilder::new(r"\]\(([./A-Za-z0-9_\-/]{2,256})\)")
+        .size_limit(64 * 1024)
+        .build()
+        .expect("md link regex")
 });
 
 /// Markdown drift scanner.
@@ -74,6 +98,12 @@ impl Scanner for MarkdownDriftScanner {
             for caps in re.captures_iter(content) {
                 if let (Some(p), Some(whole)) = (caps.get(1), caps.get(0)) {
                     let claim = p.as_str();
+                    // A3-001/A3-002 fix: regex no longer requires `/` in the
+                    // capture; filter here so single backtick words like
+                    // `cargo` still don't trigger a path-existence check.
+                    if !claim.contains('/') {
+                        continue;
+                    }
                     if claim.contains("://")
                         || claim.starts_with('#')
                         || claim.starts_with("mailto:")

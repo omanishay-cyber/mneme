@@ -1,17 +1,22 @@
 /**
- * Self-contained parser tests.
+ * Parser tests.
  *
- * These tests run under a minimal vitest-style harness so we don't have
- * to pull vitest/jest/mocha into the extension package. The harness
- * lives at the top of this file and supports describe, it, and basic
- * expect(x).toEqual(y).
+ * BUG-A10-011 (2026-05-04): the previous version of this file shipped
+ * a hand-rolled 60-line vitest-style harness ("describe", "it",
+ * "expect", "deepEqual" all reimplemented from scratch) so the
+ * extension package wouldn't pull vitest/jest/mocha as a devDep. The
+ * harness had known holes (no Date / Map / Set / RegExp deep-equal,
+ * no async support, no fixtures, no skip/only modifiers, no parallel
+ * execution) and a future contributor would have had to debug them
+ * before being able to add a single test.
  *
- * Run with: `npm test` (from the vscode/ directory) after `tsc -p .`,
- * or directly: `node out/test/parse.test.js`.
+ * Replaced with vitest (240 KB devDep) + vitest's native describe / it
+ * / expect. The 12 test cases are otherwise unchanged.
  *
- * Exits with code 0 on success, 1 on any failure.
+ * Run with: `npm test` (from the vscode/ directory).
  */
 
+import { describe, it, expect } from "vitest";
 import {
   parseRecallHits,
   parseBlast,
@@ -24,95 +29,6 @@ import {
   humanAge,
   looksInstalled,
 } from "../util/parse";
-
-// ----- Test harness (hoisted; TS strict doesn't allow forward refs
-// across module-level const/let, so declarations live up top). -----
-
-interface Expectation {
-  toEqual(expected: unknown): void;
-}
-
-interface Suite {
-  readonly name: string;
-  readonly cases: Array<{ readonly label: string; readonly fn: () => void }>;
-}
-
-const suites: Suite[] = [];
-let current: Suite | null = null;
-
-function deepEqual(a: unknown, b: unknown): boolean {
-  if (a === b) {
-    return true;
-  }
-  if (typeof a !== typeof b) {
-    return false;
-  }
-  if (a === null || b === null) {
-    return false;
-  }
-  if (Array.isArray(a) && Array.isArray(b)) {
-    if (a.length !== b.length) {
-      return false;
-    }
-    for (let i = 0; i < a.length; i++) {
-      if (!deepEqual(a[i], b[i])) {
-        return false;
-      }
-    }
-    return true;
-  }
-  if (typeof a === "object" && typeof b === "object") {
-    const ak = Object.keys(a as Record<string, unknown>).sort();
-    const bk = Object.keys(b as Record<string, unknown>).sort();
-    if (ak.length !== bk.length) {
-      return false;
-    }
-    for (let i = 0; i < ak.length; i++) {
-      if (ak[i] !== bk[i]) {
-        return false;
-      }
-      if (
-        !deepEqual(
-          (a as Record<string, unknown>)[ak[i]],
-          (b as Record<string, unknown>)[bk[i]],
-        )
-      ) {
-        return false;
-      }
-    }
-    return true;
-  }
-  return false;
-}
-
-function expect(actual: unknown): Expectation {
-  return {
-    toEqual(expected: unknown): void {
-      if (!deepEqual(actual, expected)) {
-        throw new Error(
-          `expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`,
-        );
-      }
-    },
-  };
-}
-
-function describe(name: string, fn: () => void): void {
-  const suite: Suite = { name, cases: [] };
-  current = suite;
-  fn();
-  current = null;
-  suites.push(suite);
-}
-
-function it(label: string, fn: () => void): void {
-  if (!current) {
-    throw new Error("it() called outside describe()");
-  }
-  current.cases.push({ label, fn });
-}
-
-// ----- Actual tests -----
 
 describe("parseRecallHits", () => {
   it("parses a plain hit with file:line", () => {
@@ -281,38 +197,3 @@ describe("looksInstalled", () => {
     expect(looksInstalled("command not found")).toEqual(false);
   });
 });
-
-// ----- Runner -----
-
-function main(): number {
-  let passed = 0;
-  let failed = 0;
-  const failures: Array<{ suite: string; label: string; error: string }> = [];
-  for (const suite of suites) {
-    for (const c of suite.cases) {
-      try {
-        c.fn();
-        passed++;
-      } catch (err) {
-        failed++;
-        const msg = err instanceof Error ? err.message : String(err);
-        failures.push({ suite: suite.name, label: c.label, error: msg });
-      }
-    }
-  }
-  const total = passed + failed;
-  // eslint-disable-next-line no-console
-  console.log(`mneme test: ${passed}/${total} passed`);
-  for (const f of failures) {
-    // eslint-disable-next-line no-console
-    console.log(`  FAIL ${f.suite} > ${f.label}: ${f.error}`);
-  }
-  return failed === 0 ? 0 : 1;
-}
-
-// Auto-run when executed directly.
-if (require.main === module) {
-  process.exit(main());
-}
-
-export { main as runTests };

@@ -15,6 +15,8 @@
 //! ~250k vectors callers should swap in an ANN index — until then this is
 //! both faster end-to-end and easier to audit.
 
+use std::cmp::Reverse;
+use std::collections::BinaryHeap;
 use std::fs::{self, File, OpenOptions};
 use std::io::{BufReader, BufWriter, Read, Seek, Write};
 use std::path::{Path, PathBuf};
@@ -173,6 +175,9 @@ impl EmbedStore {
     ///
     /// `query` is assumed to be already L2-normalised (the [`crate::Embedder`]
     /// guarantees this); stored vectors are too, so cosine == dot product.
+    ///
+    /// BUG-A2-002 fix: use a `BinaryHeap<Reverse<...>>` min-heap for O(N log k)
+    /// instead of sort-on-every-insert (was O(N k log k)).
     pub fn nearest(&self, query: &[f32], k: usize) -> Vec<NearestHit> {
         if query.len() != EMBEDDING_DIM || k == 0 {
             return Vec::new();
@@ -183,8 +188,9 @@ impl EmbedStore {
             return Vec::new();
         }
 
-        // Min-heap of size k via a simple Vec (k is small in practice).
-        let mut heap: Vec<NearestHit> = Vec::with_capacity(k + 1);
+        // Min-heap of size k. Wrap NearestHit in `Reverse` so the smallest
+        // score is on top; that lets us pop-and-replace in O(log k) per step.
+        let mut heap: BinaryHeap<Reverse<HeapHit>> = BinaryHeap::with_capacity(k + 1);
         for i in 0..n {
             let off = i * EMBEDDING_DIM;
             let row = &s.vectors[off..off + EMBEDDING_DIM];
@@ -192,28 +198,34 @@ impl EmbedStore {
             for d in 0..EMBEDDING_DIM {
                 dot += row[d] * query[d];
             }
-            let hit = NearestHit {
+            let hit = HeapHit {
                 node: s.ids[i],
                 score: dot,
             };
             if heap.len() < k {
-                heap.push(hit);
-                heap.sort_by(|a, b| {
-                    b.score
-                        .partial_cmp(&a.score)
-                        .unwrap_or(std::cmp::Ordering::Equal)
-                });
-            } else if hit.score > heap.last().map(|h| h.score).unwrap_or(f32::NEG_INFINITY) {
-                heap.pop();
-                heap.push(hit);
-                heap.sort_by(|a, b| {
-                    b.score
-                        .partial_cmp(&a.score)
-                        .unwrap_or(std::cmp::Ordering::Equal)
-                });
+                heap.push(Reverse(hit));
+            } else if let Some(Reverse(min)) = heap.peek() {
+                if hit.score > min.score {
+                    heap.pop();
+                    heap.push(Reverse(hit));
+                }
             }
         }
-        heap
+
+        // Drain heap then sort high-to-low for the caller.
+        let mut out: Vec<NearestHit> = heap
+            .into_iter()
+            .map(|Reverse(h)| NearestHit {
+                node: h.node,
+                score: h.score,
+            })
+            .collect();
+        out.sort_by(|a, b| {
+            b.score
+                .partial_cmp(&a.score)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+        out
     }
 
     /// Persist any pending writes to `index.bin` (atomic rename).
@@ -252,13 +264,43 @@ impl EmbedStore {
             w.flush()?;
         }
 
-        // Atomic-ish replace.
-        if final_path.exists() {
-            fs::remove_file(&final_path)?;
-        }
+        // BUG-A2-001 fix: `fs::rename` is atomic on both Unix and Windows
+        // (Rust >= 1.5 uses `MoveFileExW(MOVEFILE_REPLACE_EXISTING)`), so
+        // the prior `remove_file` opened a crash window where index.bin
+        // could vanish entirely. Just rename — Windows handles overwrite.
         fs::rename(&tmp_path, &final_path)?;
         s.dirty = false;
         Ok(())
+    }
+}
+
+/// Internal heap entry — a `NearestHit` with `Ord` impl driven by score.
+#[derive(Debug, Clone, Copy)]
+struct HeapHit {
+    node: NodeId,
+    score: f32,
+}
+
+impl PartialEq for HeapHit {
+    fn eq(&self, other: &Self) -> bool {
+        self.score == other.score
+    }
+}
+
+impl Eq for HeapHit {}
+
+impl PartialOrd for HeapHit {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+impl Ord for HeapHit {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        // Total order on f32 — NaN treated as equal/smallest.
+        self.score
+            .partial_cmp(&other.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
     }
 }
 

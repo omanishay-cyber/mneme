@@ -62,6 +62,16 @@ $SkipHashCheck = [bool]$env:MNEME_SKIP_HASH_CHECK
 
 $ErrorActionPreference = 'Stop'
 
+# A7-004 (2026-05-04): Force UTF-8 console encoding so child mneme.exe
+# Unicode glyphs (>=, ok-tick, arrow) render correctly instead of
+# mojibake (CP437: GammaEpsilon, Gamma-pound, Gamma-arrow). Wrapped in
+# try/catch because some hosts (ISE legacy, ConstrainedLanguageMode)
+# reject mutating Console.OutputEncoding at runtime.
+try {
+    [Console]::OutputEncoding = [System.Text.Encoding]::UTF8
+    $OutputEncoding            = [System.Text.Encoding]::UTF8
+} catch { }
+
 function Section($name) { Write-Host "" -NoNewline; Write-Host ("== $name ==") -ForegroundColor Cyan }
 function OK($msg)       { Write-Host "  OK: $msg" -ForegroundColor Green }
 function Step($msg)     { Write-Host "  -> $msg" -ForegroundColor Yellow }
@@ -81,36 +91,72 @@ Write-Host "  multimodal : $(if ($NoMultimodal) { 'SKIP (-NoMultimodal)' } else 
 if ($PSVersionTable.PSVersion.Major -lt 5) {
     Fail "PowerShell 5.1+ required (you have $($PSVersionTable.PSVersion))."
 }
+
+# A7-013 (2026-05-04): 32-bit Windows refusal upfront.
+# lib-common.sh refuses i386/i686 cleanly on Linux/macOS, but bootstrap-install.ps1
+# previously had no architecture check. A 32-bit user would download 58 MB of
+# x64 binaries then crash with BadImageFormatException at first launch.
+# PROCESSOR_ARCHITEW6432 is set on a WoW64 32-bit shell running on a 64-bit OS;
+# we treat that as 64-bit (the parent process is 64-bit, the user can launch a
+# native 64-bit shell). Pure 32-bit OS gets PROCESSOR_ARCHITECTURE=x86 and
+# PROCESSOR_ARCHITEW6432 unset -- the case we refuse.
+$procArch  = $env:PROCESSOR_ARCHITECTURE
+$procArchW = $env:PROCESSOR_ARCHITEW6432
+$is64 = ($procArch -eq 'AMD64') -or ($procArch -eq 'ARM64') -or `
+        ($procArchW -eq 'AMD64') -or ($procArchW -eq 'ARM64')
+if (-not $is64) {
+    Fail ("32-bit Windows is not supported (PROCESSOR_ARCHITECTURE={0}). " -f $procArch +
+          "Mneme ships x64 and arm64 binaries only -- upgrade to 64-bit Windows.")
+}
+
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 
 $releaseBase = "https://github.com/omanishay-cyber/mneme/releases/download/$Version"
 
 # Bug G-14 / SEC-3 (2026-05-01): SHA-256 verification table.
+# A7-001 (2026-05-04): replaced inline placeholder hashtable with a
+# sidecar `release-checksums.json` fetched from the GH Release alongside
+# the binary zip. The maintainer's release pipeline now generates the
+# sidecar via `scripts/gen-release-checksums.ps1` after every re-upload,
+# eliminating the "edit two files in lockstep" failure mode that left
+# the original hashtable empty in shipped v0.3.2.
 #
 # Without integrity checking, a CDN compromise or interrupted download
 # silently delivers garbage that the installer copies to disk and the
-# user runs. Each entry below pins one release artifact to its
-# canonical SHA-256. Files NOT in this table fall through to a "warn-
-# but-continue" path so we don't block on assets we don't yet pin
-# (e.g., new model files added between releases). Files IN this table
-# MUST match -- mismatch is a hard fail.
+# user runs. Files in the manifest MUST match the downloaded bytes --
+# mismatch is a hard fail with the file removed. Files NOT in the
+# manifest fall through to a "warn-but-continue" path so we don't block
+# on assets added between releases.
 #
-# To regenerate a hash:
-#   Get-FileHash <file> -Algorithm SHA256 | Select-Object Hash
-# (uppercase hex, no separators)
+# Manifest format:
+#   {
+#     "version": "v0.3.2",
+#     "generated": "2026-05-04T05:00:00Z",
+#     "files": { "<asset-name>": "<sha256-hex>", ... }
+#   }
 #
 # To skip verification entirely (for a hand-cut beta zip), pass
-# `-SkipHashCheck` to bootstrap-install.ps1.
-$ExpectedHashes = @{
-    # Mneme release artifacts -- populate per-release before tagging.
-    # Example placeholders (NOT the real hashes for v0.3.2):
-    # 'mneme-v0.3.2-windows-x64.zip' = '0123456789ABCDEF...';
-    # 'bge-small-en-v1.5.onnx'        = '...';
-    # 'tokenizer.json'                = '...';
-    # 'qwen-embed-0.5b.gguf'          = '...';
-    # 'qwen-coder-0.5b.gguf'          = '...';
-    # 'phi-3-mini-4k.gguf.part00'     = '...';
-    # 'phi-3-mini-4k.gguf.part01'     = '...';
+# `-SkipHashCheck` to bootstrap-install.ps1 OR set MNEME_SKIP_HASH_CHECK=1.
+$ExpectedHashes = @{}
+try {
+    $manifestUrl = "$releaseBase/release-checksums.json"
+    Step "Fetching SHA-256 manifest: $manifestUrl"
+    $prevPP = $ProgressPreference
+    $ProgressPreference = 'SilentlyContinue'
+    try {
+        $manifestRaw = Invoke-WebRequest -Uri $manifestUrl -UseBasicParsing -TimeoutSec 10 -ErrorAction Stop
+    } finally {
+        $ProgressPreference = $prevPP
+    }
+    $manifest = $manifestRaw.Content | ConvertFrom-Json
+    if ($manifest -and $manifest.files) {
+        foreach ($prop in $manifest.files.PSObject.Properties) {
+            $ExpectedHashes[$prop.Name] = ([string]$prop.Value).ToUpper()
+        }
+    }
+    OK ("loaded SHA-256 manifest: {0} pinned files" -f $ExpectedHashes.Count)
+} catch {
+    WarnLine "release-checksums.json not available for $Version (continuing with unverified downloads)"
 }
 
 function Get-Asset {
@@ -168,8 +214,37 @@ function Get-Asset {
         for ($attempt = 1; $attempt -le $RetryCount; $attempt++) {
             try {
                 Step "Fetching $Name from $label (attempt $attempt/$RetryCount): $url"
-                Invoke-WebRequest -Uri $url -OutFile $Dest -UseBasicParsing
+                # A7-014 (2026-05-04): -PassThru returns the response object
+                # so we can read the Content-Length header and gate the
+                # download on an exact-size match. The original >=100-byte
+                # sanity check passes any partial download >=100 bytes
+                # (e.g. a CDN drop mid-stream of the 58 MB zip), which
+                # then hands a corrupt zip to Expand-Archive and silently
+                # produces a half-installed ~/.mneme. With Content-Length
+                # available on every GitHub Release + HF asset, an exact
+                # match closes that window. Falls through to the legacy
+                # >=100-byte sanity check if Content-Length is absent
+                # (e.g. transfer-encoding: chunked).
+                $resp = Invoke-WebRequest -Uri $url -OutFile $Dest -UseBasicParsing -PassThru
                 $sz = (Get-Item $Dest).Length
+                $expectedLen = -1
+                try {
+                    $cl = $null
+                    if ($resp -and $resp.Headers) {
+                        # On PS5.1 the Headers dict can be case-sensitive;
+                        # PS7 returns string[] for each header. Try both.
+                        $cl = $resp.Headers['Content-Length']
+                        if (-not $cl) { $cl = $resp.Headers['content-length'] }
+                    }
+                    if ($cl) {
+                        $clStr = if ($cl -is [array]) { $cl[0] } else { [string]$cl }
+                        $expectedLen = [int64]$clStr
+                    }
+                } catch { $expectedLen = -1 }
+                if ($expectedLen -gt 0 -and $sz -ne $expectedLen) {
+                    Remove-Item -LiteralPath $Dest -Force -ErrorAction SilentlyContinue
+                    throw "size mismatch for $Name (expected $expectedLen bytes, got $sz) -- truncated download"
+                }
                 if ($sz -lt 100) { throw "downloaded file too small ($sz bytes) -- likely a 404 HTML page" }
 
                 # Bug G-14 / SEC-3 (2026-05-01): SHA-256 verification.
@@ -300,10 +375,17 @@ function Get-Phi3-PartsFallback {
 # ---------------------------------------------------------------------------
 # Step 1: Download the release zip
 # ---------------------------------------------------------------------------
+# A7-023 (2026-05-04): wrap the body of the installer (Steps 1-5) in
+# try/finally so the temp dir is cleaned up on ANY failure path -- not
+# just the happy path. Previously a failure mid-download or mid-extract
+# left ~3.5 GB of partial models + zip in $env:TEMP\mneme-bootstrap-* on
+# every aborted run; across many failed install attempts this filled
+# the user's disk silently.
 Section "Download release zip"
 $zipName = "mneme-$Version-windows-x64.zip"
 $tmpDir = Join-Path $env:TEMP "mneme-bootstrap-$Version"
 New-Item -ItemType Directory -Force -Path $tmpDir | Out-Null
+try {
 $localZip = Join-Path $tmpDir $zipName
 Get-Asset -Name $zipName -Dest $localZip
 
@@ -380,6 +462,16 @@ if ($NoModels) {
     Section "Download + install model assets"
     $modelsDir = Join-Path $tmpDir 'models'
     New-Item -ItemType Directory -Force -Path $modelsDir | Out-Null
+    # A7-003 (2026-05-04): clear orphaned `.partNN` (or any other model
+    # leftovers) from a previous failed install. New-Item -Force is
+    # idempotent on the directory but does NOT touch existing files
+    # inside it, so a leftover phi-3-mini-4k.gguf.part00 from a prior
+    # crashed run survives and triggers the cosmetic "only 1 part(s);
+    # expected >=2" warning when `mneme models install --from-path`
+    # later globs the dir. Clearing the dir is safe -- the assets
+    # listed below are re-fetched fresh in this same step.
+    Get-ChildItem -LiteralPath $modelsDir -Force -ErrorAction SilentlyContinue |
+        Remove-Item -Recurse -Force -ErrorAction SilentlyContinue
 
     # Asset list -- names must match what `mneme models install
     # --from-path` expects on disk. Each entry has:
@@ -559,8 +651,13 @@ if ($NoModels) {
 # ---------------------------------------------------------------------------
 # Step 6: Cleanup (keep download if requested)
 # ---------------------------------------------------------------------------
-if (-not $KeepDownload) {
-    Remove-Item -LiteralPath $tmpDir -Recurse -Force -ErrorAction SilentlyContinue
+} finally {
+    # A7-023: always cleanup unless user opted in to -KeepDownload.
+    # Runs on the happy path AND on every Fail/throw above so partial
+    # downloads do NOT accumulate in $env:TEMP across retried installs.
+    if (-not $KeepDownload) {
+        Remove-Item -LiteralPath $tmpDir -Recurse -Force -ErrorAction SilentlyContinue
+    }
 }
 
 # ---------------------------------------------------------------------------

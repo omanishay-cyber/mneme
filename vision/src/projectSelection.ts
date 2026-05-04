@@ -111,24 +111,19 @@ export function withProject(url: string): string {
   const hash = useVisionStore.getState().projectHash;
   if (!hash) return url;
 
-  // Use a base only when the input is relative — `URL` requires a base
-  // for relative inputs but rejects one for absolute inputs in older
-  // browser engines.
-  const base = url.startsWith("http") ? undefined : "http://127.0.0.1";
-  let parsed: URL;
-  try {
-    parsed = base ? new URL(url, base) : new URL(url);
-  } catch {
-    // Pathologically malformed input — append manually as a last resort.
-    const sep = url.includes("?") ? "&" : "?";
-    return `${url}${sep}project=${encodeURIComponent(hash)}`;
-  }
-  parsed.searchParams.set("project", hash);
-
-  // Strip the synthetic base back off when the input was relative so
-  // we don't double-prefix `API_BASE` callers.
-  if (base) {
-    return parsed.pathname + parsed.search + parsed.hash;
-  }
-  return parsed.toString();
+  // A6-006: simple text append is the safe path. The previous URL-class
+  // round-trip mangled edge cases (`+` -> `%2B`, protocol-relative
+  // resolved against synthetic base, IPv6 bracket normalization). Since
+  // we never need to *parse* the URL here -- only append `project=` --
+  // a fragment-aware textual append preserves bytes exactly.
+  //
+  // Behaviour: insert `?project=` (or `&project=`) before any `#fragment`
+  // so the hash component stays as the last token. If the URL already
+  // carries a `project=` parameter, leave it alone (caller wins).
+  const hashIdx = url.indexOf("#");
+  const fragment = hashIdx >= 0 ? url.slice(hashIdx) : "";
+  const head = hashIdx >= 0 ? url.slice(0, hashIdx) : url;
+  if (/[?&]project=/.test(head)) return url;
+  const sep = head.includes("?") ? "&" : "?";
+  return `${head}${sep}project=${encodeURIComponent(hash)}${fragment}`;
 }

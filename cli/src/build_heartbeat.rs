@@ -273,6 +273,18 @@ impl Heartbeat {
     /// Switch to a new phase label. Used when the same heartbeat
     /// handle is re-used across pipeline stages (saves spawning N
     /// timer tasks for N stages).
+    ///
+    /// A1-026 (2026-05-04): also reset `total` to 0. Previously only
+    /// `processed` was zeroed; the stale `total` from the previous
+    /// phase persisted and the heartbeat output read e.g.
+    /// "phase=graph-betweenness processed=0/12345" -- which the user
+    /// reasonably interpreted as "12345 pending nodes, none done yet"
+    /// when in reality the betweenness phase doesn't have a meaningful
+    /// node-level count at all (it's a single graph computation).
+    /// Callers that have a real total for the new phase MUST call
+    /// `set_total(n)` AFTER `set_phase(...)`. Phases with no
+    /// meaningful per-item count emit "processed=0/0" which the
+    /// formatter renders as a phase label without the rate suffix.
     pub fn set_phase(&self, phase: impl Into<String>) {
         let new_phase = phase.into();
         if let Ok(mut g) = self.inner.phase.lock() {
@@ -281,6 +293,10 @@ impl Heartbeat {
         // Reset processed when switching phase so the rate metric
         // reflects the NEW phase's throughput, not the previous one's.
         self.inner.processed.store(0, Ordering::Relaxed);
+        // A1-026: also clear total so a stale parser-pass total of
+        // 12345 doesn't bleed into a betweenness/leiden/embed phase
+        // where the count is meaningless.
+        self.inner.total.store(0, Ordering::Relaxed);
     }
 
     /// Stop the timer task explicitly. `Drop` calls this too; explicit
@@ -440,6 +456,16 @@ mod tests {
             inner.processed.load(Ordering::Relaxed),
             0,
             "set_phase must reset processed so per-phase rate is meaningful"
+        );
+        // A1-026 (2026-05-04): set_phase also resets total so a stale
+        // parser-pass total doesn't bleed into a phase with no
+        // meaningful per-item count (graph-betweenness, leiden, etc.).
+        // Callers that have a real total for the new phase must call
+        // set_total AFTER set_phase.
+        assert_eq!(
+            inner.total.load(Ordering::Relaxed),
+            0,
+            "set_phase must reset total so the next phase doesn't show stale 0/N"
         );
         assert_eq!(
             *inner.phase.lock().unwrap(),

@@ -103,7 +103,7 @@ pub fn supervisor_log_path() -> std::path::PathBuf {
 }
 
 /// Create the supervisor logs directory if it doesn't already exist.
-/// Idempotent — calling on an existing dir is a no-op. Returns the
+/// Idempotent -- calling on an existing dir is a no-op. Returns the
 /// resolved directory on success so callers (e.g. `init_tracing` in the
 /// daemon binary) don't have to recompute it.
 ///
@@ -111,10 +111,67 @@ pub fn supervisor_log_path() -> std::path::PathBuf {
 /// only logged to stdout, so post-install probes for `~/.mneme/logs/`
 /// always came up empty. The supervisor now creates this dir on every
 /// boot.
+///
+/// BUG-A4-016 fix (2026-05-04): also reap files older than 7 days at
+/// boot. `tracing_appender::rolling::DAILY`'s `max_log_files(7)` only
+/// reaps files written by *this* appender instance -- a supervisor
+/// restart starts a new appender that has no memory of prior days'
+/// files, so on a daily-restart machine `~/.mneme/logs/` accreted
+/// `supervisor.log.YYYY-MM-DD` files indefinitely. We now make the
+/// retention horizon authoritative by sweeping it ourselves on every
+/// boot.
 pub fn ensure_logs_dir() -> std::io::Result<std::path::PathBuf> {
     let dir = logs_dir();
     std::fs::create_dir_all(&dir)?;
+    reap_old_log_files(&dir, std::time::Duration::from_secs(7 * 24 * 60 * 60));
     Ok(dir)
+}
+
+/// BUG-A4-016 helper: delete `supervisor.log.*` files in `dir` whose
+/// last-modified mtime is older than `max_age`. Best-effort: errors
+/// reading the dir or stat-ing entries are logged at debug level and
+/// otherwise ignored. We never delete the suffix-less `supervisor.log`
+/// (the live appender's "current" handle) regardless of age.
+fn reap_old_log_files(dir: &std::path::Path, max_age: std::time::Duration) {
+    let entries = match std::fs::read_dir(dir) {
+        Ok(e) => e,
+        Err(e) => {
+            tracing::debug!(error = %e, "log reap: read_dir failed");
+            return;
+        }
+    };
+    let now = std::time::SystemTime::now();
+    for entry in entries.flatten() {
+        let path = entry.path();
+        let name = match path.file_name().and_then(|s| s.to_str()) {
+            Some(s) => s,
+            None => continue,
+        };
+        // Only reap rotated supervisor.log.* files. Leave the live
+        // file and any unrelated artifacts alone.
+        if !name.starts_with("supervisor.log.") {
+            continue;
+        }
+        let meta = match entry.metadata() {
+            Ok(m) => m,
+            Err(_) => continue,
+        };
+        let modified = match meta.modified() {
+            Ok(t) => t,
+            Err(_) => continue,
+        };
+        let age = match now.duration_since(modified) {
+            Ok(d) => d,
+            Err(_) => continue, // mtime in the future -- skip
+        };
+        if age > max_age {
+            if let Err(e) = std::fs::remove_file(&path) {
+                tracing::debug!(error = %e, file = %path.display(), "log reap: remove failed");
+            } else {
+                tracing::debug!(file = %path.display(), "log reap: removed stale log");
+            }
+        }
+    }
 }
 
 /// Tail the last `n` lines from `~/.mneme/logs/supervisor.log` plus any

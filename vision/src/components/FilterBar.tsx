@@ -1,11 +1,43 @@
-import { useVisionStore } from "../store";
+import { useEffect, useRef, useState } from "react";
+import { useVisionStore, shallow } from "../store";
 
 const TYPE_FACETS = ["module", "page", "store", "util", "test", "asset"];
 const DOMAIN_FACETS = ["src", "electron", "tests", "docs"];
 
+const SEARCH_DEBOUNCE_MS = 200;
+
 export function FilterBar(): JSX.Element {
-  const filters = useVisionStore((s) => s.filters);
+  // A6-022: shallow equality so unrelated store mutations don't re-render.
+  const filters = useVisionStore((s) => s.filters, shallow);
   const setFilter = useVisionStore((s) => s.setFilter);
+
+  // A6-011: debounce keystrokes -- writing to the zustand store on
+  // every input fires every subscriber (Sigma, view canvas reducers).
+  // Local draft state stays instant; the committed search updates the
+  // store at most once per 200ms.
+  const [draft, setDraft] = useState<string>(filters.search);
+  const timerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Reflect external changes (e.g. URL deep-link) back into the draft.
+  useEffect(() => {
+    setDraft(filters.search);
+  }, [filters.search]);
+
+  useEffect(() => {
+    return () => {
+      if (timerRef.current !== null) clearTimeout(timerRef.current);
+    };
+  }, []);
+
+  const onSearchChange = (e: React.ChangeEvent<HTMLInputElement>): void => {
+    const v = e.target.value;
+    setDraft(v);
+    if (timerRef.current !== null) clearTimeout(timerRef.current);
+    timerRef.current = setTimeout(() => {
+      timerRef.current = null;
+      setFilter("search", v);
+    }, SEARCH_DEBOUNCE_MS);
+  };
 
   const toggle = (key: "type" | "domain", value: string): void => {
     const current = filters[key];
@@ -22,8 +54,8 @@ export function FilterBar(): JSX.Element {
         <input
           type="search"
           placeholder="search nodes…"
-          value={filters.search}
-          onChange={(e) => setFilter("search", e.target.value)}
+          value={draft}
+          onChange={onSearchChange}
         />
       </label>
 

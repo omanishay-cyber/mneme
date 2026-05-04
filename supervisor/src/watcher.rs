@@ -180,6 +180,25 @@ pub async fn run_watcher(
     stats: WatcherStatsHandle,
     debounce: Duration,
 ) -> Result<(), WatcherError> {
+    run_watcher_with_bus(project_root, livebus_socket, None, stats, debounce).await
+}
+
+/// BUG-A4-014 fix (2026-05-04): variant of [`run_watcher`] that also
+/// accepts an in-process `livebus::EventBus`. When `Some`, the watcher
+/// publishes a typed `FileChanged` event onto the bus alongside the
+/// legacy out-of-process socket emit, so connected `/ws` clients on the
+/// supervisor's HTTP port receive immediate notification instead of the
+/// stale silence the audit flagged. When `None`, behaviour is identical
+/// to the legacy `run_watcher` -- the wrapper above just calls into
+/// here with `bus=None` so existing CLI call sites (`mneme-daemon
+/// watch`) keep their wire shape.
+pub async fn run_watcher_with_bus(
+    project_root: PathBuf,
+    livebus_socket: Option<PathBuf>,
+    bus: Option<livebus::EventBus>,
+    stats: WatcherStatsHandle,
+    debounce: Duration,
+) -> Result<(), WatcherError> {
     let canonical = dunce::canonicalize(&project_root)
         .map_err(|e| WatcherError::Io(format!("canonicalize {}: {e}", project_root.display())))?;
 
@@ -299,6 +318,20 @@ pub async fn run_watcher(
     });
 
     // ----- 4. Re-index worker ---------------------------------------------
+    // BUG-A4-010 fix (2026-05-04): cap concurrent `reindex_one` tasks
+    // with a Semaphore. The legacy code spawned one tokio task per
+    // file change with no upper bound -- a 10K-file mass-save (e.g.
+    // `cargo fmt` on a workspace) would spawn 10K concurrent tasks all
+    // contending for the parser pool (size 4) and the per-project
+    // store writer. Worst-case the debouncer's MAX_PENDING (~65K) was
+    // the only ceiling. Cap at parser_pool_size * 2 so we keep the
+    // pool saturated without piling up scheduler / memory pressure.
+    let reindex_cap: usize = (4_usize).saturating_mul(2);
+    let reindex_limiter = Arc::new(tokio::sync::Semaphore::new(reindex_cap));
+    // BUG-A4-014: project token used for in-process bus events. The
+    // hashed ProjectId is the canonical token; if it cannot be rendered
+    // we fall back to "local" so the topic still validates.
+    let project_token: String = project_id.to_string();
     loop {
         let (path, kind) = match index_rx.recv().await {
             Some(x) => x,
@@ -309,9 +342,24 @@ pub async fn run_watcher(
         let project_id = project_id.clone();
         let stats = stats.clone();
         let lb = livebus_socket.clone();
-        // Each job runs concurrently so the worker doesn't serialize on
-        // slow parses.
+        let limiter = reindex_limiter.clone();
+        let bus_for_task = bus.clone();
+        let project_token_for_task = project_token.clone();
+        // Acquire the permit OUTSIDE the spawn so backpressure flows
+        // back into the receive loop -- if we are already at the cap,
+        // pulling the next event waits for a permit. This is the whole
+        // point of the cap: to throttle the dispatch side, not just the
+        // worker count.
+        let permit = match limiter.acquire_owned().await {
+            Ok(p) => p,
+            Err(_) => return Ok(()), // semaphore closed -- treat as shutdown
+        };
+        // Each job runs concurrently within the cap so the worker
+        // doesn't serialize on slow parses.
         tokio::spawn(async move {
+            // The permit is moved into the task; dropped automatically
+            // when the future completes / panics, releasing the slot.
+            let _permit = permit;
             if let Err(e) = reindex_one(
                 &store,
                 &inc,
@@ -320,6 +368,8 @@ pub async fn run_watcher(
                 kind,
                 &stats,
                 lb.as_deref(),
+                bus_for_task.as_ref(),
+                &project_token_for_task,
             )
             .await
             {
@@ -330,6 +380,7 @@ pub async fn run_watcher(
 }
 
 /// Run one re-index pass for a single file.
+#[allow(clippy::too_many_arguments)]
 async fn reindex_one(
     store: &Store,
     inc: &IncrementalParser,
@@ -338,6 +389,8 @@ async fn reindex_one(
     kind: ChangeKind,
     stats: &WatcherStatsHandle,
     livebus_socket: Option<&Path>,
+    bus: Option<&livebus::EventBus>,
+    project_token: &str,
 ) -> Result<(), WatcherError> {
     let started = Instant::now();
     let path_str = path.display().to_string();
@@ -435,6 +488,16 @@ async fn reindex_one(
             latency_ms,
             -(qnames.len() as i64),
             0,
+        );
+        // BUG-A4-014 fix: also emit on the in-process bus when one is
+        // wired in, so connected `/ws` clients see the delete event.
+        emit_filechanged_to_bus(
+            bus,
+            project_token,
+            &path_str,
+            livebus::event::FileChangeKind::Deleted,
+            None,
+            None,
         );
         return Ok(());
     }
@@ -676,6 +739,16 @@ async fn reindex_one(
         n_nodes as i64,
         n_edges as i64,
     );
+    // BUG-A4-014 fix: also emit on the in-process bus when one is
+    // wired in, so connected `/ws` clients see the upsert event.
+    emit_filechanged_to_bus(
+        bus,
+        project_token,
+        &path_str,
+        livebus::event::FileChangeKind::Modified,
+        None,
+        None,
+    );
     Ok(())
 }
 
@@ -828,14 +901,11 @@ fn emit_file_reindexed(
 /// `run_watcher` path will pass the real id; tests + ad-hoc invocations
 /// fall back to `local` so the topic still validates.
 ///
-/// Marked `#[allow(dead_code)]` because the production call site in
-/// `run_watcher` does not yet receive an `EventBus` handle (the watcher
-/// is invoked from `bin/main.rs::watch`, which lives outside
-/// `lib::run`'s in-process bus). Threading the bus through `run_watcher`
-/// is a v0.4 follow-up — the helper itself is exercised by the unit
-/// test `livebus_emits_filechanged_event_when_file_modifies` and stays
-/// available for the next consumer.
-#[allow(dead_code)]
+/// BUG-A4-014 fix (2026-05-04): now actually called from `reindex_one`
+/// when the supervisor's `lib::run` threads in its in-process
+/// `EventBus`. The legacy `mneme-daemon watch` CLI path still passes
+/// `bus=None` (it has no bus to share) so this helper degrades to a
+/// no-op there -- preserving the existing wire shape for that command.
 pub(crate) fn emit_filechanged_to_bus(
     bus: Option<&livebus::EventBus>,
     project_token: &str,

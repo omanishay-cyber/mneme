@@ -121,9 +121,24 @@ if ($IncludeVisionTauri -and -not $haveTauri) {
 
 Section "Stage dir"
 if (Test-Path $StageDir) {
-    if (-not $Force) {
+    # A7-012 (2026-05-04): zero-question default. Stage dirs are always
+    # safe to overwrite (they're scratch artifacts produced by this
+    # script, not user data). Auto-overwrite when stdin is redirected
+    # (CI / piped input) -- the prompt would just hang -- and skip the
+    # prompt entirely on -Force. The interactive prompt remains for
+    # local maintainer runs without -Force, in case the operator
+    # accidentally pointed -StageDir at a non-staging directory.
+    $autoOverwrite = $Force
+    if (-not $autoOverwrite) {
+        try {
+            if ([Console]::IsInputRedirected) { $autoOverwrite = $true }
+        } catch { $autoOverwrite = $false }
+    }
+    if (-not $autoOverwrite) {
         $reply = Read-Host "Stage dir exists: $StageDir. Overwrite? [y/N]"
         if ($reply -notmatch '^(y|yes)$') { Fail "user declined stage dir overwrite" }
+    } else {
+        Step "Stage dir exists at $StageDir -- auto-overwriting (Force / non-interactive)"
     }
     Remove-Item -Recurse -Force $StageDir
 }
@@ -209,6 +224,56 @@ if (-not (Test-Path $zodPkgJson)) {
 if (-not (Test-Path $sdkPkgJson)) {
     Fail "mcp/node_modules/@modelcontextprotocol/sdk/package.json STILL missing after bun install - refusing to stage broken zip"
 }
+
+# A7-019 (2026-05-04): generalise the spot-check above into a manifest-
+# driven sweep. Reading mcp/package.json gives us every direct dep +
+# peerDep the runtime expects; missing any one of them is a ship blocker
+# (the Zod / SDK gaps both started as "the stage script doesn't notice
+# bun install aborted partway through"). This catches new deps added
+# between releases without requiring this list to be edited in lockstep.
+$mcpPkgJsonPath = Join-Path $mcp 'package.json'
+if (Test-Path $mcpPkgJsonPath) {
+    try {
+        $mcpPkg = Get-Content -LiteralPath $mcpPkgJsonPath -Raw | ConvertFrom-Json
+        $depNames = @()
+        foreach ($section in @('dependencies', 'peerDependencies')) {
+            if ($mcpPkg.$section) {
+                $depNames += $mcpPkg.$section.PSObject.Properties.Name
+            }
+        }
+        $depNames = $depNames | Where-Object { $_ } | Select-Object -Unique
+        $depMissing = @()
+        foreach ($d in $depNames) {
+            $depPkg = Join-Path $mcp ("node_modules\{0}\package.json" -f $d)
+            if (-not (Test-Path -LiteralPath $depPkg)) { $depMissing += $d }
+        }
+        if ($depMissing.Count -gt 0) {
+            Fail ("missing deps after bun install: {0} (refusing to stage broken zip)" -f ($depMissing -join ', '))
+        }
+        Write-Host ("     OK: {0} npm deps validated against package.json" -f $depNames.Count) -ForegroundColor Green
+    } catch {
+        Fail ("could not parse mcp/package.json for dep validation: {0}" -f $_.Exception.Message)
+    }
+} else {
+    Fail "mcp/package.json missing -- cannot validate node_modules"
+}
+
+# A7-020 (2026-05-04): a partial node_modules where every package.json
+# header file is present but the actual code is truncated would still
+# pass the per-package check above. Assert the directory is at least 30
+# MB so silent half-installs (network drop mid `bun install`) get caught
+# before we ship a broken zip. Threshold matches the floor empirically
+# observed for v0.3.2 mcp/ (~70 MB after a clean install).
+$mcpNmDir = Join-Path $mcp 'node_modules'
+if (Test-Path -LiteralPath $mcpNmDir) {
+    $nmSize = ((Get-ChildItem -LiteralPath $mcpNmDir -Recurse -File -ErrorAction SilentlyContinue |
+                Measure-Object Length -Sum).Sum / 1MB)
+    if ($nmSize -lt 30) {
+        Fail ("mcp/node_modules is only {0:N1} MB (expected >= 30 MB) - bun install may have aborted" -f $nmSize)
+    }
+    Write-Host ("     OK: mcp/node_modules is {0:N1} MB (>=30 MB floor)" -f $nmSize) -ForegroundColor Green
+}
+
 Write-Host "     OK: mcp/node_modules has zod + @modelcontextprotocol/sdk" -ForegroundColor Green
 
 # robocopy is faster + smarter than Copy-Item for trees this size.
@@ -313,14 +378,38 @@ Get-ChildItem $StageDir | ForEach-Object {
 
 Section "Compress to zip"
 if (Test-Path $OutZip) {
-    if (-not $Force) {
+    # A7-012 (2026-05-04): zip overwrite is a real-data destructive op
+    # (the prior shipped artifact). Keep the prompt as a guardrail when
+    # stdin is a real TTY, but auto-overwrite under -Force OR a
+    # redirected stdin (CI, pipe). The `Read-Host` previously hung
+    # forever in CI even though -Force was the documented bypass.
+    $autoOverwrite = $Force
+    if (-not $autoOverwrite) {
+        try {
+            if ([Console]::IsInputRedirected) { $autoOverwrite = $true }
+        } catch { $autoOverwrite = $false }
+    }
+    if (-not $autoOverwrite) {
         $reply = Read-Host "Output zip exists: $OutZip. Overwrite? [y/N]"
         if ($reply -notmatch '^(y|yes)$') { Fail "user declined zip overwrite" }
+    } else {
+        Step "Output zip exists at $OutZip -- auto-overwriting (Force / non-interactive)"
     }
     Remove-Item $OutZip -Force
 }
 $start = Get-Date
-Compress-Archive -Path "$StageDir\*" -DestinationPath $OutZip -CompressionLevel Optimal -Force
+# A7-018 (2026-05-04): switch from Compress-Archive (PS5.1 wrapper) to
+# the .NET ZipFile.CreateFromDirectory API. PS5.1's Compress-Archive
+# has a 2 GB internal buffer limit; any source tree above that limit
+# hits an OutOfMemoryException or silent truncation. The release stage
+# is currently ~55 MB so this is a future-proofing fix -- but the
+# stage-final-zip.ps1 path with -IncludeModels already approaches 3.5 GB.
+Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction SilentlyContinue
+[System.IO.Compression.ZipFile]::CreateFromDirectory(
+    $StageDir,
+    $OutZip,
+    [System.IO.Compression.CompressionLevel]::Optimal,
+    $false)
 $end = Get-Date
 $zipSize = (Get-Item $OutZip).Length / 1MB
 OK ("zip created: {0} ({1:N1} MB) in {2:N1}s" -f $OutZip, $zipSize, ($end - $start).TotalSeconds)

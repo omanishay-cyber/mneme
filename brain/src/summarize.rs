@@ -112,6 +112,14 @@ fn first_doc_comment(body: &str) -> Option<String> {
                 if chunk.is_empty() && !found_any {
                     continue;
                 }
+                // BUG-A2-034 fix: skip TODO/FIXME/XXX/HACK markers so they
+                // don't leak into summaries. Without this filter, a
+                // function with `// TODO: rewrite this mess\nfn foo()`
+                // emitted "TODO: rewrite this mess." as the function's
+                // summary — actively misleading documentation.
+                if is_todo_marker(chunk) {
+                    continue;
+                }
                 if !buf.is_empty() {
                     buf.push(' ');
                 }
@@ -132,6 +140,17 @@ fn first_doc_comment(body: &str) -> Option<String> {
     } else {
         Some(cleaned)
     }
+}
+
+/// BUG-A2-034 helper: detect TODO/FIXME/XXX/HACK style markers regardless
+/// of leading punctuation or case.
+fn is_todo_marker(line: &str) -> bool {
+    let trimmed = line.trim_start_matches(|c: char| !c.is_alphanumeric());
+    let upper = trimmed.to_ascii_uppercase();
+    upper.starts_with("TODO")
+        || upper.starts_with("FIXME")
+        || upper.starts_with("XXX")
+        || upper.starts_with("HACK")
 }
 
 fn signature_fallback(signature: &str) -> String {

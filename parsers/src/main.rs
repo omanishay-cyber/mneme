@@ -80,7 +80,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // N workers. We keep parity with the pool's per-language count: the
     // supervisor decides job dispatch by language, so worker count is the
     // upper bound on language-parallelism inside this process.
-    let worker_count = (num_cpus::get() * 4).max(4);
+    //
+    // A10-010 (2026-05-04): boundary math extracted to `parser_worker_count`
+    // so unit tests can pin behaviour at 1/4/8/16/32/64 cores without
+    // taking a dependency on the live host's `num_cpus::get()`.
+    let worker_count = parser_worker_count(num_cpus::get());
     info!(workers = worker_count, "spawning parser workers");
 
     // AI-DNA pace: result fan-in channel sized for `worker_count * burst-rate`.
@@ -274,5 +278,41 @@ impl JobWire {
             content_hash: None,
             job_id: self.job_id,
         }
+    }
+}
+
+/// A10-010 (2026-05-04): pure worker-count math, extracted from
+/// `main()` so unit tests can drive boundary conditions without
+/// depending on `num_cpus::get()`. The behaviour mirrors the original
+/// `(num_cpus::get() * 4).max(4)` expression: 4 workers per CPU,
+/// floored at 4. No upper bound is imposed here - the supervisor's
+/// per-process count and the parser_pool's per-language fan-out
+/// (parser_pool.rs:90 - hard-pinned to 4) provide the real bound.
+pub fn parser_worker_count(cpus: usize) -> usize {
+    (cpus * 4).max(4)
+}
+
+#[cfg(test)]
+mod parser_worker_count_tests {
+    use super::parser_worker_count;
+
+    #[test]
+    fn parser_worker_count_floors_at_4_for_zero_or_one_cpu() {
+        // Defensive: num_cpus::get() returns >= 1 on every supported
+        // platform, but a buggy host returning 0 must NOT collapse the
+        // worker pool to nothing.
+        assert_eq!(parser_worker_count(0), 4);
+        assert_eq!(parser_worker_count(1), 4);
+    }
+
+    #[test]
+    fn parser_worker_count_scales_linearly_above_one_cpu() {
+        // 4 workers per CPU on every host past a single core.
+        assert_eq!(parser_worker_count(2), 8);
+        assert_eq!(parser_worker_count(4), 16);
+        assert_eq!(parser_worker_count(8), 32);
+        assert_eq!(parser_worker_count(16), 64);
+        assert_eq!(parser_worker_count(32), 128);
+        assert_eq!(parser_worker_count(64), 256);
     }
 }

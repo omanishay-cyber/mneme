@@ -6,6 +6,13 @@ on:
   pull_request:
     branches: [main]
   workflow_dispatch:
+  # Daily cron at 12:00 UTC. Only the `audit` job consults the cron trigger
+  # (see its `if:` guard) — the rest of the matrix would burn CI minutes for
+  # no signal. RUSTSEC advisories update daily, so this catches a new CVE
+  # affecting a transitive dep without waiting for the next push or PR.
+  # Bug A9-010 (2026-05-04).
+  schedule:
+    - cron: '0 12 * * *'
 
 concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
@@ -23,6 +30,7 @@ env:
 jobs:
   rust:
     name: Rust (build + test + clippy)
+    if: github.event_name != 'schedule'
     strategy:
       fail-fast: false
       matrix:
@@ -98,6 +106,7 @@ jobs:
   mcp:
     name: MCP server (bun check)
     runs-on: ubuntu-latest
+    if: github.event_name != 'schedule'
     steps:
       - uses: actions/checkout@v4
 
@@ -121,6 +130,7 @@ jobs:
   vision:
     name: Vision app (bun check)
     runs-on: ubuntu-latest
+    if: github.event_name != 'schedule'
     steps:
       - uses: actions/checkout@v4
 
@@ -143,6 +153,7 @@ jobs:
   license-check:
     name: License header present
     runs-on: ubuntu-latest
+    if: github.event_name != 'schedule'
     steps:
       - uses: actions/checkout@v4
       - name: LICENSE file exists
@@ -151,6 +162,9 @@ jobs:
   audit:
     name: Cargo audit (RUSTSEC advisories)
     runs-on: ubuntu-latest
+    # Always runs (push, pull_request, workflow_dispatch, AND schedule).
+    # All other jobs in this file skip on schedule (see their `if:` guards)
+    # so the daily cron tick only burns ~30 seconds of audit-only CI minutes.
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -166,6 +180,7 @@ jobs:
   deny:
     name: Cargo deny (license + bans + duplicates)
     runs-on: ubuntu-latest
+    if: github.event_name != 'schedule'
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -184,6 +199,7 @@ jobs:
   home-dir-discipline:
     name: Class HOME guardrail (no raw dirs::home_dir for mneme paths)
     runs-on: ubuntu-latest
+    if: github.event_name != 'schedule'
     steps:
       - uses: actions/checkout@v4
       - name: Run check-home-dir-discipline.sh
@@ -197,6 +213,7 @@ jobs:
 
   doctor-paths:
     name: Doctor cross-platform path tests
+    if: github.event_name != 'schedule'
     strategy:
       fail-fast: false
       matrix:
@@ -215,6 +232,7 @@ jobs:
   e2e-big-repo:
     name: E2E build + recall + blast on a real repo
     runs-on: ubuntu-latest
+    if: github.event_name != 'schedule'
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
@@ -232,3 +250,27 @@ jobs:
         env:
           MNEME_BIN: ${{ github.workspace }}/target/release/mneme
         run: cargo test --release -p mneme-cli --test e2e_big_repo -- --ignored --nocapture
+
+  chaos-tests:
+    # Bug A10-007 (2026-05-04): the chaos suite at cli/tests/chaos_tests.rs
+    # has 4 of 7 tests gated behind `cfg_attr(not(feature="test-hooks"), ignore)` —
+    # `worker_crash_mid_build_supervisor_restarts`, `disk_fill_aborts_without_partial_writes`,
+    # `daemon_kill_via_taskmanager_next_invocation_reattaches`, and
+    # `build_interrupt_with_ctrl_c_resumes_from_state`. Without this job
+    # those four tests would be silently skipped on every push and the
+    # supervisor restart, disk-fill rollback, daemon reattach, and Ctrl-C
+    # resume contracts would be unverified in CI.
+    name: Chaos tests (cargo test --features test-hooks)
+    runs-on: ubuntu-latest
+    if: github.event_name != 'schedule'
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - name: Build with test-hooks feature
+        run: cargo build --workspace --features test-hooks --bins
+      - name: Run chaos suite
+        # The suite spawns short-lived supervisor instances that observe
+        # injected crashes. --test-threads=1 keeps the per-test daemon
+        # isolation deterministic on CI runners with limited resources.
+        run: cargo test --features test-hooks -p mneme-cli --test chaos_tests -- --test-threads=1 --nocapture

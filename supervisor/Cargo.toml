@@ -17,6 +17,11 @@ path = "src/lib.rs"
 
 [dependencies]
 # Workspace deps (resolved from root Cargo.toml [workspace.dependencies] block)
+# BUG-A4-015 (2026-05-04): tokio MUST be >= 1.30 for FIFO-fair
+# Semaphore::acquire_owned. We pin to 1.40 with a hard >= floor; the
+# IPC connection limiter (`ipc.rs::serve`) and the watcher's reindex
+# limiter (`watcher.rs`) both depend on FIFO ordering to prevent
+# starvation under burst. Do not downgrade.
 tokio = { version = "1.40", features = ["full"] }
 tokio-util = "0.7"
 futures = "0.3"

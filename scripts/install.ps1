@@ -44,8 +44,11 @@
 #   3. Extracts to %USERPROFILE%\.mneme\ (bin/, mcp/, plugin/).
 #   4. Adds Windows Defender exclusions for %USERPROFILE%\.mneme\ and
 #      %USERPROFILE%\.claude\ (requires admin; falls back to a printed
-#      one-liner if not elevated). Prevents the known SAgent.HAG!MTB
-#      ML-heuristic false positive on mneme's memory/log files.
+#      one-liner if not elevated). Prevents Defender's heuristic ML
+#      classifier from false-positiving on agent-automation patterns
+#      in mneme memory/log files. (A7-010: dropped specific classifier
+#      name -- the family-id taxonomy gets renamed/retired across
+#      monthly Defender signature updates.)
 #   5. Adds the bin directory to the user PATH (persistent, user-scope only).
 #   6. Starts the mneme daemon in the background.
 #   7. Registers the mneme MCP server with Claude Code AND registers
@@ -78,6 +81,10 @@ param(
     # `%LOCALAPPDATA%/Bun/Cache` - kills other Bun projects' caches. Default
     # OFF for unattended paths unless the user explicitly opts in.
     [switch]$ForceBunCacheClear,
+    # A7-012 (2026-05-04): zero-question install is the design principle.
+    # Even an interactive shell now defaults to "skip + print mitigation"
+    # and only prompts when this flag is explicitly set.
+    [switch]$PromptForBunCacheClear,
     [switch]$WithMultimodal,  # also install G9 Tesseract OCR + G10 ImageMagick via winget
     [Parameter()]
     [string]$LocalZip = $null, # path to a local mneme zip; skips GitHub fetch in step 2/8 and uses this in step 3/8
@@ -867,8 +874,30 @@ if ($NoToolchain) {
                         $machinePath = [Environment]::GetEnvironmentVariable("PATH", "Machine")
                         $userPath = [Environment]::GetEnvironmentVariable("PATH", "User")
                         $env:PATH = "$machinePath;$userPath"
-                        # B6: literal "Tesseract" (was `tesseract` -- backtick-t was a PowerShell tab escape that ate the T)
-                        Write-OK "[G9] Tesseract OCR installed (re-open shell if Tesseract not on PATH yet)"
+                        # A7-005 (2026-05-04): the Machine PATH update from winget
+                        # propagates via a registry broadcast that the current
+                        # process never receives, so even the refresh above can
+                        # miss the just-added Tesseract entry. Probe the default
+                        # install location directly and inject it into the
+                        # current process PATH so the immediate G9 capability
+                        # check + the subsequent register-mcp child process
+                        # (which inherits this env) both see Tesseract.
+                        if (-not (Get-Command tesseract -ErrorAction SilentlyContinue)) {
+                            $tessDefault = Join-Path $env:ProgramFiles 'Tesseract-OCR\tesseract.exe'
+                            if (Test-Path $tessDefault) {
+                                $tessDir = Split-Path -Parent $tessDefault
+                                if (-not ($env:PATH.Split(';') -contains $tessDir)) {
+                                    $env:PATH = "$env:PATH;$tessDir"
+                                }
+                                [Environment]::SetEnvironmentVariable('PATH', $env:PATH, 'Process')
+                                Write-OK ("[G9] Tesseract OCR installed at {0} (PATH session-injected)" -f $tessDefault)
+                            } else {
+                                # B6: literal "Tesseract" (was `tesseract` -- backtick-t was a PowerShell tab escape that ate the T)
+                                Write-OK "[G9] Tesseract OCR installed (re-open shell if Tesseract not on PATH yet)"
+                            }
+                        } else {
+                            Write-OK "[G9] Tesseract OCR installed (PATH refresh picked up new install)"
+                        }
                     } else {
                         Write-Warn ("[G9] winget Tesseract install exited {0} - non-fatal, continuing" -f $p.ExitCode)
                     }
@@ -1016,7 +1045,31 @@ if ($UsePreExtracted) {
         Write-Fail  "       OR pass -LocalZip <path> to extract a local zip from this script."
         exit 1
     }
-    Write-OK ("mneme.exe present at {0}; extraction skipped" -f $MnemeExePath)
+
+    # A7-021 (2026-05-04): the narrow mneme.exe-only guard above gives a
+    # nice remediation message, but doesn't catch the case where mneme.exe
+    # is present but the 7 worker exes are missing (e.g. user extracted a
+    # damaged or partial zip into ~/.mneme). Run the full 8-binary check
+    # here too so -SkipDownload mode gets the same hard-fail floor as the
+    # extract-fresh branch. The unconditional check at the bottom of step
+    # 3/8 still runs (defensive double-check), but failing here lets us
+    # exit BEFORE the manifest-write step records a corrupt baseline.
+    $SdMissing = @()
+    foreach ($bin in @('mneme.exe', 'mneme-daemon.exe', 'mneme-store.exe',
+                       'mneme-parsers.exe', 'mneme-scanners.exe',
+                       'mneme-livebus.exe', 'mneme-md-ingest.exe',
+                       'mneme-brain.exe')) {
+        if (-not (Test-Path -LiteralPath (Join-Path $BinDir $bin))) {
+            $SdMissing += $bin
+        }
+    }
+    if ($SdMissing.Count -gt 0) {
+        Write-Fail ("-SkipDownload verification failed -- missing binaries:")
+        foreach ($m in $SdMissing) { Write-Fail ("  - bin\{0}" -f $m) }
+        Write-Fail "remediation: re-extract the mneme zip into ~/.mneme  (Expand-Archive)"
+        exit 1
+    }
+    Write-OK ("mneme.exe present at {0}; all 8 core binaries verified; extraction skipped" -f $MnemeExePath)
 
     # Refresh the manifest so a future upgrade can still diff. We don't
     # try to detect orphans (we never extracted anything to compare against).
@@ -1028,7 +1081,15 @@ if ($UsePreExtracted) {
             mode      = 'pre-extracted'
             files     = $NewManifest
         } | ConvertTo-Json -Depth 4
-        Set-Content -LiteralPath $ManifestFile -Value $manifestPayload -Encoding UTF8 -Force
+        # A7-016 (2026-05-04): atomic manifest write via .tmp + Move-Item.
+        # Direct Set-Content on the final filename leaves the manifest as
+        # corrupt JSON if power dies mid-write, breaking `mneme doctor` and
+        # the upgrade-time delta diff. Move-Item is atomic on NTFS so the
+        # final file either has the new content or the old content -- never
+        # a half-written mix.
+        $ManifestTmp = $ManifestFile + '.tmp'
+        Set-Content -LiteralPath $ManifestTmp -Value $manifestPayload -Encoding UTF8 -Force
+        Move-Item -LiteralPath $ManifestTmp -Destination $ManifestFile -Force
         Write-OK ("manifest written: {0} ({1} file(s))" -f $ManifestFile, $NewManifest.Count)
     } catch {
         Write-Warn ("could not write install manifest: {0}" -f $_.Exception.Message)
@@ -1147,7 +1208,11 @@ if ($UsePreExtracted) {
             mode      = if ($IsUpgrade) { 'upgrade' } elseif ($UseLocalZip) { 'local-zip' } else { 'fresh-install' }
             files     = $NewManifest
         } | ConvertTo-Json -Depth 4
-        Set-Content -LiteralPath $ManifestFile -Value $manifestPayload -Encoding UTF8 -Force
+        # A7-016 (2026-05-04): atomic write via .tmp + Move-Item; see the
+        # pre-extracted branch above for full rationale.
+        $ManifestTmp = $ManifestFile + '.tmp'
+        Set-Content -LiteralPath $ManifestTmp -Value $manifestPayload -Encoding UTF8 -Force
+        Move-Item -LiteralPath $ManifestTmp -Destination $ManifestFile -Force
         Write-OK ("manifest written: {0} ({1} file(s))" -f $ManifestFile, $NewManifest.Count)
     } catch {
         Write-Warn ("could not write install manifest: {0}" -f $_.Exception.Message)
@@ -1234,11 +1299,13 @@ if (-not (Test-Path -LiteralPath $VisionIndexFile)) {
 # Step 4 - Windows Defender exclusions
 # ============================================================================
 #
-# Defender's ML-based SAgent.HAG!MTB classifier false-positives on mneme's
-# memory files because they contain dense agent-automation language
+# Defender's heuristic ML classifier may false-positive on mneme's
+# memory files because they contain dense agent-automation patterns
 # ("hook", "pre-tool", "blocked", "inject", "subprocess", "exec"). Without
 # an exclusion, random mneme data files will be silently quarantined,
-# which looks like mysterious data loss to the user.
+# which looks like mysterious data loss to the user. (A7-010: avoiding
+# specific classifier-family names since Defender renames + retires
+# them across monthly signature updates.)
 #
 # This step attempts to add exclusions via Add-MpPreference. Requires
 # admin. If not elevated, we print the exact one-liner the user can run
@@ -1314,17 +1381,18 @@ if ($DirsToAdd.Count -eq 0) {
 }
 
 if ($DefenderFailed) {
-    Write-Host ""
-    Write-Host "    To add the exclusions yourself (prevents Defender false positives):" -ForegroundColor Yellow
-    Write-Host "    Run this ONCE in an Administrator PowerShell:" -ForegroundColor Yellow
-    Write-Host ""
+    # A7-007 (2026-05-04): collapsed from a 10-line block (3 blank lines,
+    # 2 prose paragraphs, the SAgent.HAG!MTB rant) to 2 lines + the
+    # commands. The full explanation lives in mneme doctor --strict and
+    # the README; the install log just needs to point users at the fix.
+    # A7-010 (2026-05-04): dropped the specific "SAgent.HAG!MTB" name
+    # from user-facing strings -- that classifier may be renamed/retired
+    # by Defender, and the underlying behaviour (heuristic ML false
+    # positive on agent-automation patterns) is what users care about.
+    Write-Host "    not elevated - run this in admin PowerShell to add Defender exclusions:" -ForegroundColor Yellow
     foreach ($dir in $DirsToAdd) {
         Write-Host ("      Add-MpPreference -ExclusionPath `"$dir`"") -ForegroundColor White
     }
-    Write-Host ""
-    Write-Host "    Without this, Defender may randomly quarantine mneme data files" -ForegroundColor Yellow
-    Write-Host "    (SAgent.HAG!MTB false positive on agent-automation text)." -ForegroundColor Yellow
-    Write-Host ""
 }
 
 # ============================================================================
@@ -1377,6 +1445,22 @@ if ($null -eq $UserPath) { $UserPath = '' }
 # also has a mneme.exe (Python Scripts dirs, conda envs, etc.).
 # Idempotent: if $BinDir already appears anywhere in PATH, we strip the
 # old position and re-insert at the front.
+#
+# A7-015 (2026-05-04, KNOWN-LIMITATION, deferred to v0.3.3+):
+# `[Environment]::SetEnvironmentVariable(..., 'User')` is a non-atomic
+# read-modify-write on HKCU\Environment\Path. If a parallel installer
+# (winget, MSI, another `install.ps1`, or another PowerShell session
+# the user opened) updates User PATH between the GetEnvironmentVariable
+# at line 1441 above and the SetEnvironmentVariable below, one of the
+# two updates is silently overwritten. Concretely: install.ps1 invokes
+# `winget install` for Tesseract / Python / SQLite which themselves
+# update User PATH; on a slow machine those updates can race with this
+# block. Mitigation considered (NOT shipped in v0.3.2):
+#   1. Re-read User PATH and abort if it changed mid-block.
+#   2. Use RegistryChangeNotification + retry.
+# Both are correct fixes but require careful interaction with the
+# registry-broadcast WM_SETTINGCHANGE flow that downstream code expects.
+# Documented here so a future maintainer doesn't trip on it silently.
 $existingSegments = $UserPath.Split(';') | Where-Object { -not [string]::IsNullOrWhiteSpace($_) -and $_ -ne $BinDir }
 $NewPath = (@($BinDir) + $existingSegments) -join ';'
 if ($NewPath -ne $UserPath) {
@@ -1481,8 +1565,14 @@ if (-not $NoBunCacheClear) {
         Write-Host "      Remove-Item -Recurse -Force `"$(Join-Path $env:LOCALAPPDATA 'Bun\Cache')`"" -ForegroundColor White
         Write-Host ""
         $shouldWipe = $false
-    } else {
-        # Interactive host + foreign packages: ask the user.
+    } elseif ($PromptForBunCacheClear) {
+        # A7-012 (2026-05-04): zero-question install design principle --
+        # the interactive prompt now requires an explicit opt-in flag.
+        # Without -PromptForBunCacheClear, fall through to the
+        # skip-with-mitigation branch below, matching what the unattended
+        # path already does. This keeps the install non-blocking for the
+        # 99% case (clean install / fresh Bun cache) and only surfaces
+        # the choice for users who specifically asked to be asked.
         Write-Host ""
         Write-Host "    Bun's install cache contains entries from OTHER projects." -ForegroundColor Yellow
         Write-Host "    Wiping prevents stale-bytecode failures in mneme's MCP," -ForegroundColor Yellow
@@ -1493,6 +1583,18 @@ if (-not $NoBunCacheClear) {
         if (-not $shouldWipe) {
             Write-Info "skipped - pass -ForceBunCacheClear later if MCP fails"
         }
+    } else {
+        # Default (no -PromptForBunCacheClear): skip + print mitigation.
+        # Same one-liner as the unattended path so users have a clear
+        # recovery action if MCP later fails on stale bytecode.
+        Write-Warn "non-mneme Bun cache entries detected - leaving them in place (zero-question default)"
+        Write-Warn "(pass -ForceBunCacheClear to wipe automatically, or -PromptForBunCacheClear to be asked)"
+        Write-Host ""
+        Write-Host "    If MCP later fails with 'SyntaxError: Export named ...':" -ForegroundColor Yellow
+        Write-Host ("      Remove-Item -Recurse -Force `"{0}`"" -f (Join-Path $env:USERPROFILE '.bun\install\cache')) -ForegroundColor White
+        Write-Host ("      Remove-Item -Recurse -Force `"{0}`"" -f (Join-Path $env:LOCALAPPDATA 'Bun\Cache')) -ForegroundColor White
+        Write-Host ""
+        $shouldWipe = $false
     }
 
     if ($shouldWipe) {
@@ -1613,7 +1715,18 @@ if (-not (Test-Path $MnemeBin)) {
             try {
                 $prevEAP = $ErrorActionPreference
                 $ErrorActionPreference = 'Continue'
-                $createOut = & schtasks.exe /Create /TN $taskName /TR $tr /SC ONLOGON /F /IT 2>&1 | Out-String
+                # A7-006 (2026-05-04): filter out ErrorRecord objects from
+                # the merged stdout/stderr stream. schtasks.exe writes its
+                # "Access is denied" failure on non-elevated runs to stderr,
+                # PowerShell wraps each stderr line as ErrorRecord whose
+                # Out-String form includes the full CategoryInfo +
+                # FullyQualifiedErrorId noise -- 6+ lines of CLR-style trace
+                # for what is fundamentally "you're not admin." We keep the
+                # plain string lines (which contain the human-readable
+                # "ERROR: Access is denied.") and drop the metadata wrapper.
+                $createOut = & schtasks.exe /Create /TN $taskName /TR $tr /SC ONLOGON /F /IT 2>&1 |
+                    Where-Object { $_ -isnot [System.Management.Automation.ErrorRecord] } |
+                    Out-String
                 $createExit = $LASTEXITCODE
             } catch {
                 $createOut = $_.Exception.Message
@@ -1629,7 +1742,10 @@ if (-not (Test-Path $MnemeBin)) {
                 try {
                     $prevEAP = $ErrorActionPreference
                     $ErrorActionPreference = 'Continue'
-                    $runOut = & schtasks.exe /Run /TN $taskName 2>&1 | Out-String
+                    # A7-006: see Create call above for ErrorRecord-filter rationale.
+                    $runOut = & schtasks.exe /Run /TN $taskName 2>&1 |
+                        Where-Object { $_ -isnot [System.Management.Automation.ErrorRecord] } |
+                        Out-String
                     $runExit = $LASTEXITCODE
                 } catch {
                     $runOut = $_.Exception.Message

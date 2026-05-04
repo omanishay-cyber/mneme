@@ -284,13 +284,33 @@ fn degree_top_k(nodes: &[ArchNode], edges: &[ArchEdge], k: usize) -> Vec<HubNode
 
 /// Approximate betweenness centrality (Brandes 2001). O(V * (V + E)).
 /// Capped at 2,000 source nodes to keep compute bounded.
+///
+/// A3-016 (2026-05-04): when V > 2000 the original implementation took
+/// the FIRST 2,000 nodes by petgraph iteration order, biasing the
+/// betweenness scores toward whichever 2,000 nodes happened to come
+/// first (effectively insertion order). On a graph of 30,000 nodes that
+/// computed centrality against a 6.7% sample with strong ordering bias,
+/// silently producing a partial result.
+///
+/// Fix: deterministic even-spaced stride sample. When V <= 2000 we
+/// process every source; when V > 2000 we step through with stride =
+/// V / 2000 so the sample covers the full node-index range. Determinism
+/// keeps two runs of the same audit producing identical bridge_nodes.
+/// Trade-off: still a sample, not full O(V * (V + E)). For exact
+/// betweenness on large graphs, raise the cap.
 fn betweenness_top_k(g: &UnGraph<usize, f32>, nodes: &[ArchNode], k: usize) -> Vec<BridgeNode> {
     let n = g.node_count();
     if n == 0 {
         return Vec::new();
     }
     let mut cb: Vec<f64> = vec![0.0; n];
-    let sources: Vec<NodeIndex> = g.node_indices().take(2_000).collect();
+    const SAMPLE_CAP: usize = 2_000;
+    let sources: Vec<NodeIndex> = if n <= SAMPLE_CAP {
+        g.node_indices().collect()
+    } else {
+        let stride = (n / SAMPLE_CAP).max(1);
+        g.node_indices().step_by(stride).take(SAMPLE_CAP).collect()
+    };
 
     for s in sources {
         let mut stack: Vec<NodeIndex> = Vec::with_capacity(n);

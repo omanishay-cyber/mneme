@@ -2,6 +2,7 @@
 name = "mneme-brain"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 description = "Mneme BRAIN — local-only embeddings, Leiden clustering, concept extraction"
 license.workspace = true
 

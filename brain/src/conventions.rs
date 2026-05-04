@@ -298,12 +298,15 @@ impl ConventionLearner for DefaultLearner {
             if source.contains("export default ") {
                 self.export_default += 1;
             }
-            if regex_simple(source, "export (function|const|class) ") {
+            if match_alternation(source, "export (function|const|class) ") {
                 self.export_named += 1;
             }
-            if source.contains("class ") && source.contains("extends React.Component") {
-                self.component_class += 1;
-            }
+            // BUG-A2-028 + BUG-A2-031 fix: count `class FooBar extends
+            // React.Component` ONLY when both clauses appear in the SAME
+            // declaration. Pre-fix: `class AuthService` plus an unrelated
+            // doc comment mentioning `React.Component` inflated
+            // `component_class` and skewed convention inference.
+            self.component_class += count_class_extends_react_component(source);
             // Functional signal: arrow or function component returning JSX.
             if (source.contains("=> {") || source.contains("function ")) && source.contains("</") {
                 self.component_functional += 1;
@@ -318,7 +321,7 @@ impl ConventionLearner for DefaultLearner {
 
         // ---- Error handling (Rust / TS) ----
         if ext == "rs" {
-            if regex_simple(source, r"-> Result<") {
+            if match_alternation(source, r"-> Result<") {
                 self.error_result_count += 1;
             }
             if source.contains("anyhow!") || source.contains("thiserror") {
@@ -473,8 +476,10 @@ impl ConventionLearner for DefaultLearner {
         }
 
         // Error handling — Rust Result majority.
+        // BUG-A2-030 fix: drop the redundant `.max(1)` — the outer
+        // `err_total >= 3` guard already ensures the divisor is non-zero.
         let err_total = self.error_result_count + self.error_throw_count + self.error_try_count;
-        if err_total >= 3 && self.error_result_count as f32 / err_total.max(1) as f32 >= 0.80 {
+        if err_total >= 3 && self.error_result_count as f32 / err_total as f32 >= 0.80 {
             let pattern = ConventionPattern::ErrorHandling {
                 pattern: "Result<T, E> with thiserror".to_string(),
             };
@@ -777,10 +782,15 @@ fn classify_import_group(line: &str) -> String {
     }
 }
 
-fn regex_simple(text: &str, needle: &str) -> bool {
-    // Cheap "contains any char-class" substitution for common patterns:
-    //   "export (function|const|class) " → three literal probes.
-    // This keeps the brain crate regex-free for conventions.
+/// Cheap "contains any of (a|b|c) prefix-suffix substitution" probe.
+///
+/// BUG-A2-029 fix: renamed from `regex_simple` because the function only
+/// supports ONE alternation group `(a|b|c)`. The old name implied a real
+/// regex matcher; future callers adding a second `( )` group would
+/// silently get the wrong behaviour. The new name + this docstring make
+/// the constraint explicit. For richer matching, use the `regex` crate
+/// (already a workspace dependency) directly.
+fn match_alternation(text: &str, needle: &str) -> bool {
     if let Some(start) = needle.find('(') {
         if let Some(end) = needle.find(')') {
             let prefix = &needle[..start];
@@ -792,6 +802,22 @@ fn regex_simple(text: &str, needle: &str) -> bool {
         }
     }
     text.contains(needle)
+}
+
+/// BUG-A2-028 + BUG-A2-031 helper: count co-occurrence of
+/// `class <name> extends React.Component` on a single declaration. Uses
+/// the `regex` crate (already a workspace dep) for proper per-decl
+/// matching instead of the `contains(...) && contains(...)` heuristic
+/// which paired unrelated mentions.
+fn count_class_extends_react_component(source: &str) -> u32 {
+    use once_cell::sync::Lazy;
+    use regex::Regex;
+    static RE: Lazy<Regex> = Lazy::new(|| {
+        // Match `class Foo extends React.Component` even if the optional
+        // `<Props, State>` generics live between the two clauses.
+        Regex::new(r"class\s+[A-Za-z_]\w*(?:<[^>]*>)?\s+extends\s+React\.Component\b").unwrap()
+    });
+    RE.find_iter(source).count() as u32
 }
 
 // ---------------------------------------------------------------------------

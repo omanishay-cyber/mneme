@@ -237,9 +237,72 @@ impl SubscriberManager {
             }
         }
 
-        for (id, reason) in to_evict {
-            self.evict(&id, &reason);
+        // BUG-A4-009 fix (2026-05-04): batch all evictions under a single
+        // write-lock acquisition instead of calling `self.evict()` per id.
+        // The legacy path was O(N) lock-acquire cycles per dispatch (each
+        // `evict` took a write lock + a read lock for its degraded-mode
+        // dispatch). On a 100-subscriber bus where 10 are slow, a single
+        // publish was 11 lock acquisitions; under burst eviction the
+        // contention amplified worst-case latency exactly when the system
+        // was most loaded.
+        if !to_evict.is_empty() {
+            self.batch_evict(to_evict);
         }
+    }
+
+    /// Remove a batch of evicted subscribers under a single write-lock
+    /// and emit a single coalesced `system.degraded_mode` event covering
+    /// every id in the batch. Mirrors the per-id `evict()` contract:
+    /// counters are bumped, the bus is notified once, and a final
+    /// `dispatch_internal(..., recursion_guard=true)` reaches
+    /// topic-filtered subscribers without re-entering eviction.
+    fn batch_evict(&self, victims: Vec<(String, String)>) {
+        // Phase 1: drop them all under one write lock.
+        let mut removed: Vec<(String, String)> = Vec::with_capacity(victims.len());
+        {
+            let mut reg = self.write_registry();
+            for (id, reason) in victims {
+                if reg.remove(&id).is_some() {
+                    removed.push((id, reason));
+                }
+            }
+        }
+        if removed.is_empty() {
+            return;
+        }
+        let n = removed.len() as u64;
+        self.inner.evicted.fetch_add(n, Ordering::Relaxed);
+        for _ in 0..n {
+            self.inner.bus.record_drop();
+        }
+        for (id, reason) in &removed {
+            warn!(subscriber = %id, %reason, "subscriber evicted (slow consumer)");
+        }
+
+        // Phase 2: one coalesced degraded-mode event for the whole batch.
+        // Use the first victim's id so single-eviction call sites keep
+        // their existing wire shape; the reason carries the full count
+        // for downstream tooling.
+        let (head_id, head_reason) = removed
+            .first()
+            .map(|(i, r)| (i.clone(), r.clone()))
+            .unwrap_or_default();
+        let coalesced_reason = if removed.len() == 1 {
+            head_reason
+        } else {
+            format!(
+                "{head_reason}; coalesced eviction batch of {} subscribers",
+                removed.len()
+            )
+        };
+        let payload = EventPayload::DegradedMode(DegradedMode {
+            reason: coalesced_reason,
+            subscriber_id: Some(head_id),
+            dropped_count: Some(self.inner.evicted.load(Ordering::Relaxed)),
+        });
+        let ev = Event::from_typed("system.degraded_mode", None, None, payload);
+        let _ = self.inner.bus.publish(ev.clone());
+        self.dispatch_internal(&ev, /* recursion_guard */ true);
     }
 
     /// Forcibly remove a subscriber and emit a `system.degraded_mode` warning.

@@ -3,7 +3,7 @@ import Graph from "graphology";
 import Sigma from "sigma";
 import forceAtlas2 from "graphology-layout-forceatlas2";
 import { fetchNodes, fetchEdges } from "../api/graph";
-import { useVisionStore } from "../store";
+import { useVisionStore, shallow } from "../store";
 import { Legend, type LegendKindRow } from "../components/Legend";
 import { OnboardingHint } from "../components/OnboardingHint";
 
@@ -66,8 +66,13 @@ export function ForceGalaxy(): JSX.Element {
   const [error, setError] = useState<string | null>(null);
   const [counts, setCounts] = useState<{ nodes: number; edges: number }>({ nodes: 0, edges: 0 });
   const [legendRows, setLegendRows] = useState<LegendKindRow[]>([]);
-  const selectNodes = useVisionStore((s) => s.selectNodes);
-  const liveEvents = useVisionStore((s) => s.liveEvents);
+  // A6-010: do NOT subscribe to selectNodes -- we only need to invoke
+  // the action from inside the click handler. Reading via getState()
+  // avoids re-mount of the entire Sigma graph (4000-node FA2 layout)
+  // when zustand re-creates the store reference (HMR / module reload).
+  // A6-022: shallow on liveEvents (array reference would otherwise
+  // trigger a re-pulse on every unrelated store mutation).
+  const liveEvents = useVisionStore((s) => s.liveEvents, shallow);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -202,7 +207,10 @@ export function ForceGalaxy(): JSX.Element {
 
         sigma.on("clickNode", ({ node }) => {
           const attrs = g.getNodeAttributes(node);
-          selectNodes([{ id: node, label: String(attrs["label"] ?? node) }]);
+          // A6-010: read action via getState() so the effect can stay [].
+          useVisionStore.getState().selectNodes([
+            { id: node, label: String(attrs["label"] ?? node) },
+          ]);
         });
 
         // Build the Legend rows from the kind tally — sorted by count
@@ -238,7 +246,10 @@ export function ForceGalaxy(): JSX.Element {
       graphRef.current = null;
       hoveredRef.current = null;
     };
-  }, [selectNodes]);
+    // A6-010: deliberately empty deps -- the effect builds Sigma once
+    // per mount; selectNodes is read via getState() in the handler.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   // Pulse nodes when livebus reports edits.
   useEffect(() => {

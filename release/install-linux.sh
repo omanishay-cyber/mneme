@@ -97,6 +97,12 @@ _load_lib() {
 }
 _load_lib
 
+# A7-001 (2026-05-04): fetch the SHA-256 manifest before any download work.
+# Non-fatal if the manifest is missing -- legacy unverified-download path
+# still works and emits a single WARN. Once the manifest is published per
+# release, every pinned asset becomes hard-fail on hash mismatch.
+load_hash_manifest "${RELEASE_BASE}"
+
 # -----------------------------------------------------------------------------
 # WSL detection (point user to Windows installer)
 # -----------------------------------------------------------------------------
@@ -545,6 +551,13 @@ else
     # what `mneme models install --from-path` expects on disk.
     #
     # tab-separated rows: name<TAB>required<TAB>primary_url<TAB>fallback_url
+    # A7-022 (2026-05-04): every row now has 4 tab-separated fields. The
+    # phi-3 row previously had 3 fields (no GitHub fallback because the
+    # 2.28 GB single file exceeds GitHub's 2 GB asset cap), which under
+    # `set -u` would leave m_fallback unbound on that row. Trailing tab
+    # + empty 4th column makes every row uniformly shaped; the
+    # download_dual_source helper accepts an empty fallback URL and
+    # treats it as "primary-only" (no GitHub fallback for phi-3).
     MODEL_LIST=$(cat <<MODELS_EOF
 bge-small-en-v1.5.onnx	1	${HF_BASE}/bge-small-en-v1.5.onnx	${RELEASE_BASE}/bge-small-en-v1.5.onnx
 tokenizer.json	1	${HF_BASE}/tokenizer.json	${RELEASE_BASE}/tokenizer.json
@@ -560,6 +573,13 @@ MODELS_EOF
     IFS=$'\n'
     for row in ${MODEL_LIST}; do
         IFS=$'\t' read -r m_name m_required m_primary m_fallback <<<"${row}"
+        # A7-022 (2026-05-04): defensive default. With every row now
+        # 4-field (per the trailing-tab fix above) m_fallback is always
+        # set to either a URL or empty, but `read` on bash 3.2 (some
+        # macOS hosts) can leave a trailing-tab field unset. Force-
+        # default so `set -u` doesn't trip later when m_fallback is
+        # passed to download_dual_source.
+        m_fallback="${m_fallback:-}"
         IFS=$'\n'
         dest="${MODELS_DIR}/${m_name}"
         if ( download_dual_source "${m_name}" "${m_primary}" "${m_fallback}" "${dest}" ); then

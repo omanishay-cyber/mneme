@@ -178,13 +178,24 @@ impl ParserPool {
                 });
             }
         }
-        // Fallback — wait on slot[0]. The permit guarantees this won't
-        // deadlock because someone holding a slot will release shortly.
-        let guard = slots.slots[0].clone().lock_owned().await;
+        // A3-021 (2026-05-04): rotate the fallback slot index per call.
+        // The original implementation always waited on slot[0], which
+        // under heavy contention could livelock: thread A waits on
+        // slot[0]; meanwhile slot[1] briefly opens, then briefly closes;
+        // thread B also waits on slot[0]; ad infinitum -- slot[1] never
+        // gets picked up via the fallback path. The semaphore permit
+        // guarantees AT LEAST one slot is free; rotating the index
+        // ensures that "free slot" is actually selected over time.
+        static FALLBACK_RR: std::sync::atomic::AtomicUsize =
+            std::sync::atomic::AtomicUsize::new(0);
+        let n = slots.slots.len().max(1);
+        let start_idx =
+            FALLBACK_RR.fetch_add(1, std::sync::atomic::Ordering::Relaxed) % n;
+        let guard = slots.slots[start_idx].clone().lock_owned().await;
         Ok(ParserLease {
             guard,
             language: lang,
-            slot: 0,
+            slot: start_idx,
             _semaphore_permit: permit,
         })
     }

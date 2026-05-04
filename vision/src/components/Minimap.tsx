@@ -1,12 +1,13 @@
 import { useEffect, useRef } from "react";
-import { useVisionStore } from "../store";
+import { useVisionStore, shallow } from "../store";
 
 // Lightweight overview minimap. Renders a low-res scatter from the same payload
 // the active view loaded; for v1 we just sample the last live events as activity.
 
 export function Minimap(): JSX.Element {
   const ref = useRef<HTMLCanvasElement | null>(null);
-  const events = useVisionStore((s) => s.liveEvents);
+  // A6-022: shallow keeps Minimap from re-rendering on unrelated state.
+  const events = useVisionStore((s) => s.liveEvents, shallow);
 
   useEffect(() => {
     const canvas = ref.current;
@@ -21,7 +22,9 @@ export function Minimap(): JSX.Element {
     ctx.fillStyle = "#41E1B5";
     events.slice(-200).forEach((e, i) => {
       const x = (i * 7) % w;
-      const y = (Math.abs(hashString(e.nodeId ?? e.type)) % h) | 0;
+      const key = e.nodeId ?? e.type ?? "";
+      if (!key) return;
+      const y = (Math.abs(hashString(key)) % h) | 0;
       ctx.fillRect(x, y, 2, 2);
     });
   }, [events]);

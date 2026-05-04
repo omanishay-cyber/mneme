@@ -531,6 +531,19 @@ impl IpcServer {
                                 // for the lifetime of the spawned task;
                                 // dropping it (on task return or panic)
                                 // returns it to the pool.
+                                //
+                                // BUG-A4-015 (2026-05-04): tokio dep
+                                // floor for this code path. We rely on
+                                // `tokio::sync::Semaphore::acquire_owned`
+                                // being **FIFO-fair**, which it is from
+                                // tokio 1.30 onward (LIFO before that).
+                                // The supervisor's Cargo.toml pins
+                                // `tokio = "1.40"`, satisfying the
+                                // floor; if anyone backports to a
+                                // tokio < 1.30 the fairness guarantee
+                                // disappears and IPC clients can starve
+                                // under burst. DO NOT relax the version
+                                // pin without auditing this acquire.
                                 let _permit = match limiter.acquire_owned().await {
                                     Ok(p) => p,
                                     Err(_) => {
@@ -943,15 +956,39 @@ async fn dispatch(
                 }
             };
             match enqueue_audit(&project_path, &queue).await {
-                Ok(queued) => {
+                Ok(outcome) => {
+                    let AuditEnumOutcome {
+                        queued,
+                        scanned,
+                        truncated,
+                        dropped,
+                    } = outcome;
                     info!(
                         project = %project_path.display(),
                         queued,
+                        scanned,
+                        truncated,
+                        dropped,
                         "audit dispatched: {queued} Job::Scan items queued for scanner-worker pool"
                     );
-                    ControlResponse::Ok {
-                        message: Some(format!("audit dispatched: {queued} files queued")),
+                    // BUG-A4-004 fix (2026-05-04): surface truncation
+                    // and queue-full drops to the CLI via the response
+                    // message so the operator can re-run with a
+                    // narrower scope or wait for the queue to drain.
+                    let mut msg = format!(
+                        "audit dispatched: {queued} files queued ({scanned} scanned)"
+                    );
+                    if truncated {
+                        msg.push_str(&format!(
+                            "; WARNING: enumeration truncated at scan cap -- partial audit, re-run with a narrower path"
+                        ));
                     }
+                    if dropped > 0 {
+                        msg.push_str(&format!(
+                            "; WARNING: {dropped} files dropped because the job queue is full"
+                        ));
+                    }
+                    ControlResponse::Ok { message: Some(msg) }
                 }
                 Err(e) => ControlResponse::Error { message: e },
             }
@@ -1396,10 +1433,31 @@ async fn enqueue_corpus(
 /// extension allowlist. The `scope` parameter is reserved (today only
 /// `"full"` is supported via this path; "diff" still goes via the
 /// standalone subprocess for consistency with the legacy mtime filter).
+/// Result of an audit enumeration pass.
+///
+/// BUG-A4-004 fix (2026-05-04): the audit dispatch used to return only
+/// `Ok(queued)` and silently swallowed both the "scan cap hit" case
+/// (200 K traversed paths) and the "queue full" submit failure case.
+/// Operators with monorepos saw "audit dispatched: 200000 files queued"
+/// and trusted that drift findings were complete -- when in fact entire
+/// subtrees and any file past the queue's `max_pending` cap had been
+/// dropped. This struct lets the IPC handler surface those degraded-
+/// mode signals back to the CLI.
+pub(crate) struct AuditEnumOutcome {
+    /// Files for which a Job::Scan was successfully enqueued.
+    pub queued: usize,
+    /// Total WalkDir entries traversed (includes ignored / non-file).
+    pub scanned: usize,
+    /// True if the SCAN_CAP fired and we stopped enumeration early.
+    pub truncated: bool,
+    /// BUG-A4-005: count of jobs the queue refused (queue full).
+    pub dropped: usize,
+}
+
 async fn enqueue_audit(
     project_id: &Path,
     queue: &Arc<crate::job_queue::JobQueue>,
-) -> Result<usize, String> {
+) -> Result<AuditEnumOutcome, String> {
     use common::jobs::Job;
     use walkdir::WalkDir;
 
@@ -1436,6 +1494,8 @@ async fn enqueue_audit(
 
     let mut queued = 0usize;
     let mut scanned = 0usize;
+    let mut dropped = 0usize;
+    let mut truncated = false;
     const SCAN_CAP: usize = 200_000;
     let walker = WalkDir::new(&root)
         .into_iter()
@@ -1443,6 +1503,7 @@ async fn enqueue_audit(
     for entry in walker {
         scanned += 1;
         if scanned > SCAN_CAP {
+            truncated = true;
             warn!(scanned, "audit enumeration cap hit; stopping early");
             break;
         }
@@ -1464,16 +1525,31 @@ async fn enqueue_audit(
         match queue.submit(job, None) {
             Ok(_) => queued += 1,
             Err(e) => {
-                debug!(error = %e, "audit: queue submit dropped (queue full?)");
+                // BUG-A4-005 fix: bumped from `debug!` to `warn!` and we
+                // count the drops so the IPC handler can surface them.
+                // A debug-level line is suppressed under the prod
+                // MNEME_LOG=warn default, which let dropped scan jobs
+                // silently disappear -- the operator only saw the final
+                // "queued" tally and assumed the full set was scanned.
+                dropped += 1;
+                warn!(error = %e, "audit: queue submit dropped (queue full?)");
             }
         }
     }
     info!(
         project = %root.display(),
         queued,
+        scanned,
+        dropped,
+        truncated,
         "audit enumeration complete"
     );
-    Ok(queued)
+    Ok(AuditEnumOutcome {
+        queued,
+        scanned,
+        truncated,
+        dropped,
+    })
 }
 
 /// B11.7: hard-coded ignore list for the supervisor's audit fan-out.

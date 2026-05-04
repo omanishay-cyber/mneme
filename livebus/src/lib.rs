@@ -48,7 +48,9 @@ pub mod ws;
 #[cfg(test)]
 mod tests;
 
-pub use bus::{topic_matches, topic_matches_any, validate_topic, BusConfig, EventBus};
+pub use bus::{
+    topic_matches, topic_matches_any, validate_topic, BusConfig, EventBus, PublishOutcome,
+};
 pub use error::LivebusError;
 pub use event::{
     CompactionDetected, DegradedMode, DriftFinding, Event, EventPayload, FileChanged, HealthUpdate,

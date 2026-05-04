@@ -112,6 +112,17 @@ impl SupervisorConfig {
 
         let mut children = Vec::new();
 
+        // BUG-A4-003 fix (2026-05-04): every worker now declares a
+        // heartbeat deadline so the watchdog can flag wedged workers
+        // (deadlocked, infinite parser loop, blocked on disk I/O) that
+        // the existing pid_alive_pass cannot catch. 60 s is generous
+        // enough that legitimately slow work (large semantic build,
+        // first-run model download) does not trip it but tight enough
+        // that a hung parser-worker is restarted within the same minute.
+        // If a worker class does not yet emit `worker_ipc::heartbeat()`
+        // ticks the watchdog will trip on first pass -- by design: a
+        // worker that never says "alive" is a worker we cannot trust,
+        // and the restart is the desired effect (Bug F-2 root cause).
         children.push(ChildSpec {
             name: "store-worker".into(),
             command: bin.join("mneme-store").to_string_lossy().into(),
@@ -121,7 +132,7 @@ impl SupervisorConfig {
             rss_limit_mb: Some(512),
             cpu_limit_percent: Some(80),
             health_endpoint: Some("/health".into()),
-            heartbeat_deadline: None,
+            heartbeat_deadline: Some(Duration::from_secs(60)),
         });
 
         for i in 0..parser_pool_size {
@@ -134,7 +145,7 @@ impl SupervisorConfig {
                 rss_limit_mb: Some(384),
                 cpu_limit_percent: Some(75),
                 health_endpoint: Some("/health".into()),
-                heartbeat_deadline: None,
+                heartbeat_deadline: Some(Duration::from_secs(60)),
             });
         }
 
@@ -148,7 +159,7 @@ impl SupervisorConfig {
                 rss_limit_mb: Some(256),
                 cpu_limit_percent: Some(60),
                 health_endpoint: Some("/health".into()),
-                heartbeat_deadline: None,
+                heartbeat_deadline: Some(Duration::from_secs(60)),
             });
         }
 
@@ -161,7 +172,7 @@ impl SupervisorConfig {
             rss_limit_mb: Some(192),
             cpu_limit_percent: Some(40),
             health_endpoint: Some("/health".into()),
-            heartbeat_deadline: None,
+            heartbeat_deadline: Some(Duration::from_secs(60)),
         });
 
         // v0.2: multimodal extraction moved fully in-process. The
@@ -178,7 +189,7 @@ impl SupervisorConfig {
             rss_limit_mb: Some(2048),
             cpu_limit_percent: Some(90),
             health_endpoint: Some("/health".into()),
-            heartbeat_deadline: None,
+            heartbeat_deadline: Some(Duration::from_secs(60)),
         });
 
         children.push(ChildSpec {
@@ -190,7 +201,7 @@ impl SupervisorConfig {
             rss_limit_mb: Some(128),
             cpu_limit_percent: Some(40),
             health_endpoint: Some("/health".into()),
-            heartbeat_deadline: None,
+            heartbeat_deadline: Some(Duration::from_secs(60)),
         });
 
         // v0.1: mcp-server and vision-server are SPAWNED ON DEMAND, not

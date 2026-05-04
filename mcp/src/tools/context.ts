@@ -147,21 +147,20 @@ export const tool: ToolDescriptor<ContextInputT, ContextOutputT> = {
         sources: [h.source] as z.infer<typeof RetrievalSource>[],
       }));
       const tokens = hits.reduce((acc, h) => acc + approxTokens(h.text), 0);
-      const capped = hits.slice(
-        0,
-        // Don't exceed budget — rough greedy cut-off.
-        Math.max(
-          1,
-          hits.findIndex((_, i) => {
-            const running = hits
-              .slice(0, i + 1)
-              .reduce((a, h) => a + approxTokens(h.text), 0);
-            return running > input.budget_tokens;
-          }) === -1
-            ? hits.length
-            : hits.length,
-        ),
-      );
+      // A5-003 (2026-05-04): the prior `=== -1 ? hits.length : hits.length`
+      // ternary made both branches identical, so the budget was never
+      // enforced. Compute the cutoff once and slice up to (but not
+      // including) the first hit whose running total tips over the budget.
+      // When no hit exceeds the budget, keep them all. Always retain at
+      // least one hit so callers see a non-empty pack.
+      const cutoff = hits.findIndex((_, i) => {
+        const running = hits
+          .slice(0, i + 1)
+          .reduce((a, h) => a + approxTokens(h.text), 0);
+        return running > input.budget_tokens;
+      });
+      const sliceEnd = cutoff === -1 ? hits.length : Math.max(1, cutoff);
+      const capped = hits.slice(0, sliceEnd);
       return {
         task: input.task,
         hits: capped,

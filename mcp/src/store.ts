@@ -816,6 +816,10 @@ export function searchConversation(
   role: string;
   content: string;
   timestamp: string;
+  // A5-016 (2026-05-04): expose FTS5 bm25 rank when the FTS path is taken
+  // so callers can surface a real similarity signal instead of a uniform
+  // `undefined`. `null` on the LIKE fallback path (no rank available).
+  rank: number | null;
 }> {
   return withShard<
     Array<{
@@ -824,6 +828,7 @@ export function searchConversation(
       role: string;
       content: string;
       timestamp: string;
+      rank: number | null;
     }>
   >(
     "history",
@@ -835,13 +840,17 @@ export function searchConversation(
 
       let sql: string;
       if (useFts) {
-        sql = `SELECT t.id, t.session_id, t.role, t.content, t.timestamp
+        // A5-016: select bm25(turns_fts) so the caller can derive a
+        // 0..1 similarity from the rank.
+        sql = `SELECT t.id, t.session_id, t.role, t.content, t.timestamp,
+                      bm25(turns_fts) AS rank
                FROM turns_fts f
                JOIN turns t ON t.id = f.rowid
                WHERE turns_fts MATCH ?`;
         params.push(safeQuery);
       } else {
-        sql = `SELECT id, session_id, role, content, timestamp
+        sql = `SELECT id, session_id, role, content, timestamp,
+                      NULL AS rank
                FROM turns
                WHERE lower(content) LIKE ?`;
         params.push(`%${queryText.toLowerCase()}%`);
@@ -863,6 +872,7 @@ export function searchConversation(
         role: string;
         content: string;
         timestamp: string;
+        rank: number | null;
       }>;
     },
     [],

@@ -53,9 +53,19 @@ pub const EMBEDDING_DIM: usize = 384;
 /// Maximum tokens fed to the model at once. BGE-small was trained on 512.
 const MAX_TOKENS: usize = 512;
 
-/// Process-wide singleton so multiple [`Embedder`] handles share one backend
-/// (and one mmap of the model bytes).
-static GLOBAL_BACKEND: OnceCell<Arc<Mutex<Backend>>> = OnceCell::new();
+/// Cap on the per-Embedder text->vector cache. Long-running daemons embedding
+/// many distinct strings would otherwise leak unbounded memory.
+/// BUG-A2-007 fix.
+const EMBED_CACHE_CAPACITY: usize = 10_000;
+
+/// Process-wide registry of backends keyed by `(model_path, tokenizer_path)`.
+/// BUG-A2-003 fix: a single `OnceCell` keyed by nothing meant the FIRST call
+/// (often a bogus probe) decided the backend forever; subsequent calls with
+/// real model paths were ignored. Now distinct path pairs get distinct
+/// backends and a `models install` followed by a fresh `Embedder::new` engages
+/// the real BGE backend without a daemon restart.
+static GLOBAL_BACKENDS: OnceCell<DashMap<(PathBuf, PathBuf), Arc<Mutex<Backend>>>> =
+    OnceCell::new();
 
 /// Public embedder handle. Cheap to clone.
 #[derive(Clone)]
@@ -66,6 +76,11 @@ pub struct Embedder {
 struct Inner {
     backend: Arc<Mutex<Backend>>,
     cache: DashMap<[u8; 32], Vec<f32>>,
+    /// Insertion order tracker for the LRU eviction in [`Inner::cache`].
+    /// BUG-A2-007: a parallel deque guards the cache from unbounded growth.
+    /// Held under its own short-lived mutex so cache reads stay lock-free
+    /// on the DashMap fast path.
+    cache_order: Mutex<std::collections::VecDeque<[u8; 32]>>,
     model_path: PathBuf,
     tokenizer_path: PathBuf,
 }
@@ -95,10 +110,25 @@ impl Embedder {
     /// Build an embedder from explicit paths. Missing files are tolerated —
     /// the embedder falls back to the pure-Rust hashing-trick backend and
     /// logs a warning.
+    ///
+    /// BUG-A2-003 fix: the backend is keyed by `(model_path, tokenizer_path)`
+    /// so a probe with bogus paths can no longer poison the cache for a
+    /// later real install.
     pub fn new(model_path: &Path, tokenizer_path: &Path) -> BrainResult<Self> {
-        let backend = GLOBAL_BACKEND
-            .get_or_init(|| Arc::new(Mutex::new(Backend::Uninitialized)))
-            .clone();
+        let registry = GLOBAL_BACKENDS.get_or_init(DashMap::new);
+        let key = (model_path.to_path_buf(), tokenizer_path.to_path_buf());
+
+        // Fast path: backend already loaded for these paths.
+        let backend = if let Some(entry) = registry.get(&key) {
+            entry.clone()
+        } else {
+            // Slow path: insert if absent. `entry().or_insert_with` keeps
+            // the construction inside the dashmap's per-shard lock.
+            registry
+                .entry(key.clone())
+                .or_insert_with(|| Arc::new(Mutex::new(Backend::Uninitialized)))
+                .clone()
+        };
 
         // Eager init. Try real model first, fall back to hashing trick.
         {
@@ -108,11 +138,11 @@ impl Embedder {
                 match &*guard {
                     Backend::Real(_) => info!(
                         model = %model_path.display(),
-                        "BGE embedder loaded — real transformer path active"
+                        "BGE embedder loaded - real transformer path active"
                     ),
                     Backend::Fallback(_) => warn!(
                         model = %model_path.display(),
-                        "BGE model missing or ORT unavailable — embedder running in \
+                        "BGE model missing or ORT unavailable - embedder running in \
                          hashing-trick fallback mode. Run `mneme models install <path>` \
                          and (if needed) set ORT_DYLIB_PATH for full retrieval quality."
                     ),
@@ -125,6 +155,9 @@ impl Embedder {
             inner: Arc::new(Inner {
                 backend,
                 cache: DashMap::new(),
+                cache_order: Mutex::new(std::collections::VecDeque::with_capacity(
+                    EMBED_CACHE_CAPACITY,
+                )),
                 model_path: model_path.to_path_buf(),
                 tokenizer_path: tokenizer_path.to_path_buf(),
             }),
@@ -158,7 +191,7 @@ impl Embedder {
             let mut guard = self.inner.backend.lock();
             guard.embed_one(text)?
         };
-        self.inner.cache.insert(key, vec.clone());
+        self.cache_put(key, vec.clone());
         Ok(vec)
     }
 
@@ -191,7 +224,7 @@ impl Embedder {
             };
             for (slot, vec) in to_compute_idx.into_iter().zip(computed) {
                 let k = hash_key(texts[slot]);
-                self.inner.cache.insert(k, vec.clone());
+                self.cache_put(k, vec.clone());
                 out[slot] = Some(vec);
             }
         }
@@ -205,6 +238,38 @@ impl Embedder {
     /// Drop the cache. Useful for memory-pressure callbacks.
     pub fn clear_cache(&self) {
         self.inner.cache.clear();
+        self.inner.cache_order.lock().clear();
+    }
+
+    /// BUG-A2-042 fix: caller-driven cache invalidation. Lets the worker
+    /// invalidate the cache entry for a text when downstream `EmbedStore`
+    /// upsert fails, so the cached vector cannot drift from the persisted
+    /// store.
+    pub fn invalidate_cache_for(&self, text: &str) {
+        let k = hash_key(text);
+        self.inner.cache.remove(&k);
+        let mut order = self.inner.cache_order.lock();
+        if let Some(pos) = order.iter().position(|x| x == &k) {
+            order.remove(pos);
+        }
+    }
+
+    /// LRU insertion: drop the oldest entry once we exceed the cap.
+    /// BUG-A2-007 fix.
+    fn cache_put(&self, key: [u8; 32], vec: Vec<f32>) {
+        let mut order = self.inner.cache_order.lock();
+        if self.inner.cache.insert(key, vec).is_none() {
+            order.push_back(key);
+        } else if let Some(pos) = order.iter().position(|x| x == &key) {
+            // Existing entry — move to back (most recently used).
+            order.remove(pos);
+            order.push_back(key);
+        }
+        while order.len() > EMBED_CACHE_CAPACITY {
+            if let Some(stale) = order.pop_front() {
+                self.inner.cache.remove(&stale);
+            }
+        }
     }
 
     pub fn model_path(&self) -> &Path {
@@ -323,26 +388,43 @@ impl RealBackend {
         // because mneme.exe lives in ~/.mneme/bin/ and the install
         // pipeline copies onnxruntime.dll alongside it (see
         // scripts/test/stage-release-zip.ps1::stage bin/).
-        if std::env::var_os("ORT_DYLIB_PATH").is_none() {
-            if let Ok(exe) = std::env::current_exe() {
-                if let Some(dir) = exe.parent() {
-                    let candidate = dir.join("onnxruntime.dll");
-                    if candidate.exists() {
-                        // SAFETY: env::set_var is unsound across threads
-                        // but this runs on the brain init path, single-
-                        // threaded, before any other thread observes the
-                        // env. ort::init() reads it on first Session.
-                        unsafe {
-                            std::env::set_var("ORT_DYLIB_PATH", &candidate);
-                        }
-                        tracing::info!(
-                            ort_dylib_path = %candidate.display(),
-                            "pinned ORT_DYLIB_PATH to bundled onnxruntime.dll"
-                        );
-                    }
-                }
+        // BUG-A2-004 fix: gate the env mutation behind a one-shot OnceCell
+        // so even if `try_new` is called from multiple threads (post-A2-003
+        // any thread can hit a fresh path), the env-set executes EXACTLY
+        // ONCE for the whole process. POSIX `setenv`/Windows
+        // `SetEnvironmentVariable` are not thread-safe with concurrent
+        // `getenv`; serialising through OnceCell + the existing
+        // GLOBAL_BACKENDS mutex ensures `ort::init()` (called by
+        // `Session::builder`) cannot race a writer.
+        static ORT_DYLIB_INIT: OnceCell<()> = OnceCell::new();
+        ORT_DYLIB_INIT.get_or_init(|| {
+            if std::env::var_os("ORT_DYLIB_PATH").is_some() {
+                return;
             }
-        }
+            let Ok(exe) = std::env::current_exe() else {
+                return;
+            };
+            let Some(dir) = exe.parent() else {
+                return;
+            };
+            let candidate = dir.join("onnxruntime.dll");
+            if !candidate.exists() {
+                return;
+            }
+            // SAFETY: gated by `ORT_DYLIB_INIT.get_or_init` (runs at most
+            // once) and by the outer `GLOBAL_BACKENDS` per-key Mutex
+            // (held across this `Backend::load` call). No other code in
+            // brain reads or writes ORT_DYLIB_PATH, and no thread can
+            // observe `ort::init()` (which reads the env) until the
+            // current thread releases the Mutex below.
+            unsafe {
+                std::env::set_var("ORT_DYLIB_PATH", &candidate);
+            }
+            tracing::info!(
+                ort_dylib_path = %candidate.display(),
+                "pinned ORT_DYLIB_PATH to bundled onnxruntime.dll"
+            );
+        });
 
         // Dynamic ORT loading. Honors ORT_DYLIB_PATH (set above on
         // Windows) if present, otherwise searches PATH / LD_LIBRARY_PATH
@@ -408,11 +490,16 @@ impl RealBackend {
             }
         }
 
-        let ids_val = Value::from_array(ids.clone())
+        // BUG-A2-005 fix: avoid the triple-clone of full Array2<i64> arrays
+        // (256 KB * 3 = 768 KB per call * 50k jobs = ~37 GB throwaway).
+        // We only need `attn` post-tensor for the CLS-pool path (BUG-A2-008
+        // uses position 0 only; we no longer scan the seq dim), so we can
+        // pass all three arrays into ORT by-move — no clones at all.
+        let ids_val = Value::from_array(ids)
             .map_err(|e| BrainError::Onnx(format!("Value::from_array ids: {e}")))?;
-        let attn_val = Value::from_array(attn.clone())
+        let attn_val = Value::from_array(attn)
             .map_err(|e| BrainError::Onnx(format!("Value::from_array attn: {e}")))?;
-        let toks_val = Value::from_array(toks.clone())
+        let toks_val = Value::from_array(toks)
             .map_err(|e| BrainError::Onnx(format!("Value::from_array toks: {e}")))?;
 
         let outputs = self
@@ -443,25 +530,16 @@ impl RealBackend {
         }
         let seq = shape[1] as usize;
 
-        // Mean-pool over the sequence dim, masked by the attention_mask.
+        // BUG-A2-008 fix: BGE-Small-En-v1.5 was trained for CLS pooling.
+        // Take the first-token (`[CLS]`) embedding per row instead of the
+        // masked mean over all tokens. Higher retrieval quality on the
+        // BGE benchmark and matches the reference implementation.
         let mut results: Vec<Vec<f32>> = Vec::with_capacity(batch);
         for b in 0..batch {
+            let base = b * seq * EMBEDDING_DIM;
             let mut pooled = vec![0f32; EMBEDDING_DIM];
-            let mut n_valid: f32 = 0.0;
-            for t in 0..seq {
-                if t >= max_len || attn[[b, t]] == 0 {
-                    continue;
-                }
-                n_valid += 1.0;
-                let base = (b * seq + t) * EMBEDDING_DIM;
-                for d in 0..EMBEDDING_DIM {
-                    pooled[d] += data[base + d];
-                }
-            }
-            if n_valid > 0.0 {
-                for v in &mut pooled {
-                    *v /= n_valid;
-                }
+            for d in 0..EMBEDDING_DIM {
+                pooled[d] = data[base + d];
             }
             l2_normalise(&mut pooled);
             results.push(pooled);
@@ -621,12 +699,25 @@ fn hash_key(text: &str) -> [u8; 32] {
 }
 
 fn l2_normalise(v: &mut [f32]) {
+    if v.is_empty() {
+        return;
+    }
     let sq: f32 = v.iter().map(|x| x * x).sum();
     let norm = sq.sqrt();
     if norm > 1e-12 {
         for x in v {
             *x /= norm;
         }
+    } else {
+        // BUG-A2-006 fix: the cosine similarity in `EmbedStore::nearest`
+        // assumes unit-length vectors. When the pooled vector has near-zero
+        // magnitude (rare, but possible for very short or sparse inputs)
+        // we substitute a deterministic unit vector so downstream math
+        // keeps its invariant.
+        for x in v.iter_mut() {
+            *x = 0.0;
+        }
+        v[0] = 1.0;
     }
 }
 

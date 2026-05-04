@@ -99,8 +99,11 @@ function offsetForLineColumn(text: string, line: number, column: number): number
     i += 1;
     if (ch === 10 /* \n */) currentLine += 1;
   }
-  // i now points to the start of the target line (or end of text).
-  const lineStart = i;
+  // A5-006 (2026-05-04): the previous `const lineStart = i; ... void lineStart;`
+  // captured the line-start offset only to silence an unused-variable warning.
+  // The actual clamp behaviour we want — "stop at newline / EOF when walking
+  // forward `column` chars" — is already enforced by the loop below, so the
+  // captured value was dead code. Removed.
   // Walk forward `column` characters, but stop at newline / EOF.
   let remaining = column;
   while (i < text.length && remaining > 0) {
@@ -109,8 +112,6 @@ function offsetForLineColumn(text: string, line: number, column: number): number
     i += 1;
     remaining -= 1;
   }
-  // If the proposal asks for a column past the line end, clamp.
-  void lineStart;
   return i;
 }
 

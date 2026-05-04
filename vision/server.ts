@@ -5,7 +5,7 @@
 // Local-only by policy. Voice nav is stubbed for v1 (Phase 5 ships real voice).
 
 import { file } from "bun";
-import { join, normalize, sep } from "node:path";
+import { join, normalize, resolve, sep } from "node:path";
 import {
   fetchGraphNodes,
   fetchGraphEdges,
@@ -96,7 +96,15 @@ function safeStaticPath(rawPath: string): string | null {
   const clean = rawPath.split("?")[0]?.replace(/^\/+/, "") ?? "";
   const normalized = normalize(clean).replace(/^(\.\.[/\\])+/, "");
   if (normalized.startsWith("..") || normalized.includes(`..${sep}`)) return null;
-  return join(DIST_DIR, normalized || "index.html");
+  const target = join(DIST_DIR, normalized || "index.html");
+  // A6-018: defence-in-depth -- absolute paths to UNC-style or
+  // platform-specific roots can theoretically slip past the textual
+  // checks above. Resolve both sides and require the target to live
+  // under DIST_DIR.
+  const fullTarget = resolve(target);
+  const root = resolve(DIST_DIR);
+  if (!(fullTarget === root || fullTarget.startsWith(root + sep))) return null;
+  return fullTarget;
 }
 
 async function serveStatic(pathname: string): Promise<Response> {
@@ -179,11 +187,14 @@ function serveViewFromShard(view: string, url: URL): Response {
       200,
     );
   }
-  // No shard-aware handler for this view yet — signal not-implemented so
-  // client falls back to IPC / placeholder.
+  // A6-020: legacy `/api/graph?view=...` is only used by the daemon-IPC
+  // fallback path and by SidePanel/TimelineScrubber's `file-detail` /
+  // `git-history` views (the latter handled via dedicated endpoints
+  // since A6-002). Return a real 404 instead of a fake-200 envelope so
+  // callers can branch on status rather than parsing a sentinel meta.
   return jsonResponse(
     { view, nodes: [], edges: [], meta: { source: "shard", unsupported: true } },
-    200,
+    404,
   );
 }
 
@@ -426,6 +437,14 @@ const server = Bun.serve<LivebusSocketData>({
     // Voice nav stub (§9.6) — real implementation lands in Phase 5.
     if (url.pathname === "/api/voice") {
       return jsonResponse({ enabled: false, phase: "stub", message: "voice nav not yet wired" });
+    }
+
+    // A6-014: any unmatched /api/* path is a typo / version skew. The
+    // SPA fallback below would otherwise return index.html with status
+    // 200, which breaks `await res.json()` with `Unexpected token '<'`.
+    // Send a JSON 404 instead so callers see a real error.
+    if (url.pathname.startsWith("/api/")) {
+      return jsonResponse({ ok: false, error: "not found", path: url.pathname }, 404);
     }
 
     return serveStatic(url.pathname);

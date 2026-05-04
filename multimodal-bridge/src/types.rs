@@ -132,14 +132,11 @@ pub enum ExtractError {
     Other(String),
 }
 
-impl From<std::io::Error> for ExtractError {
-    fn from(source: std::io::Error) -> Self {
-        ExtractError::Io {
-            path: PathBuf::new(),
-            source,
-        }
-    }
-}
+// A8-011 (2026-05-04): the blanket `From<std::io::Error>` impl was deleted.
+// It produced `ExtractError::Io { path: PathBuf::new(), source }` (empty
+// path) on every `?` propagation, making failures undebuggable. Callers
+// must now use `.map_err(|source| ExtractError::Io { path: ..., source })`
+// explicitly so the actual source path is captured.
 
 /// Result alias used across every extractor module.
 pub type ExtractResult<T> = std::result::Result<T, ExtractError>;

@@ -16,8 +16,27 @@ impl Timestamp {
         self.0.timestamp_millis()
     }
 
+    /// BUG-A2-040 fix: log a warn when the input is invalid before
+    /// silently substituting "now". Callers who care about the
+    /// difference should use [`Self::try_from_unix_millis`] which
+    /// returns `Option<Self>`.
     pub fn from_unix_millis(ms: i64) -> Self {
-        Timestamp(DateTime::from_timestamp_millis(ms).unwrap_or_else(Utc::now))
+        match DateTime::from_timestamp_millis(ms) {
+            Some(dt) => Timestamp(dt),
+            None => {
+                tracing::warn!(
+                    ms,
+                    "Timestamp::from_unix_millis received out-of-range millis; substituting now"
+                );
+                Timestamp(Utc::now())
+            }
+        }
+    }
+
+    /// Fallible variant of [`Self::from_unix_millis`]. Returns `None`
+    /// for out-of-range input instead of substituting "now".
+    pub fn try_from_unix_millis(ms: i64) -> Option<Self> {
+        DateTime::from_timestamp_millis(ms).map(Timestamp)
     }
 
     /// Render as a directory-name-safe string: `2026-04-23-14-30-00`.

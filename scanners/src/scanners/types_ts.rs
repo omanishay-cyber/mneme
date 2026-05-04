@@ -8,7 +8,7 @@
 //! - untyped function parameters
 
 use once_cell::sync::Lazy;
-use regex::Regex;
+use regex::{Regex, RegexBuilder};
 use std::path::Path;
 
 use crate::scanner::{line_col_of, Ast, Finding, Scanner, Severity};
@@ -36,10 +36,29 @@ static DEFAULT_EXPORT: Lazy<Regex> =
 /// Crude untyped-parameter detector. Looks for a parameter list and flags
 /// any identifier that lacks a `:` before the next `,`/`)`. We avoid `_`
 /// (intentionally ignored) and rest/spread params (`...args`).
+///
+/// A3-006 (2026-05-04): regex hot-path mitigation.
+///
+/// Original suffix was `\(([^()]*)\)` -- unbounded. On large TSX files
+/// with thousands of `(...)` call sites, captures_iter materialized
+/// many candidate matches per line, dominating scanner CPU. Two changes:
+///   1. Inner body bounded `{0,512}` -- real parameter lists are well
+///      under 512 chars; the cap gives the matcher a hard ceiling.
+///   2. RegexBuilder size_limit caps NFA at 64 KB.
+/// The optional prefix is RETAINED so anonymous arrow functions
+/// (`arr.map((x, y) => ...)`) still get their parameter list scanned.
 static FUNC_PARAMS: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(
-        r"(?:function\s+[A-Za-z_$][A-Za-z0-9_$]*\s*|\b(?:const|let|var)\s+[A-Za-z_$][A-Za-z0-9_$]*\s*=\s*|=>\s*|\b[A-Za-z_$][A-Za-z0-9_$]*\s*=\s*function\s*|\)\s*=>\s*)?\(([^()]*)\)",
+    // A3-006 + REGRESSION-FIX (2026-05-04): size_limit raised to 1 MiB.
+    // Same root cause as SQL_CONCAT in security.rs -- the 5-way prefix
+    // alternation produces an NFA exceeding the 64 KB initial cap and
+    // panicked at Lazy init. 1 MiB is well below the 4 MiB regex-crate
+    // default and compiles this pattern cleanly. The `{0,512}` bound on
+    // the inner body is the actual perf guard, not size_limit.
+    RegexBuilder::new(
+        r"(?:function\s+[A-Za-z_$][A-Za-z0-9_$]*\s*|\b(?:const|let|var)\s+[A-Za-z_$][A-Za-z0-9_$]*\s*=\s*|=>\s*|\b[A-Za-z_$][A-Za-z0-9_$]*\s*=\s*function\s*|\)\s*=>\s*)?\(([^()]{0,512})\)",
     )
+    .size_limit(1024 * 1024)
+    .build()
     .expect("func params regex")
 });
 
@@ -57,8 +76,17 @@ impl Default for TsTypesScanner {
 
 impl TsTypesScanner {
     /// New scanner. Stateless.
+    ///
+    /// A3-022 (2026-05-04): force compile every Lazy regex at construction
+    /// time so a malformed pattern surfaces immediately, not mid-scan
+    /// (where it would poison the Lazy and kill subsequent scans).
     #[must_use]
     pub fn new() -> Self {
+        Lazy::force(&ANY_ANNOTATION);
+        Lazy::force(&AS_ANY);
+        Lazy::force(&NON_NULL_ASSERTION);
+        Lazy::force(&DEFAULT_EXPORT);
+        Lazy::force(&FUNC_PARAMS);
         Self
     }
 }

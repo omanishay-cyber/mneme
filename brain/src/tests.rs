@@ -181,6 +181,13 @@ fn cluster_runner_runs_on_two_cliques() {
 
 #[test]
 fn concept_extraction_picks_up_function_names_and_headings() {
+    // BUG-A2-024: heading extraction is now gated on the `kind` being
+    // an explicit markdown flavour. The previous heuristic
+    // (`text.contains("\n#")`) produced false-positive headings on
+    // Rust attribute syntax (`#[derive(...)]`). The corpus below
+    // mixes a markdown heading with a Rust function declaration —
+    // we pass `kind: "markdown"` to keep the heading-extraction
+    // behaviour for the documentation tooling, where it belongs.
     let text = r#"
 # Loader Module
 Loads embeddings from disk.
@@ -192,7 +199,10 @@ fn load_model_from_disk(path: &Path) -> Result<()> {
 "#;
     let extractor = ConceptExtractor::new();
     let concepts = extractor
-        .extract(ExtractInput { kind: "code", text })
+        .extract(ExtractInput {
+            kind: "markdown",
+            text,
+        })
         .unwrap();
 
     assert!(!concepts.is_empty(), "expected at least one concept");

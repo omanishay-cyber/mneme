@@ -270,6 +270,14 @@ class IpcClient {
   }
 
   private async ensureConnected(): Promise<void> {
+    // A5-014 (2026-05-04): close the narrow race where a socket was
+    // successfully connected but then errored out before any `request()`
+    // arrived. The socket field is left dangling as a destroyed handle;
+    // the next `request()` would try to write to it and fail loudly. Null
+    // it out here so the connect path below resets cleanly.
+    if (this.socket && this.socket.destroyed) {
+      this.socket = null;
+    }
     if (this.socket && !this.socket.destroyed) return;
 
     // First attempt — if the pipe is simply missing (daemon dead),
@@ -293,7 +301,20 @@ class IpcClient {
           "[mneme-mcp] supervisor pipe missing — attempting to start daemon...",
         );
         autoStarted = true;
-        await this.spawnDaemonAndWait();
+        // A5-010 (2026-05-04): catch spawn failure here so the caller can
+        // distinguish "daemon was never up and we couldn't even start it"
+        // from "daemon was up briefly and then fell over". The 155s
+        // exponential reconnect loop below is appropriate for the latter
+        // but not for the former.
+        try {
+          await this.spawnDaemonAndWait();
+        } catch (spawnErr) {
+          console.error(
+            "[mneme-mcp] could not start mneme daemon — is the `mneme` binary on PATH?",
+            spawnErr,
+          );
+          throw spawnErr;
+        }
         try {
           await this.connect();
           return;
@@ -326,17 +347,26 @@ class IpcClient {
 
   /** Spawn `mneme daemon start` detached and wait for the pipe to appear. */
   private async spawnDaemonAndWait(): Promise<void> {
+    // A5-010 (2026-05-04): the prior swallow-and-return on spawn failure
+    // forced `ensureConnected` to enter the full 5-attempt reconnect loop
+    // (~155s of exponential backoff) when in fact the `mneme` binary was
+    // not on PATH and the daemon was never going to come up. Propagate the
+    // spawn failure so the caller can short-circuit immediately and surface
+    // the real error to the user.
+    let child: ReturnType<typeof spawn>;
     try {
-      const child = spawn("mneme", ["daemon", "start"], {
+      child = spawn("mneme", ["daemon", "start"], {
         detached: true,
         stdio: "ignore",
         windowsHide: true,
       });
-      child.unref();
     } catch (err) {
       console.error("[mneme-mcp] spawn mneme daemon failed:", err);
-      return;
+      throw err instanceof Error
+        ? err
+        : new Error(`spawn mneme daemon failed: ${String(err)}`);
     }
+    child.unref();
     // Give the supervisor up to 5s to come up and write its pipe.
     // Bug K: re-resolve on every tick — the freshly-spawned daemon
     // writes a NEW pipe name to `~/.mneme/supervisor.pipe`, and we
@@ -842,7 +872,11 @@ export function _setClient(_mockClient: unknown): void {
     (typeof process !== "undefined" ? process.env?.NODE_ENV : undefined) ??
     (typeof process !== "undefined" ? process.env?.BUN_ENV : undefined) ??
     "production";
-  if (env !== "test") {
+  // A5-011 (2026-05-04): some CI runners set NODE_ENV to "Test" or "TEST"
+  // (capitalised) and the strict-equality check used to reject them with a
+  // confusing "test-only" error even though the intent is identical.
+  // Lowercase the comparison so any case spelling works.
+  if (env.toLowerCase() !== "test") {
     throw new Error(
       `_setClient is test-only and cannot be invoked in ${env} mode (set NODE_ENV=test or BUN_ENV=test)`,
     );

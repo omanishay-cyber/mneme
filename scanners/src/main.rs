@@ -59,10 +59,20 @@ async fn main() -> std::io::Result<()> {
         }
     }
 
+    // A3-015 (2026-05-04): clamp MNEME_SCAN_WORKERS env override to a
+    // sane range. A user (or buggy supervisor) setting MNEME_SCAN_WORKERS
+    // = 10000 would spawn 10K tasks each cloning the registry Arc and
+    // contending on the jobs-channel mutex; lock contention alone makes
+    // the system unusable. Cap at num_cpus * 8 (a 32-core box gets at
+    // most 256 workers), floor at 1 (env="0" silently falls through to
+    // the default rather than spawning zero workers).
+    let cpus = num_cpus_or_default();
+    let max_workers = scan_max_workers(cpus);
     let worker_count = std::env::var("MNEME_SCAN_WORKERS")
         .ok()
         .and_then(|s| s.parse::<usize>().ok())
-        .unwrap_or_else(|| (num_cpus_or_default() * 2).max(2));
+        .map(|n| n.clamp(1, max_workers))
+        .unwrap_or_else(|| scan_default_workers(cpus));
 
     tracing::info!(workers = worker_count, "scan-worker pool starting");
 
@@ -104,10 +114,23 @@ async fn main() -> std::io::Result<()> {
             // per shard preserves the per-shard single-writer invariant
             // even when multiple worker processes are active (each
             // worker = separate process, separate fd).
+            //
+            // A3-014 (2026-05-04): cap the cache at 16 entries with FIFO
+            // eviction. Original implementation kept every shard's writer
+            // open for the lifetime of the worker process. With workers
+            // long-lived (loop until channel close) and multi-project
+            // audits dispatching across many shards, the HashMap could
+            // accumulate hundreds of open SQLite handles -- each with a
+            // WAL+SHM file lock. 16 is enough headroom for any realistic
+            // multi-project session; eviction closes the connection via
+            // FindingsWriter Drop.
             let mut shard_writers: std::collections::HashMap<
                 std::path::PathBuf,
                 mneme_scanners::FindingsWriter,
             > = std::collections::HashMap::new();
+            let mut shard_writer_order: std::collections::VecDeque<std::path::PathBuf> =
+                std::collections::VecDeque::with_capacity(16);
+            const SHARD_WRITER_CAP: usize = 16;
             // Each worker pops jobs from a shared mutex-protected receiver
             // (single channel, multiple consumers).
             loop {
@@ -167,11 +190,30 @@ async fn main() -> std::io::Result<()> {
                     if let Some(shard) = shard_root.as_ref() {
                         let db_path = shard.join("findings.db");
                         let writer = if shard_writers.contains_key(shard) {
+                            // A3-014: cache hit -- bump the entry to the
+                            // back of the FIFO order so future evictions
+                            // pick a less-recently-used shard first.
+                            // Linear scan over <=16 entries is trivial.
+                            if let Some(pos) = shard_writer_order
+                                .iter()
+                                .position(|p| p == shard)
+                            {
+                                let path = shard_writer_order.remove(pos).unwrap();
+                                shard_writer_order.push_back(path);
+                            }
                             shard_writers.get_mut(shard)
                         } else {
+                            // A3-014: evict the oldest writer if we're at cap.
+                            // FindingsWriter::Drop closes the SQLite handle.
+                            if shard_writers.len() >= SHARD_WRITER_CAP {
+                                if let Some(oldest) = shard_writer_order.pop_front() {
+                                    shard_writers.remove(&oldest);
+                                }
+                            }
                             match mneme_scanners::FindingsWriter::open(&db_path) {
                                 Ok(w) => {
                                     shard_writers.insert(shard.clone(), w);
+                                    shard_writer_order.push_back(shard.clone());
                                     shard_writers.get_mut(shard)
                                 }
                                 Err(e) => {
@@ -471,35 +513,54 @@ async fn run_orchestrator_mode(cmd: OrchestratorCommand) -> std::io::Result<()> 
     // Optional gitignore (`.mnemeignore` first, then `.gitignore`).
     let gi = load_project_ignore(&project_root);
 
-    let mut scanned = 0usize;
-    let mut findings_total = 0usize;
-    let mut errors = 0usize;
-    let mut timeouts = 0usize;
+    // A3-013: counters moved into Arc<AtomicUsize> below so spawned tasks
+    // can mutate concurrently. Old `let mut scanned = 0usize;` etc.
+    // removed in the parallelization refactor.
     let stdout = tokio::io::stdout();
     let stdout = Arc::new(tokio::sync::Mutex::new(stdout));
 
-    // Worker for the orchestrator path — single instance because we walk
-    // the project sequentially. Scanners themselves are CPU-cheap; the
-    // dominant cost is file IO. Parallelising the walk would complicate
-    // ordered stdout emission; stick with the simple sequential path.
+    // A3-013 (2026-05-04): parallel orchestrator path.
+    //
+    // Original implementation used a single ScanWorker and processed files
+    // sequentially. The pool path (B11.7, supervisor-dispatched) was
+    // already parallelised; the orchestrator/fallback path was the holdout.
+    // With the regex-bomb fixes (A3-001..A3-006) eliminating the worst
+    // CPU spikes, single-threaded scanning is now leaving cores idle.
+    //
+    // Approach: keep the walker sequential (cheap directory iteration),
+    // but spawn each file's scan + emit into a `JoinSet`, bounded by a
+    // `Semaphore` of size num_cpus. Counters become atomics; stdout
+    // remains arc-mutex'd for serialised output. Findings interleave
+    // across files (the CLI parser doesn't depend on order). Per-file
+    // timeout via `spawn_blocking + tokio::time::timeout` is preserved
+    // inside each spawned task.
     let worker = ScanWorker::new(registry.clone(), 0);
 
-    // B-019 (D:\Mneme Dome cycle, 2026-04-30): per-file timeout +
-    // stdout heartbeat. Two related fixes for the same symptom — CLI
-    // observes scanner subprocess produced no stdout for >30s on real
-    // Electron projects (37k+ partial findings before kill). Causes:
-    //   a) A single file can wedge `worker.run_one()` (e.g. pathological
-    //      regex, runaway tree-sitter walk). Wrap the call in a 60s
-    //      timeout so guaranteed forward progress to the next file.
-    //   b) Long stretches of files that produce no findings leave stdout
-    //      silent for minutes; the CLI's line_budget then false-positives
-    //      a hang. Emit a `_progress` JSON line every 25 files (or every
-    //      5s, whichever first) so the read loop sees fresh bytes.
     const PER_FILE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
     const PROGRESS_FILE_INTERVAL: usize = 25;
     const PROGRESS_TIME_INTERVAL: std::time::Duration = std::time::Duration::from_secs(5);
-    let mut last_progress_emit = std::time::Instant::now();
-    let mut files_since_progress: usize = 0;
+    // A3-012 (2026-05-04): per-file content size cap. A 50MB minified
+    // bundle or 10MB lockfile would otherwise run all 10+ regexes against
+    // the entire content, dominating the per-file 60s timeout budget.
+    const MAX_SCAN_BYTES: u64 = 2 * 1024 * 1024;
+
+    // Counters as atomics so spawned tasks can mutate concurrently.
+    use std::sync::atomic::{AtomicUsize, Ordering as AtomicOrdering};
+    let scanned = Arc::new(AtomicUsize::new(0));
+    let findings_total = Arc::new(AtomicUsize::new(0));
+    let errors = Arc::new(AtomicUsize::new(0));
+    let timeouts = Arc::new(AtomicUsize::new(0));
+    let files_since_progress = Arc::new(AtomicUsize::new(0));
+    let last_progress_emit =
+        Arc::new(tokio::sync::Mutex::new(std::time::Instant::now()));
+
+    // Bounded concurrency: num_cpus. Higher values thrash; lower values
+    // leave cores idle. Cap at 16 so a 64-core box doesn't spawn 64 task
+    // futures + 64 blocking threads (tokio blocking pool default = 512
+    // but our scanners are CPU-bound, not I/O-bound).
+    let max_concurrency = num_cpus_or_default().max(1).min(16);
+    let semaphore = Arc::new(tokio::sync::Semaphore::new(max_concurrency));
+    let mut join_set: tokio::task::JoinSet<()> = tokio::task::JoinSet::new();
 
     for entry in walker {
         let entry = match entry {
@@ -521,133 +582,160 @@ async fn run_orchestrator_mode(cmd: OrchestratorCommand) -> std::io::Result<()> 
         if !is_scannable_extension(path) {
             continue;
         }
-        // `diff` scope: today we approximate "diff" as "files changed in
-        // the last 24h" — a cheap mtime filter. The CLI honours the
-        // semantic upgrade to a real `git diff HEAD` set in the
-        // supervised path; the fallback ships the simple version.
         if scope_filter == "diff" && !was_modified_recently(path) {
             continue;
+        }
+
+        if let Ok(meta) = std::fs::metadata(path) {
+            if meta.len() > MAX_SCAN_BYTES {
+                eprintln!(
+                    "[scan-skip-large] {} bytes={} cap={}",
+                    path.display(),
+                    meta.len(),
+                    MAX_SCAN_BYTES
+                );
+                continue;
+            }
         }
 
         let content = match std::fs::read_to_string(path) {
             Ok(c) => c,
             Err(e) => {
                 tracing::debug!(file = %path.display(), error = %e, "read failed; skipping");
-                errors += 1;
+                errors.fetch_add(1, AtomicOrdering::Relaxed);
                 continue;
             }
         };
-        // Skip files whose first 512 bytes contain a NUL — almost
-        // certainly binary.
         if content.as_bytes().iter().take(512).any(|&b| b == 0) {
             continue;
         }
 
-        let job = ScanJob {
-            file_path: path.to_path_buf(),
-            content: Arc::new(content),
-            ast_id: None,
-            scanner_filter: scanner_filter.clone(),
-            job_id: 0,
+        // A3-013: acquire a permit BEFORE spawning. This back-pressures
+        // the walker so we never have more than max_concurrency in-flight
+        // scan tasks. acquire_owned().await yields when the cap is hit;
+        // when a spawned task drops its permit (on completion) the next
+        // walker iteration unblocks.
+        let permit = match semaphore.clone().acquire_owned().await {
+            Ok(p) => p,
+            Err(_) => break, // semaphore closed -- shutdown path
         };
-        // B-008: per-file checkpoint to stderr. The last `[scan-file]`
-        // line drained by the CLI on a non-zero exit pinpoints the file
-        // that triggered a scanner panic (panic = "abort" in release
-        // makes the catch_unwind in worker.rs a no-op, so process-level
-        // diagnostics are the only signal).
-        eprintln!("[scan-file] {}", path.display());
-        // B-019 / B-027 (D:\Mneme Dome cycle, 2026-04-30): per-file
-        // timeout via spawn_blocking. The original B-019 wrapped
-        // `worker.run_one(job).await` in `tokio::time::timeout` — but
-        // `run_one`'s body is purely synchronous (no .await points), so
-        // tokio's timer cannot preempt it. The fix is to run the
-        // sync body on the blocking pool: tokio CAN cancel a JoinHandle
-        // returned by spawn_blocking when the timeout fires (the OS
-        // thread keeps running until the scanner returns naturally,
-        // but the orchestrator's await unblocks immediately).
+
         let worker_clone = worker.clone();
-        let path_for_log = path.to_path_buf();
-        let res = match tokio::time::timeout(
-            PER_FILE_TIMEOUT,
-            tokio::task::spawn_blocking(move || worker_clone.run_one_blocking(job)),
-        )
-        .await
-        {
-            Ok(Ok(r)) => r,
-            Ok(Err(join_err)) => {
-                eprintln!(
-                    "[scan-spawn-error] {} ({})",
-                    path_for_log.display(),
-                    join_err
-                );
-                errors += 1;
-                continue;
-            }
-            Err(_) => {
-                eprintln!(
-                    "[scan-timeout] {} (exceeded {}s)",
-                    path_for_log.display(),
-                    PER_FILE_TIMEOUT.as_secs()
-                );
-                timeouts += 1;
-                errors += 1;
-                continue;
-            }
-        };
-        scanned += 1;
-        files_since_progress += 1;
-        if !res.failed_scanners.is_empty() {
-            errors += res.failed_scanners.len();
-        }
-        let mut buf_out = stdout.lock().await;
-        for f in &res.findings {
-            findings_total += 1;
-            // One JSON line per Finding. Trailing newline is mandatory
-            // — the CLI parser splits on `\n` and skips blank lines.
-            let mut bytes = match serde_json::to_vec(f) {
-                Ok(b) => b,
-                Err(e) => {
-                    tracing::warn!(error = %e, "finding serialize failed; dropping");
-                    continue;
+        let path_buf = path.to_path_buf();
+        let scanner_filter_clone = scanner_filter.clone();
+        let stdout_c = stdout.clone();
+        let scanned_c = scanned.clone();
+        let findings_total_c = findings_total.clone();
+        let errors_c = errors.clone();
+        let timeouts_c = timeouts.clone();
+        let files_since_progress_c = files_since_progress.clone();
+        let last_progress_emit_c = last_progress_emit.clone();
+
+        join_set.spawn(async move {
+            let _permit = permit; // dropped at task end -> next walker iter
+
+            let job = ScanJob {
+                file_path: path_buf.clone(),
+                content: Arc::new(content),
+                ast_id: None,
+                scanner_filter: scanner_filter_clone,
+                job_id: 0,
+            };
+            eprintln!("[scan-file] {}", path_buf.display());
+
+            let worker_inner = worker_clone.clone();
+            let res = match tokio::time::timeout(
+                PER_FILE_TIMEOUT,
+                tokio::task::spawn_blocking(move || worker_inner.run_one_blocking(job)),
+            )
+            .await
+            {
+                Ok(Ok(r)) => r,
+                Ok(Err(join_err)) => {
+                    eprintln!(
+                        "[scan-spawn-error] {} ({})",
+                        path_buf.display(),
+                        join_err
+                    );
+                    errors_c.fetch_add(1, AtomicOrdering::Relaxed);
+                    return;
+                }
+                Err(_) => {
+                    eprintln!(
+                        "[scan-timeout] {} (exceeded {}s)",
+                        path_buf.display(),
+                        PER_FILE_TIMEOUT.as_secs()
+                    );
+                    timeouts_c.fetch_add(1, AtomicOrdering::Relaxed);
+                    errors_c.fetch_add(1, AtomicOrdering::Relaxed);
+                    return;
                 }
             };
-            bytes.push(b'\n');
-            if buf_out.write_all(&bytes).await.is_err() {
-                // Reader hung up — bail.
-                break;
+            scanned_c.fetch_add(1, AtomicOrdering::Relaxed);
+            files_since_progress_c.fetch_add(1, AtomicOrdering::Relaxed);
+            eprintln!(
+                "[scan-done] {} findings={} failed={}",
+                path_buf.display(),
+                res.findings.len(),
+                res.failed_scanners.len()
+            );
+            if !res.failed_scanners.is_empty() {
+                errors_c
+                    .fetch_add(res.failed_scanners.len(), AtomicOrdering::Relaxed);
             }
-        }
-        // B-019: emit a `_progress` heartbeat so the CLI's line_budget
-        // never fires on long stretches of zero-finding files.
-        let need_progress = files_since_progress >= PROGRESS_FILE_INTERVAL
-            || last_progress_emit.elapsed() >= PROGRESS_TIME_INTERVAL;
-        if need_progress {
-            let progress = serde_json::json!({
-                "_progress": true,
-                "scanned": scanned,
-                "findings": findings_total,
-                "errors": errors,
-                "timeouts": timeouts,
-                "current_file": path.display().to_string(),
-            });
-            if let Ok(mut bytes) = serde_json::to_vec(&progress) {
+            let mut buf_out = stdout_c.lock().await;
+            for f in &res.findings {
+                findings_total_c.fetch_add(1, AtomicOrdering::Relaxed);
+                let mut bytes = match serde_json::to_vec(f) {
+                    Ok(b) => b,
+                    Err(e) => {
+                        tracing::warn!(error = %e, "finding serialize failed; dropping");
+                        continue;
+                    }
+                };
                 bytes.push(b'\n');
-                let _ = buf_out.write_all(&bytes).await;
+                if buf_out.write_all(&bytes).await.is_err() {
+                    break;
+                }
             }
-            files_since_progress = 0;
-            last_progress_emit = std::time::Instant::now();
-        }
-        let _ = buf_out.flush().await;
-        drop(buf_out);
+            // Progress heartbeat -- atomic snapshot of counters under the
+            // last-emit mutex so two tasks don't double-emit on the same tick.
+            let mut last_emit = last_progress_emit_c.lock().await;
+            let cur_progress =
+                files_since_progress_c.load(AtomicOrdering::Relaxed);
+            if cur_progress >= PROGRESS_FILE_INTERVAL
+                || last_emit.elapsed() >= PROGRESS_TIME_INTERVAL
+            {
+                let progress = serde_json::json!({
+                    "_progress": true,
+                    "scanned": scanned_c.load(AtomicOrdering::Relaxed),
+                    "findings": findings_total_c.load(AtomicOrdering::Relaxed),
+                    "errors": errors_c.load(AtomicOrdering::Relaxed),
+                    "timeouts": timeouts_c.load(AtomicOrdering::Relaxed),
+                    "current_file": path_buf.display().to_string(),
+                });
+                if let Ok(mut bytes) = serde_json::to_vec(&progress) {
+                    bytes.push(b'\n');
+                    let _ = buf_out.write_all(&bytes).await;
+                }
+                files_since_progress_c.store(0, AtomicOrdering::Relaxed);
+                *last_emit = std::time::Instant::now();
+            }
+            drop(last_emit);
+            let _ = buf_out.flush().await;
+        });
     }
+
+    // Drain all in-flight scan tasks before emitting the summary.
+    while join_set.join_next().await.is_some() {}
 
     let duration_ms = started.elapsed().as_millis() as u64;
     let summary = serde_json::json!({
         "_done": true,
-        "scanned": scanned,
-        "findings": findings_total,
-        "errors": errors,
-        "timeouts": timeouts,
+        "scanned": scanned.load(AtomicOrdering::Relaxed),
+        "findings": findings_total.load(AtomicOrdering::Relaxed),
+        "errors": errors.load(AtomicOrdering::Relaxed),
+        "timeouts": timeouts.load(AtomicOrdering::Relaxed),
         "duration_ms": duration_ms,
     });
     let mut summary_bytes = serde_json::to_vec(&summary)?;
@@ -798,6 +886,62 @@ fn num_cpus_or_default() -> usize {
     std::thread::available_parallelism()
         .map(|n| n.get())
         .unwrap_or(4)
+}
+
+/// A10-010 (2026-05-04): default scan-worker count, extracted for unit
+/// tests. Mirrors the original `(cpus * 2).max(2)` expression.
+pub fn scan_default_workers(cpus: usize) -> usize {
+    (cpus * 2).max(2)
+}
+
+/// A10-010: env-override clamp ceiling for `MNEME_SCAN_WORKERS`.
+/// `cpus * 8` floored at 8, `saturating_mul` so no overflow on a
+/// pathological cpus value.
+pub fn scan_max_workers(cpus: usize) -> usize {
+    cpus.saturating_mul(8).max(8)
+}
+
+#[cfg(test)]
+mod scan_pool_size_tests {
+    use super::{scan_default_workers, scan_max_workers};
+
+    #[test]
+    fn scan_default_workers_floors_at_2_for_zero_or_one_cpu() {
+        assert_eq!(scan_default_workers(0), 2);
+        assert_eq!(scan_default_workers(1), 2);
+    }
+
+    #[test]
+    fn scan_default_workers_scales_2x_per_cpu() {
+        assert_eq!(scan_default_workers(2), 4);
+        assert_eq!(scan_default_workers(4), 8);
+        assert_eq!(scan_default_workers(8), 16);
+        assert_eq!(scan_default_workers(16), 32);
+        assert_eq!(scan_default_workers(32), 64);
+        assert_eq!(scan_default_workers(64), 128);
+    }
+
+    #[test]
+    fn scan_max_workers_floors_at_8_for_zero_or_one_cpu() {
+        assert_eq!(scan_max_workers(0), 8);
+        assert_eq!(scan_max_workers(1), 8);
+    }
+
+    #[test]
+    fn scan_max_workers_scales_8x_per_cpu() {
+        assert_eq!(scan_max_workers(2), 16);
+        assert_eq!(scan_max_workers(4), 32);
+        assert_eq!(scan_max_workers(8), 64);
+        assert_eq!(scan_max_workers(16), 128);
+        assert_eq!(scan_max_workers(32), 256);
+        assert_eq!(scan_max_workers(64), 512);
+    }
+
+    #[test]
+    fn scan_max_workers_does_not_overflow_on_pathological_cpus() {
+        // saturating_mul catches a usize::MAX cpus value.
+        assert_eq!(scan_max_workers(usize::MAX), usize::MAX);
+    }
 }
 
 fn init_tracing() {

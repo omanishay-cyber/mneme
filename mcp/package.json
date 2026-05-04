@@ -1,7 +1,7 @@
 {
   "name": "@mneme/mcp",
   "version": "0.3.2",
-  "description": "Mneme MCP server: 47 tools + 6 hooks exposing the mneme supervisor over stdio JSON-RPC.",
+  "description": "Mneme MCP server: 48 tools + 8 hooks exposing the mneme supervisor over stdio JSON-RPC.",
   "type": "module",
   "private": true,
   "main": "src/index.ts",
@@ -20,8 +20,8 @@
     "bun": ">=1.1.0"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.0.4",
-    "zod": "^3.23.8",
+    "@modelcontextprotocol/sdk": "~1.0.4",
+    "zod": "~3.23.8",
     "zod-to-json-schema": "^3.24.5",
     "ws": "^8.18.0"
   },
@@ -32,6 +32,6 @@
     "@types/ws": "^8.5.13",
     "typescript": "^5.6.3"
   },
-  "license": "MIT",
+  "license": "Apache-2.0",
   "author": "Anish Trivedi & Kruti Trivedi"
 }

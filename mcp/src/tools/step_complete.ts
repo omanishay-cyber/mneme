@@ -60,10 +60,15 @@ export const tool: ToolDescriptor<
         next_step_id: result.next_step_id ?? nextStepId,
       };
     }
+    // A5-017 (2026-05-04): supervisor IPC unreachable — we did NOT actually
+    // mark this step complete. Return `next_step_id: null` so the model
+    // does not interpret the locally-computed sibling as "the next step to
+    // start"; surface the reason via the new `note` field instead.
     return {
       step_id: input.step_id,
       completed: false,
-      next_step_id: nextStepId,
+      next_step_id: null,
+      note: "supervisor unreachable; no state change made",
     };
   },
 };

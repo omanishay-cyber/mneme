@@ -63,9 +63,21 @@ OK "all required inputs found"
 
 Section "Stage dir"
 if (Test-Path $StageDir) {
-    if (-not $Force) {
+    # A7-012 (2026-05-04): zero-question default. Stage dirs are scratch
+    # artifacts -- safe to auto-overwrite under -Force OR when stdin is
+    # redirected (CI / piped). The interactive prompt remains for local
+    # maintainer runs without -Force.
+    $autoOverwrite = $Force
+    if (-not $autoOverwrite) {
+        try {
+            if ([Console]::IsInputRedirected) { $autoOverwrite = $true }
+        } catch { $autoOverwrite = $false }
+    }
+    if (-not $autoOverwrite) {
         $reply = Read-Host "Stage dir exists: $StageDir. Overwrite? [y/N]"
         if ($reply -notmatch '^(y|yes)$') { Fail "user declined stage dir overwrite" }
+    } else {
+        Step "Stage dir exists at $StageDir -- auto-overwriting (Force / non-interactive)"
     }
     Remove-Item -Recurse -Force $StageDir
 }
@@ -313,16 +325,43 @@ Get-ChildItem $StageDir | ForEach-Object {
 
 Section "Compress to zip"
 if (Test-Path $OutZip) {
-    if (-not $Force) {
+    # A7-012 (2026-05-04): zip overwrite is destructive (prior shipped
+    # artifact). Auto-overwrite under -Force OR when stdin is redirected
+    # (CI). Otherwise keep the prompt as a TTY guardrail.
+    $autoOverwrite = $Force
+    if (-not $autoOverwrite) {
+        try {
+            if ([Console]::IsInputRedirected) { $autoOverwrite = $true }
+        } catch { $autoOverwrite = $false }
+    }
+    if (-not $autoOverwrite) {
         $reply = Read-Host "Output exists: $OutZip. Overwrite? [y/N]"
         if ($reply -notmatch '^(y|yes)$') { Fail "user declined overwrite" }
+    } else {
+        Step "Output exists at $OutZip -- auto-overwriting (Force / non-interactive)"
     }
     Remove-Item $OutZip -Force
 }
 $start = Get-Date
 $cl = if ($Fastest) { 'Fastest' } else { 'Optimal' }
 Step "compressing with -CompressionLevel $cl"
-Compress-Archive -Path "$StageDir\*" -DestinationPath $OutZip -CompressionLevel $cl -Force
+# A7-018 (2026-05-04): switch from PS5.1 Compress-Archive to .NET
+# ZipFile.CreateFromDirectory because final.zip with -IncludeModels
+# crosses 3.5 GB which trips Compress-Archive's 2 GB internal buffer
+# limit (silent OutOfMemoryException, half-written zip). The .NET API
+# streams entries and has no such cap. Compression-level mapping:
+#   Optimal | Fastest | NoCompression  -- enum lives in CompressionLevel.
+Add-Type -AssemblyName System.IO.Compression.FileSystem -ErrorAction SilentlyContinue
+$compLevel = if ($Fastest) {
+    [System.IO.Compression.CompressionLevel]::Fastest
+} else {
+    [System.IO.Compression.CompressionLevel]::Optimal
+}
+[System.IO.Compression.ZipFile]::CreateFromDirectory(
+    $StageDir,
+    $OutZip,
+    $compLevel,
+    $false)
 $end = Get-Date
 $zipSize = (Get-Item $OutZip).Length / 1MB
 OK ("zip: {0} ({1:N1} MB) in {2:N1}s" -f $OutZip, $zipSize, ($end - $start).TotalSeconds)

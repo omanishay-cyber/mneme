@@ -42,6 +42,24 @@ impl Reranker {
         }
     }
 
+    /// BUG-A2-033 fix: surface whether the rerank step actually does work.
+    /// When the `reranker` feature is OFF or the inner backend is the
+    /// pass-through stub, this returns `false` so callers (`RetrievalEngine`,
+    /// `mneme_recall` MCP tool) can skip the misleading
+    /// `RetrievalSource::Reranker` tag and report `reranker: stub` in
+    /// telemetry. When a real `fastembed` cross-encoder backend ships,
+    /// flip the inner branch to `true`.
+    pub fn is_active(&self) -> bool {
+        #[cfg(feature = "reranker")]
+        {
+            self.inner.is_active()
+        }
+        #[cfg(not(feature = "reranker"))]
+        {
+            false
+        }
+    }
+
     /// Rescore `candidates` relative to `query`.
     ///
     /// - If the feature is off, returns `candidates` unchanged.
@@ -80,6 +98,11 @@ struct RerankerInner {
 impl RerankerInner {
     fn try_new() -> BrainResult<Self> {
         Ok(Self {})
+    }
+
+    /// BUG-A2-033 helper: false until a real cross-encoder backend lands.
+    fn is_active(&self) -> bool {
+        false
     }
 
     fn rerank(

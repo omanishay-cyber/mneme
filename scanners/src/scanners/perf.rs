@@ -30,8 +30,38 @@ static SYNC_IO: Lazy<Regex> = Lazy::new(|| {
 });
 
 /// `setState(...)` style hook calls — captures variable.
+///
+/// A3-011 (2026-05-04): the regex matches any `set[A-Z]...(` pattern,
+/// which includes setTimeout/setInterval/setImmediate/setHours/setMonth/etc.
+/// A file with `setTimeout(...); setInterval(...); setImmediate(...);`
+/// would falsely fire the unbatched-setState heuristic. Denylist filter
+/// applied at match-time in `scan()` (see DENY_SETTERS).
 static SET_STATE: Lazy<Regex> =
     Lazy::new(|| Regex::new(r"\bset[A-Z][A-Za-z0-9_]*\s*\(").expect("setState regex"));
+
+/// A3-011: identifiers caught by SET_STATE that are NOT React state setters.
+/// Anything starting with `set` and a capital letter is a candidate; this
+/// list is the false-positive denylist.
+const DENY_SETTERS: &[&str] = &[
+    // Timer / scheduling
+    "setTimeout", "setInterval", "setImmediate",
+    // Date methods
+    "setFullYear", "setMonth", "setDate", "setHours", "setMinutes",
+    "setSeconds", "setMilliseconds", "setTime",
+    "setUTCFullYear", "setUTCMonth", "setUTCDate", "setUTCHours",
+    "setUTCMinutes", "setUTCSeconds", "setUTCMilliseconds",
+    // DOM / Web APIs
+    "setAttribute", "setAttributeNS", "setProperty",
+    "setItem", "setRequestHeader",
+    "setSelectionRange", "setRangeText",
+    "setCustomValidity", "setPointerCapture",
+    // Router / framework
+    "setSearchParams",
+    // Node / build
+    "setMaxListeners", "setEncoding",
+    // Native UI
+    "setStatusBarStyle",
+];
 
 /// `Object.keys(X).forEach(...)` chain — usually better expressed as
 /// `Object.entries(...).forEach(...)` or a plain `for...of` loop.
@@ -63,8 +93,15 @@ impl Default for PerfScanner {
 
 impl PerfScanner {
     /// New scanner. Stateless.
+    ///
+    /// A3-022 (2026-05-04): force compile every Lazy regex up-front.
     #[must_use]
     pub fn new() -> Self {
+        Lazy::force(&SYNC_IO);
+        Lazy::force(&SET_STATE);
+        Lazy::force(&OBJECT_KEYS_FOREACH);
+        Lazy::force(&ARRAY_FROM);
+        Lazy::force(&RUST_UNWRAP);
         Self
     }
 }
@@ -152,7 +189,20 @@ impl Scanner for PerfScanner {
 
         // 4. Three or more setState-style hook calls within a 200-byte
         //    window suggest unbatched updates.
-        let setters: Vec<usize> = SET_STATE.find_iter(content).map(|m| m.start()).collect();
+        // A3-011 (2026-05-04): filter the SET_STATE matches against a
+        // denylist of common non-React setters (setTimeout, setInterval,
+        // setImmediate, Date setters, DOM setAttribute, ...). Without this
+        // filter a file using `setTimeout(...); setInterval(...);
+        // setImmediate(...);` would falsely trigger unbatched-setstate.
+        let setters: Vec<usize> = SET_STATE
+            .find_iter(content)
+            .filter(|m| {
+                let name_end = m.end().saturating_sub(1); // strip trailing `(`
+                let name = content[m.start()..name_end].trim_end();
+                !DENY_SETTERS.iter().any(|deny| *deny == name)
+            })
+            .map(|m| m.start())
+            .collect();
         for window in setters.windows(3) {
             if window[2] - window[0] <= 200 {
                 let (line, col) = line_col_of(content, window[0]);
@@ -347,12 +397,41 @@ fn find_matching_paren(content: &str, open_idx: usize) -> Option<usize> {
 
 /// True if `body` contains a `,` at paren/bracket/brace depth zero —
 /// meaning the call has more than one argument.
+///
+/// A3-010 (2026-05-04): tracks string literal state in addition to
+/// brace depth. Without this, `useEffect(() => fetch("a, b"), [])` was
+/// treated as a multi-argument call because the literal comma inside
+/// `"a, b"` triggered the depth-zero match. String-aware tracking
+/// handles single-quote, double-quote, and backtick (template literal)
+/// strings with backslash escapes. Template-literal `${...}` expressions
+/// are NOT recursively parsed -- in practice depth-zero commas inside
+/// template expressions are still ambiguous so we err on "ignored", which
+/// can yield false negatives (a `${a, b}` would be missed) but never
+/// false positives.
 fn arg_separator_at_depth_zero(body: &str) -> bool {
     let mut paren = 0i32;
     let mut brack = 0i32;
     let mut brace = 0i32;
-    for b in body.bytes() {
+    // String state: None when not in a string; Some(quote_byte) when in one.
+    let mut in_string: Option<u8> = None;
+    let bytes = body.as_bytes();
+    let mut i = 0usize;
+    while i < bytes.len() {
+        let b = bytes[i];
+        if let Some(quote) = in_string {
+            // Inside a string: only watch for the closing quote and escape.
+            if b == b'\\' && i + 1 < bytes.len() {
+                i += 2; // skip escaped character
+                continue;
+            }
+            if b == quote {
+                in_string = None;
+            }
+            i += 1;
+            continue;
+        }
         match b {
+            b'\'' | b'"' | b'`' => in_string = Some(b),
             b'(' => paren += 1,
             b')' => paren -= 1,
             b'[' => brack += 1,
@@ -362,6 +441,7 @@ fn arg_separator_at_depth_zero(body: &str) -> bool {
             b',' if paren == 0 && brack == 0 && brace == 0 => return true,
             _ => {}
         }
+        i += 1;
     }
     false
 }

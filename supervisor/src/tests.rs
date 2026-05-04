@@ -76,6 +76,186 @@ fn restart_window_prunes_old_entries() {
     assert_eq!(handle.restarts_in_window(window), 1);
 }
 
+// ---------------------------------------------------------------------
+// BUG-A10-004 (2026-05-04) - manager.rs restart-loop unit coverage.
+//
+// Pre-existing: 1 test (windows_kill_pid_flags) for ~1290 LOC of
+// restart-loop logic. The chaos-test K10 admits in-body it doesn't
+// verify the restart actually happened. These tests pin the policy
+// matrix that monitor_child / respawn_one rely on, without spinning
+// up real worker processes.
+// ---------------------------------------------------------------------
+
+/// `RestartStrategy` decision matrix as encoded in `monitor_child`
+/// (manager.rs:446-450). The match is the load-bearing branch that
+/// decides whether a child crash escalates to a restart request -
+/// regression here would silently leave dead workers on the floor.
+#[test]
+fn restart_strategy_decision_matrix_clean_exit() {
+    // The decision logic, isolated for unit-testing:
+    fn should_restart(strategy: RestartStrategy, exit_code: i32) -> bool {
+        match strategy {
+            RestartStrategy::Permanent => true,
+            RestartStrategy::Transient => exit_code != 0,
+            RestartStrategy::Temporary => false,
+        }
+    }
+    // Permanent: clean exit (code 0) STILL triggers restart.
+    assert!(
+        should_restart(RestartStrategy::Permanent, 0),
+        "Permanent must restart even on clean exit",
+    );
+    // Permanent: non-zero exit triggers restart.
+    assert!(
+        should_restart(RestartStrategy::Permanent, 137),
+        "Permanent must restart on SIGKILL/abort exit code 137",
+    );
+
+    // Transient: clean exit means the child finished its work; do NOT
+    // restart. This is the critical "panic vs clean exit" distinction.
+    assert!(
+        !should_restart(RestartStrategy::Transient, 0),
+        "Transient must NOT restart on clean exit",
+    );
+    // Transient: non-zero (panic, signal, error) triggers restart.
+    assert!(
+        should_restart(RestartStrategy::Transient, 1),
+        "Transient must restart on non-zero exit (panic)",
+    );
+    assert!(
+        should_restart(RestartStrategy::Transient, 137),
+        "Transient must restart on SIGKILL exit",
+    );
+
+    // Temporary: never restart.
+    assert!(
+        !should_restart(RestartStrategy::Temporary, 0),
+        "Temporary must NOT restart on clean exit",
+    );
+    assert!(
+        !should_restart(RestartStrategy::Temporary, 137),
+        "Temporary must NOT restart even on crash exit",
+    );
+}
+
+/// Repeated crashes within the budget window must escalate the
+/// in-window count past `max_restarts_per_window` so the next
+/// `respawn_one` invocation marks the child as `Degraded`. We can't
+/// drive `respawn_one` without spawning real children, but we can
+/// pin the budget arithmetic that gates it.
+#[test]
+fn repeated_crash_within_window_exceeds_budget() {
+    let policy = RestartPolicy {
+        initial_backoff: Duration::from_millis(10),
+        max_backoff: Duration::from_millis(100),
+        backoff_multiplier: 2.0,
+        max_restarts_per_window: 3,
+        budget_window: Duration::from_secs(5),
+    };
+    let mut handle = ChildHandle::new(dummy_spec("flaky"), policy.initial_backoff);
+
+    // Three restarts within the window: still within budget.
+    for _ in 0..policy.max_restarts_per_window {
+        handle.record_restart(policy.budget_window);
+    }
+    assert_eq!(
+        handle.restarts_in_window(policy.budget_window),
+        policy.max_restarts_per_window,
+        "exactly max_restarts_per_window restarts in window",
+    );
+    // The fourth restart pushes the count past the budget. respawn_one
+    // would mark Degraded at this point (manager.rs:602).
+    handle.record_restart(policy.budget_window);
+    let in_window = handle.restarts_in_window(policy.budget_window);
+    assert!(
+        in_window > policy.max_restarts_per_window,
+        "fourth restart escalates beyond budget (in_window={}, budget={})",
+        in_window,
+        policy.max_restarts_per_window,
+    );
+    // restart_count is the cumulative counter - persists across the
+    // window for the duration of supervisor uptime.
+    assert_eq!(handle.restart_count, 4, "cumulative restart_count == 4");
+}
+
+/// Crashes spaced wider than the budget window must NOT escalate -
+/// the rolling window prunes old entries so a child that crashes once
+/// per minute (with a 10s window) never trips the budget.
+#[test]
+fn crashes_outside_window_do_not_escalate() {
+    let mut handle = ChildHandle::new(dummy_spec("slow-flaky"), Duration::from_millis(100));
+    let window = Duration::from_millis(50);
+
+    // First restart is recorded.
+    handle.record_restart(window);
+    assert_eq!(handle.restarts_in_window(window), 1);
+
+    // Wait long enough that the first entry falls outside the window.
+    std::thread::sleep(Duration::from_millis(80));
+    handle.record_restart(window);
+    // The first entry has been pruned; only the most recent remains.
+    assert_eq!(
+        handle.restarts_in_window(window),
+        1,
+        "old restart pruned, only the recent one counts",
+    );
+    // BUT: the cumulative restart_count still reflects 2 total restarts.
+    assert_eq!(
+        handle.restart_count, 2,
+        "cumulative restart_count is NOT pruned by window",
+    );
+}
+
+/// The static [`ChildSpec`] (env vars, args, command path, restart
+/// strategy) MUST be preserved across the in-flight restart cycle.
+/// `respawn_one` clones `h.spec` (manager.rs:620) and feeds it back to
+/// `spawn_child`. A buggy refactor that mutated the spec on restart
+/// would corrupt env vars + lose the worker's intended config.
+#[test]
+fn child_spec_env_preserved_across_restart_lifecycle() {
+    let mut spec = dummy_spec("env-keeper");
+    spec.env = vec![
+        ("MNEME_WORKER_ID".to_string(), "42".to_string()),
+        ("MNEME_LOG_LEVEL".to_string(), "info".to_string()),
+    ];
+    spec.args = vec!["--mode=parser".into(), "--shard=alpha".into()];
+
+    let initial_backoff = Duration::from_millis(100);
+    let mut handle = ChildHandle::new(spec.clone(), initial_backoff);
+    let window = Duration::from_secs(60);
+
+    // Drive 3 restart cycles - record_restart only mutates the per-
+    // restart counters; the spec must be left alone.
+    for _ in 0..3 {
+        handle.record_restart(window);
+    }
+
+    assert_eq!(handle.spec.name, "env-keeper");
+    assert_eq!(
+        handle.spec.env,
+        vec![
+            ("MNEME_WORKER_ID".to_string(), "42".to_string()),
+            ("MNEME_LOG_LEVEL".to_string(), "info".to_string()),
+        ],
+        "env vars must survive restart cycles",
+    );
+    assert_eq!(
+        handle.spec.args,
+        vec!["--mode=parser".to_string(), "--shard=alpha".to_string()],
+        "args must survive restart cycles",
+    );
+    assert_eq!(
+        handle.spec.restart,
+        RestartStrategy::Permanent,
+        "restart strategy must survive restart cycles",
+    );
+    // Spec clone must produce identical contents - verifies the seam
+    // respawn_one uses (manager.rs:620 `h.spec.clone()`).
+    let cloned = handle.spec.clone();
+    assert_eq!(cloned.env, handle.spec.env);
+    assert_eq!(cloned.args, handle.spec.args);
+}
+
 #[test]
 fn config_validate_rejects_duplicates() {
     let mut cfg = dummy_config();

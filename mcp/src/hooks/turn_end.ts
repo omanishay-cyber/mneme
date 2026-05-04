@@ -42,19 +42,25 @@ const compactionGuard = new CompactionGuard(defaultInjectionSink);
 export async function runTurnEnd(args: TurnEndArgs): Promise<HookOutput> {
   const t0 = Date.now();
   try {
-    const ledgerEntryPromise =
-      args.userMsg && args.assistantMsg
-        ? processTurn({
-            sessionId: args.sessionId,
-            userMsg: args.userMsg,
-            assistantMsg: args.assistantMsg,
-            turnIndex: args.turnIndex,
-            messageId: args.messageId,
-          }).catch((err) => {
-            console.error("[mneme-mcp] transcript distillation failed:", err);
-            return null;
-          })
-        : Promise.resolve(null);
+    // A5-013 (2026-05-04): `processTurn` is now synchronous (persistence is
+    // fire-and-forget inside the function). Wrap in a try/catch + Promise so
+    // the Promise.all aggregation below stays unchanged.
+    const ledgerEntryPromise: Promise<ReturnType<typeof processTurn> | null> = (() => {
+      if (!args.userMsg || !args.assistantMsg) return Promise.resolve(null);
+      try {
+        const entry = processTurn({
+          sessionId: args.sessionId,
+          userMsg: args.userMsg,
+          assistantMsg: args.assistantMsg,
+          turnIndex: args.turnIndex,
+          messageId: args.messageId,
+        });
+        return Promise.resolve(entry);
+      } catch (err) {
+        console.error("[mneme-mcp] transcript distillation failed:", err);
+        return Promise.resolve(null);
+      }
+    })();
 
     // F5 — snapshot-on-compaction. We fire before running the rest of the
     // hook so the resume bundle lands in the transcript ahead of any

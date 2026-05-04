@@ -78,16 +78,37 @@ impl Worker {
             "handling parse job"
         );
 
+        // A3-017 (2026-05-04): per-file timeout. A pathological grammar
+        // input (deeply nested generic, ambiguous JSX, corrupted source
+        // that confuses the parser) can cause `parse_file` to take many
+        // minutes -- without this guard, a single bad file wedges the
+        // worker forever and the watchdog cannot catch it (no heartbeat
+        // emission per A4-003). 60 s is generous for any realistic
+        // file; pathological inputs trip the timeout and the supervisor
+        // sees a clean ParseFailed error to dispatch the next job.
+        const PARSE_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(60);
+
         // 1. Parse (incremental if a previous tree exists).
-        let parse = match self
-            .incremental
-            .parse_file(&job.file_path, job.language, job.content.clone())
-            .await
+        let parse = match tokio::time::timeout(
+            PARSE_TIMEOUT,
+            self.incremental
+                .parse_file(&job.file_path, job.language, job.content.clone()),
+        )
+        .await
         {
-            Ok(p) => p,
-            Err(e) => {
+            Ok(Ok(p)) => p,
+            Ok(Err(e)) => {
                 error!(worker = self.id, file = %job.file_path.display(), error = %e, "parse failed");
                 return Err(e);
+            }
+            Err(_elapsed) => {
+                error!(
+                    worker = self.id,
+                    file = %job.file_path.display(),
+                    timeout_secs = PARSE_TIMEOUT.as_secs(),
+                    "parse exceeded timeout -- pathological input or grammar wedge"
+                );
+                return Err(ParserError::ParseFailed(job.file_path.clone()));
             }
         };
 

@@ -28,12 +28,19 @@ function communityColor(communityId: number | null): [number, number, number] {
   let g = 0;
   let b = 0;
   const seg = Math.floor(h * 6);
-  if (seg === 0) [r, g, b] = [c, x, 0];
-  else if (seg === 1) [r, g, b] = [x, c, 0];
-  else if (seg === 2) [r, g, b] = [0, c, x];
-  else if (seg === 3) [r, g, b] = [0, x, c];
-  else if (seg === 4) [r, g, b] = [x, 0, c];
-  else[r, g, b] = [c, 0, x];
+  if (seg === 0) {
+    [r, g, b] = [c, x, 0];
+  } else if (seg === 1) {
+    [r, g, b] = [x, c, 0];
+  } else if (seg === 2) {
+    [r, g, b] = [0, c, x];
+  } else if (seg === 3) {
+    [r, g, b] = [0, x, c];
+  } else if (seg === 4) {
+    [r, g, b] = [x, 0, c];
+  } else {
+    [r, g, b] = [c, 0, x];
+  }
   return [
     Math.round((r + m) * 255),
     Math.round((g + m) * 255),

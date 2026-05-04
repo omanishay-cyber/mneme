@@ -106,7 +106,7 @@ pasting — they screenshot, type `CHS`, and the AI sees what they see.
 ## Why this matters
 
 Every AI coding tool has tools. Nobody ships **workflow verbs** that change
-how the AI engages. The codewords combined with mneme's 47 MCP tools + the
+how the AI engages. The codewords combined with mneme's 48 MCP tools + the
 fireworks skills library + the Step Ledger = a complete workflow OS.
 
 **Rule of thumb:** when a codeword is the first word (or only word) in a user

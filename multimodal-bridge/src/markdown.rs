@@ -32,12 +32,27 @@ impl Extractor for MarkdownExtractor {
                 kind: ext,
             });
         }
-        let body = std::fs::read_to_string(path).map_err(|source| ExtractError::Io {
+        // A8-001 (2026-05-04): preflight size cap before whole-file read.
+        crate::check_size(path)?;
+
+        // A8-006 (2026-05-04): use `fs::read` + `from_utf8_lossy` instead
+        // of `read_to_string`, which rejected legacy Latin-1 / Windows-1252
+        // markdown with `io::ErrorKind::InvalidData`. Real-world `.md`
+        // files frequently carry non-UTF-8 bytes; lossy decoding preserves
+        // ASCII intact and substitutes U+FFFD for invalid sequences.
+        let raw = std::fs::read(path).map_err(|source| ExtractError::Io {
             path: path.to_path_buf(),
             source,
         })?;
+        let body_cow = String::from_utf8_lossy(&raw);
+        let lossy_substituted = matches!(body_cow, std::borrow::Cow::Owned(_));
+        let body = body_cow.into_owned();
 
         let mut doc = ExtractedDoc::empty("markdown", path);
+        if lossy_substituted {
+            doc.metadata
+                .insert("encoding".into(), "utf8-lossy".into());
+        }
 
         // Walk the pulldown stream, track current section, code blocks,
         // and links. We keep state machines simple — nesting of headings
@@ -61,23 +76,48 @@ impl Extractor for MarkdownExtractor {
         for event in parser {
             match event {
                 Event::Start(Tag::Heading { level, .. }) => {
-                    // Push the previous section.
-                    if current_heading.is_some() || !current_body.is_empty() {
+                    // A8-010 (2026-05-04): only flush a section on H1/H2.
+                    // Deeper headings (H3-H6) get captured as heading
+                    // elements but do NOT split into new `pages` rows --
+                    // that previous behaviour produced 30-50 single-
+                    // paragraph sections for a typical README and bloated
+                    // nodes_fts. The comment at this site has documented
+                    // the intent for months; the logic was just never
+                    // wired up. Now matched.
+                    let is_top_level =
+                        level == HeadingLevel::H1 || level == HeadingLevel::H2;
+                    if is_top_level
+                        && (current_heading.is_some() || !current_body.is_empty())
+                    {
                         section_index += 1;
                         doc.pages.push(PageText {
                             index: section_index,
                             heading: current_heading.clone(),
                             text: std::mem::take(&mut current_body).trim().to_string(),
                         });
+                        current_heading = None;
                     }
                     heading_buf = Some(String::new());
-                    // Only record h1/h2 as structured heading elements so
-                    // TOCs stay trim; deeper headings still flush sections.
                     let _ = level;
                 }
                 Event::End(TagEnd::Heading(level)) => {
                     let h = heading_buf.take().unwrap_or_default();
-                    current_heading = Some(h.clone());
+                    let is_top_level =
+                        level == HeadingLevel::H1 || level == HeadingLevel::H2;
+                    if is_top_level {
+                        current_heading = Some(h.clone());
+                    } else {
+                        // Deeper heading: keep the parent heading title for
+                        // the section, but inline the heading text into the
+                        // body so the recall path still surfaces the words.
+                        if !current_body.is_empty()
+                            && !current_body.ends_with("\n\n")
+                        {
+                            current_body.push_str("\n\n");
+                        }
+                        current_body.push_str(&h);
+                        current_body.push_str("\n\n");
+                    }
                     doc.elements.push(serde_json::json!({
                         "kind": "heading",
                         "level": heading_level_to_u32(level),

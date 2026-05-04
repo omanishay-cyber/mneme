@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
-import { useVisionStore } from "../store";
+import { useVisionStore, shallow } from "../store";
 import { API_BASE } from "../api";
+import { withProject } from "../projectSelection";
 
 interface FileDetail {
   path: string;
@@ -23,7 +24,9 @@ function placeholderDetail(path: string): FileDetail {
 }
 
 export function SidePanel(): JSX.Element {
-  const selected = useVisionStore((s) => s.selectedNodes);
+  // A6-022: shallow equality on selectedNodes (array reference would
+  // otherwise change on every store mutation).
+  const selected = useVisionStore((s) => s.selectedNodes, shallow);
   const clear = useVisionStore((s) => s.clearSelection);
   const [detail, setDetail] = useState<FileDetail | null>(null);
   const [tab, setTab] = useState<"summary" | "tests" | "history" | "preview">("summary");
@@ -36,7 +39,7 @@ export function SidePanel(): JSX.Element {
     }
     const target = selected[0];
     if (!target) return;
-    fetch(API_BASE + `/api/graph?view=file-detail&id=${encodeURIComponent(target.id)}`, { signal: ac.signal })
+    fetch(withProject(API_BASE + `/api/graph?view=file-detail&id=${encodeURIComponent(target.id)}`), { signal: ac.signal })
       .then((r) => r.json())
       .then((json: { detail?: FileDetail }) => {
         setDetail(json.detail ?? placeholderDetail(target.label ?? target.id));

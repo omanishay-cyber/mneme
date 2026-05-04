@@ -47,14 +47,11 @@ cd mneme
 # Rust workspace (the heavy parts)
 cargo build --workspace
 
-# Bun MCP server
-cd mcp && bun install && cd ..
+# Bun MCP server (must use --frozen-lockfile to mirror CI)
+cd mcp && bun install --frozen-lockfile && cd ..
 
 # Bun vision app
-cd vision && bun install && cd ..
-
-# Python multimodal sidecar
-cd workers/multimodal && pip install -e . && cd ../..
+cd vision && bun install --frozen-lockfile && cd ..
 
 # Run the daemon for the first time
 cargo run --bin mneme-supervisor -- start
@@ -64,7 +61,56 @@ cargo run --bin mneme -- build .
 cargo run --bin mneme -- status
 ```
 
+`--frozen-lockfile` is mandatory for `mcp/`. The MCP server is the
+security boundary between AI clients and the mneme supervisor; CI
+(`.github/workflows/ci.yml::mcp`) and the user installer
+(`scripts/install.ps1` step 5b) both pin to `mcp/bun.lock`. Local dev
+must do the same so what you ship is what CI tests. The Rust side is
+already pinned by `Cargo.lock`.
+
+The Python multimodal sidecar (`workers/multimodal/`) was retired in
+v0.2; multimodal extraction is now pure Rust in the
+`multimodal-bridge/` crate. Don't add it back.
+
 Need more? See [`docs/dev-setup.md`](docs/dev-setup.md).
+
+## Working on Mneme with Mneme
+
+Mneme is a code-graph + memory tool, and the most efficient way to
+work on it is to use it on itself. Once you have a local build, run
+`mneme build .` against the mneme source tree and you get the same
+recall / blast / audit / step surface that downstream users get on
+their own projects.
+
+Recommended starting moves before touching code:
+
+```bash
+# 1. Index the workspace
+mneme build .
+
+# 2. Find where something lives (better than grep — structural, not textual)
+mneme recall "how is the supervisor IPC wired"
+
+# 3. Before refactoring anything load-bearing, check the blast radius
+mneme blast crates/store/src/builder.rs
+mneme blast --symbol mneme_store::Builder::open
+
+# 4. While developing, run audit to catch drift early
+mneme audit
+
+# 5. For multi-step features, plan against the Step Ledger so a
+#    Claude Code session can resume across compactions.
+mneme step plan-from "wire new MCP tool foo_bar"
+mneme step show
+```
+
+In Claude Code specifically, the `firestart` codeword loads every
+fireworks expert skill and the Step Ledger before you start a long
+session. The four codewords (`coldstart`, `hotstart`, `firestart`,
+`CHS`) are documented in `plugin/skills/mneme-codewords/SKILL.md`.
+
+If you find a bug while doing this, that's a good bug to file — it
+means a real user just hit it.
 
 ## Code style
 

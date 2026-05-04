@@ -155,8 +155,16 @@ class ToolRegistry extends EventEmitter {
       let cacheBuster = "";
       try {
         const { statSync } = await import("node:fs");
-        const mtime = statSync(fullPath).mtimeMs;
-        cacheBuster = `?v=${Math.floor(mtime)}`;
+        const st = statSync(fullPath);
+        // A5-015 (2026-05-04): on filesystems where mtime resolution is
+        // 1s (or where a build script saves a file twice within the same
+        // millisecond), `Math.floor(mtime)` can collide and Bun's import
+        // cache returns the previous module body. Append `size:ino` so
+        // any byte-level change (or inode swap on rename) bumps the
+        // URL even when mtime is identical. ino can be 0 on some
+        // platforms — coerce defensively.
+        const ino = typeof st.ino === "number" ? st.ino : 0;
+        cacheBuster = `?v=${Math.floor(st.mtimeMs)}-${st.size}-${ino}`;
       } catch {
         // If stat fails, fall back to the timestamp — a one-shot leak
         // is fine for a load that's about to fail anyway.

@@ -59,6 +59,13 @@ impl Extractor for ImageExtractor {
             });
         }
 
+        // A8-001 (2026-05-04): preflight size cap. The `image` crate's
+        // `ImageReader::open` is file-backed (cheaper than `fs::read`)
+        // but `into_dimensions` may decode the entire frame for some
+        // formats, and the OCR fallback re-reads from disk via tesseract.
+        // Reject oversized inputs before we pay for either.
+        crate::check_size(path)?;
+
         // Pure-Rust dimension/format probe first. This runs without any
         // C FFI dependency.
         let reader = image::ImageReader::open(path).map_err(|source| ExtractError::Io {
@@ -239,28 +246,45 @@ impl ImageExtractor {
 /// install lands in `Program Files\` (x64), so the dead probe only added
 /// stat-noise on every OCR call.
 ///
+/// A8-002 (2026-05-04): Result is memoized in a process-wide `OnceLock`.
+/// The previous implementation spawned a fresh `tesseract --version`
+/// subprocess on EVERY OCR call (30-100ms cold-start cost on Windows
+/// per CreateProcess + DLL load), so a 500-image build paid 15-50s of
+/// pure probe waste. Doc on `lib.rs::ocr_runtime_available` always
+/// claimed the result was cached -- it's now actually true.
+///
+/// Trade-off: tesseract installed or uninstalled mid-process is not
+/// detected until restart. That matches typical user behavior
+/// (`winget install` then `mneme build`); the alternative -- re-probing
+/// per-call -- was costing real user time.
+///
 /// Returns `None` if no tesseract binary can be located. Public so
-/// `OCR_RUNTIME_AVAILABLE` (lib.rs) can reuse the same check.
+/// `lib.rs::ocr_runtime_available` can reuse the same check.
 pub fn locate_tesseract_exe() -> Option<std::path::PathBuf> {
-    // 1. PATH probe via `--version`.
-    if let Ok(out) = std::process::Command::new("tesseract")
-        .arg("--version")
-        .output()
-    {
-        if out.status.success() {
-            return Some(std::path::PathBuf::from("tesseract"));
-        }
-    }
-    // 2. Windows fixed install path (x64 only -- x86 dropped in B11.65).
-    #[cfg(windows)]
-    {
-        let candidate = "C:\\Program Files\\Tesseract-OCR\\tesseract.exe";
-        let p = std::path::PathBuf::from(candidate);
-        if p.exists() {
-            return Some(p);
-        }
-    }
-    None
+    static CACHED: std::sync::OnceLock<Option<std::path::PathBuf>> = std::sync::OnceLock::new();
+    CACHED
+        .get_or_init(|| {
+            // 1. PATH probe via `--version`.
+            if let Ok(out) = std::process::Command::new("tesseract")
+                .arg("--version")
+                .output()
+            {
+                if out.status.success() {
+                    return Some(std::path::PathBuf::from("tesseract"));
+                }
+            }
+            // 2. Windows fixed install path (x64 only -- x86 dropped in B11.65).
+            #[cfg(windows)]
+            {
+                let candidate = "C:\\Program Files\\Tesseract-OCR\\tesseract.exe";
+                let p = std::path::PathBuf::from(candidate);
+                if p.exists() {
+                    return Some(p);
+                }
+            }
+            None
+        })
+        .clone()
 }
 
 #[cfg(test)]

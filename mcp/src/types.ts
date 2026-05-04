@@ -119,6 +119,13 @@ export const Concept = z.object({
   source_location: z.string().nullable(),
   similarity: z.number().min(0).max(1),
   community_id: z.number().int().nullable(),
+  // A5-007 (2026-05-04): the `recall_concept` tool emits `community` (kind
+  // tag for human-friendly grouping) and `context` (the same kind tag, kept
+  // separate for future hover/tooltip use) on every row. zod's default
+  // strip-mode silently dropped them, hiding signal from the model. Added
+  // them as optional fields here so callers see them when present.
+  community: z.string().optional(),
+  context: z.string().optional(),
 });
 export type Concept = z.infer<typeof Concept>;
 
@@ -451,6 +458,12 @@ export const StepCompleteOutput = z.object({
   step_id: z.string(),
   completed: z.boolean(),
   next_step_id: z.string().nullable(),
+  // A5-017 (2026-05-04): when the supervisor IPC is unreachable we cannot
+  // actually mark the step complete. The prior shape returned
+  // `{ completed: false, next_step_id: <suggested> }` which the model
+  // could plausibly read as "the step succeeded; here is the next one".
+  // `note` exists to disambiguate — populated only on the failure path.
+  note: z.string().optional(),
 });
 
 export const StepResumeInput = z.object({

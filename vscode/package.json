@@ -40,36 +40,145 @@
   ],
   "contributes": {
     "commands": [
-      { "command": "mneme.build", "title": "Mneme: Build current workspace", "icon": "$(database)" },
-      { "command": "mneme.doctor", "title": "Mneme: Doctor", "icon": "$(pulse)" },
-      { "command": "mneme.recall", "title": "Mneme: Recall", "icon": "$(search)" },
-      { "command": "mneme.viewVision", "title": "Mneme: Open Live Graph (Vision)", "icon": "$(graph)" },
-      { "command": "mneme.daemonStart", "title": "Mneme: Start daemon", "icon": "$(play)" },
-      { "command": "mneme.daemonStop", "title": "Mneme: Stop daemon", "icon": "$(stop)" },
-      { "command": "mneme.openGraphView", "title": "Mneme: Open Graph View", "icon": "$(graph)" },
-      { "command": "mneme.openGraphForNode", "title": "Mneme: Open Graph for Node" },
-      { "command": "mneme.blastUnderCursor", "title": "Mneme: Blast radius of symbol under cursor", "icon": "$(references)" },
-      { "command": "mneme.blast", "title": "Mneme: Blast radius" },
-      { "command": "mneme.findReferences", "title": "Mneme: Find references" },
-      { "command": "mneme.decisionsForSymbol", "title": "Mneme: Show decisions about this symbol" },
-      { "command": "mneme.refreshAll", "title": "Mneme: Refresh all views", "icon": "$(refresh)" },
-      { "command": "mneme.godNodes.refresh", "title": "Mneme: Refresh god nodes", "icon": "$(refresh)" },
-      { "command": "mneme.drift.refresh", "title": "Mneme: Refresh drift findings", "icon": "$(refresh)" },
-      { "command": "mneme.steps.refresh", "title": "Mneme: Refresh step ledger", "icon": "$(refresh)" },
-      { "command": "mneme.decisions.refresh", "title": "Mneme: Refresh decisions", "icon": "$(refresh)" },
-      { "command": "mneme.shards.refresh", "title": "Mneme: Refresh shards", "icon": "$(refresh)" },
-      { "command": "mneme.recentQueries.clear", "title": "Mneme: Clear recent queries", "icon": "$(clear-all)" },
-      { "command": "mneme.openDriftFinding", "title": "Mneme: Open drift finding" },
-      { "command": "mneme.showStepDetails", "title": "Mneme: Show step details" },
-      { "command": "mneme.markStepComplete", "title": "Mneme: Mark step complete", "icon": "$(check)" },
-      { "command": "mneme.openDecision", "title": "Mneme: Open decision transcript" },
-      { "command": "mneme.revealShard", "title": "Mneme: Reveal shard path", "icon": "$(folder)" },
-      { "command": "mneme.rerunQuery", "title": "Mneme: Re-run query" },
-      { "command": "mneme.showLensDetails", "title": "Mneme: Show lens details" },
-      { "command": "mneme.recallFile", "title": "Mneme: Recall this file", "icon": "$(search)" },
-      { "command": "mneme.blastFile", "title": "Mneme: Blast radius of this file", "icon": "$(references)" },
-      { "command": "mneme.decisionsForFile", "title": "Mneme: Decisions touching this file" },
-      { "command": "mneme.walkthroughOpenSidebar", "title": "Mneme: Open sidebar" }
+      {
+        "command": "mneme.build",
+        "title": "Mneme: Build current workspace",
+        "icon": "$(database)"
+      },
+      {
+        "command": "mneme.doctor",
+        "title": "Mneme: Doctor",
+        "icon": "$(pulse)"
+      },
+      {
+        "command": "mneme.recall",
+        "title": "Mneme: Recall",
+        "icon": "$(search)"
+      },
+      {
+        "command": "mneme.viewVision",
+        "title": "Mneme: Open Live Graph (Vision)",
+        "icon": "$(graph)"
+      },
+      {
+        "command": "mneme.daemonStart",
+        "title": "Mneme: Start daemon",
+        "icon": "$(play)"
+      },
+      {
+        "command": "mneme.daemonStop",
+        "title": "Mneme: Stop daemon",
+        "icon": "$(stop)"
+      },
+      {
+        "command": "mneme.openGraphView",
+        "title": "Mneme: Open Graph View",
+        "icon": "$(graph)"
+      },
+      {
+        "command": "mneme.openGraphForNode",
+        "title": "Mneme: Open Graph for Node"
+      },
+      {
+        "command": "mneme.blastUnderCursor",
+        "title": "Mneme: Blast radius of symbol under cursor",
+        "icon": "$(references)"
+      },
+      {
+        "command": "mneme.blast",
+        "title": "Mneme: Blast radius"
+      },
+      {
+        "command": "mneme.findReferences",
+        "title": "Mneme: Find references"
+      },
+      {
+        "command": "mneme.decisionsForSymbol",
+        "title": "Mneme: Show decisions about this symbol"
+      },
+      {
+        "command": "mneme.refreshAll",
+        "title": "Mneme: Refresh all views",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "mneme.godNodes.refresh",
+        "title": "Mneme: Refresh god nodes",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "mneme.drift.refresh",
+        "title": "Mneme: Refresh drift findings",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "mneme.steps.refresh",
+        "title": "Mneme: Refresh step ledger",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "mneme.decisions.refresh",
+        "title": "Mneme: Refresh decisions",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "mneme.shards.refresh",
+        "title": "Mneme: Refresh shards",
+        "icon": "$(refresh)"
+      },
+      {
+        "command": "mneme.recentQueries.clear",
+        "title": "Mneme: Clear recent queries",
+        "icon": "$(clear-all)"
+      },
+      {
+        "command": "mneme.openDriftFinding",
+        "title": "Mneme: Open drift finding"
+      },
+      {
+        "command": "mneme.showStepDetails",
+        "title": "Mneme: Show step details"
+      },
+      {
+        "command": "mneme.markStepComplete",
+        "title": "Mneme: Mark step complete",
+        "icon": "$(check)"
+      },
+      {
+        "command": "mneme.openDecision",
+        "title": "Mneme: Open decision transcript"
+      },
+      {
+        "command": "mneme.revealShard",
+        "title": "Mneme: Reveal shard path",
+        "icon": "$(folder)"
+      },
+      {
+        "command": "mneme.rerunQuery",
+        "title": "Mneme: Re-run query"
+      },
+      {
+        "command": "mneme.showLensDetails",
+        "title": "Mneme: Show lens details"
+      },
+      {
+        "command": "mneme.recallFile",
+        "title": "Mneme: Recall this file",
+        "icon": "$(search)"
+      },
+      {
+        "command": "mneme.blastFile",
+        "title": "Mneme: Blast radius of this file",
+        "icon": "$(references)"
+      },
+      {
+        "command": "mneme.decisionsForFile",
+        "title": "Mneme: Decisions touching this file"
+      },
+      {
+        "command": "mneme.walkthroughOpenSidebar",
+        "title": "Mneme: Open sidebar"
+      }
     ],
     "viewsContainers": {
       "activitybar": [
@@ -82,12 +191,42 @@
     },
     "views": {
       "mneme": [
-        { "id": "mneme.godNodes", "name": "God Nodes", "icon": "$(graph)", "contextualTitle": "Mneme" },
-        { "id": "mneme.drift", "name": "Drift Findings", "icon": "$(warning)", "contextualTitle": "Mneme" },
-        { "id": "mneme.stepLedger", "name": "Step Ledger", "icon": "$(checklist)", "contextualTitle": "Mneme" },
-        { "id": "mneme.decisions", "name": "Recent Decisions", "icon": "$(lightbulb)", "contextualTitle": "Mneme" },
-        { "id": "mneme.recentQueries", "name": "Recent Queries", "icon": "$(history)", "contextualTitle": "Mneme" },
-        { "id": "mneme.shards", "name": "Project Shards", "icon": "$(database)", "contextualTitle": "Mneme" }
+        {
+          "id": "mneme.godNodes",
+          "name": "God Nodes",
+          "icon": "$(graph)",
+          "contextualTitle": "Mneme"
+        },
+        {
+          "id": "mneme.drift",
+          "name": "Drift Findings",
+          "icon": "$(warning)",
+          "contextualTitle": "Mneme"
+        },
+        {
+          "id": "mneme.stepLedger",
+          "name": "Step Ledger",
+          "icon": "$(checklist)",
+          "contextualTitle": "Mneme"
+        },
+        {
+          "id": "mneme.decisions",
+          "name": "Recent Decisions",
+          "icon": "$(lightbulb)",
+          "contextualTitle": "Mneme"
+        },
+        {
+          "id": "mneme.recentQueries",
+          "name": "Recent Queries",
+          "icon": "$(history)",
+          "contextualTitle": "Mneme"
+        },
+        {
+          "id": "mneme.shards",
+          "name": "Project Shards",
+          "icon": "$(database)",
+          "contextualTitle": "Mneme"
+        }
       ]
     },
     "viewsWelcome": [
@@ -126,89 +265,241 @@
             "id": "welcome",
             "title": "Welcome to Mneme",
             "description": "Persistent memory and a code graph, all running locally on your machine. [Read more](https://github.com/omanishay-cyber/mneme).",
-            "media": { "markdown": "src/walkthrough/welcome.md" }
+            "media": {
+              "markdown": "src/walkthrough/welcome.md"
+            }
           },
           {
             "id": "build",
             "title": "Index your project",
             "description": "Point mneme at this workspace and let it build the code graph.\n[Build now](command:mneme.build)",
-            "media": { "markdown": "src/walkthrough/build.md" },
-            "completionEvents": [ "onCommand:mneme.build" ]
+            "media": {
+              "markdown": "src/walkthrough/build.md"
+            },
+            "completionEvents": [
+              "onCommand:mneme.build"
+            ]
           },
           {
             "id": "sidebar",
             "title": "Meet the sidebar",
             "description": "Six live panels: god nodes, drift, steps, decisions, recent queries, shards.\n[Open sidebar](command:mneme.walkthroughOpenSidebar)",
-            "media": { "markdown": "src/walkthrough/sidebar.md" },
-            "completionEvents": [ "onCommand:mneme.walkthroughOpenSidebar" ]
+            "media": {
+              "markdown": "src/walkthrough/sidebar.md"
+            },
+            "completionEvents": [
+              "onCommand:mneme.walkthroughOpenSidebar"
+            ]
           },
           {
             "id": "recall",
             "title": "Try a recall",
             "description": "Query across code, decisions, and docs.\n[Run recall](command:mneme.recall)",
-            "media": { "markdown": "src/walkthrough/recall.md" },
-            "completionEvents": [ "onCommand:mneme.recall" ]
+            "media": {
+              "markdown": "src/walkthrough/recall.md"
+            },
+            "completionEvents": [
+              "onCommand:mneme.recall"
+            ]
           },
           {
             "id": "live",
             "title": "Stay in sync",
             "description": "Hover, CodeLens, and drift diagnostics keep you informed as you edit.",
-            "media": { "markdown": "src/walkthrough/live.md" }
+            "media": {
+              "markdown": "src/walkthrough/live.md"
+            }
           }
         ]
       }
     ],
     "menus": {
       "commandPalette": [
-        { "command": "mneme.openGraphForNode", "when": "false" },
-        { "command": "mneme.blast", "when": "false" },
-        { "command": "mneme.findReferences", "when": "false" },
-        { "command": "mneme.decisionsForSymbol", "when": "false" },
-        { "command": "mneme.openDriftFinding", "when": "false" },
-        { "command": "mneme.showStepDetails", "when": "false" },
-        { "command": "mneme.markStepComplete", "when": "false" },
-        { "command": "mneme.openDecision", "when": "false" },
-        { "command": "mneme.revealShard", "when": "false" },
-        { "command": "mneme.rerunQuery", "when": "false" },
-        { "command": "mneme.showLensDetails", "when": "false" },
-        { "command": "mneme.walkthroughOpenSidebar", "when": "false" }
+        {
+          "command": "mneme.openGraphForNode",
+          "when": "false"
+        },
+        {
+          "command": "mneme.blast",
+          "when": "false"
+        },
+        {
+          "command": "mneme.findReferences",
+          "when": "false"
+        },
+        {
+          "command": "mneme.decisionsForSymbol",
+          "when": "false"
+        },
+        {
+          "command": "mneme.openDriftFinding",
+          "when": "false"
+        },
+        {
+          "command": "mneme.showStepDetails",
+          "when": "false"
+        },
+        {
+          "command": "mneme.markStepComplete",
+          "when": "false"
+        },
+        {
+          "command": "mneme.openDecision",
+          "when": "false"
+        },
+        {
+          "command": "mneme.revealShard",
+          "when": "false"
+        },
+        {
+          "command": "mneme.rerunQuery",
+          "when": "false"
+        },
+        {
+          "command": "mneme.showLensDetails",
+          "when": "false"
+        },
+        {
+          "command": "mneme.walkthroughOpenSidebar",
+          "when": "false"
+        }
       ],
       "view/title": [
-        { "command": "mneme.godNodes.refresh", "when": "view == mneme.godNodes", "group": "navigation" },
-        { "command": "mneme.drift.refresh", "when": "view == mneme.drift", "group": "navigation" },
-        { "command": "mneme.steps.refresh", "when": "view == mneme.stepLedger", "group": "navigation" },
-        { "command": "mneme.decisions.refresh", "when": "view == mneme.decisions", "group": "navigation" },
-        { "command": "mneme.shards.refresh", "when": "view == mneme.shards", "group": "navigation" },
-        { "command": "mneme.recentQueries.clear", "when": "view == mneme.recentQueries", "group": "navigation" },
-        { "command": "mneme.refreshAll", "when": "view == mneme.godNodes || view == mneme.drift || view == mneme.stepLedger || view == mneme.decisions || view == mneme.shards", "group": "1_mneme" },
-        { "command": "mneme.build", "when": "view == mneme.godNodes || view == mneme.shards", "group": "1_mneme" },
-        { "command": "mneme.openGraphView", "when": "view == mneme.godNodes", "group": "1_mneme" }
+        {
+          "command": "mneme.godNodes.refresh",
+          "when": "view == mneme.godNodes",
+          "group": "navigation"
+        },
+        {
+          "command": "mneme.drift.refresh",
+          "when": "view == mneme.drift",
+          "group": "navigation"
+        },
+        {
+          "command": "mneme.steps.refresh",
+          "when": "view == mneme.stepLedger",
+          "group": "navigation"
+        },
+        {
+          "command": "mneme.decisions.refresh",
+          "when": "view == mneme.decisions",
+          "group": "navigation"
+        },
+        {
+          "command": "mneme.shards.refresh",
+          "when": "view == mneme.shards",
+          "group": "navigation"
+        },
+        {
+          "command": "mneme.recentQueries.clear",
+          "when": "view == mneme.recentQueries",
+          "group": "navigation"
+        },
+        {
+          "command": "mneme.refreshAll",
+          "when": "view == mneme.godNodes || view == mneme.drift || view == mneme.stepLedger || view == mneme.decisions || view == mneme.shards",
+          "group": "1_mneme"
+        },
+        {
+          "command": "mneme.build",
+          "when": "view == mneme.godNodes || view == mneme.shards",
+          "group": "1_mneme"
+        },
+        {
+          "command": "mneme.openGraphView",
+          "when": "view == mneme.godNodes",
+          "group": "1_mneme"
+        }
       ],
       "view/item/context": [
-        { "command": "mneme.markStepComplete", "when": "viewItem == mneme.step.pending || viewItem == mneme.step.blocked", "group": "inline" },
-        { "command": "mneme.openGraphForNode", "when": "viewItem == mneme.godNode", "group": "1_mneme" },
-        { "command": "mneme.revealShard", "when": "viewItem == mneme.shard", "group": "1_mneme" }
+        {
+          "command": "mneme.markStepComplete",
+          "when": "viewItem == mneme.step.pending || viewItem == mneme.step.blocked",
+          "group": "inline"
+        },
+        {
+          "command": "mneme.openGraphForNode",
+          "when": "viewItem == mneme.godNode",
+          "group": "1_mneme"
+        },
+        {
+          "command": "mneme.revealShard",
+          "when": "viewItem == mneme.shard",
+          "group": "1_mneme"
+        }
       ],
       "explorer/context": [
-        { "command": "mneme.recallFile", "when": "mneme.installed && resourceScheme == file", "group": "9_mneme" },
-        { "command": "mneme.blastFile", "when": "mneme.installed && resourceScheme == file", "group": "9_mneme" },
-        { "command": "mneme.decisionsForFile", "when": "mneme.installed && resourceScheme == file", "group": "9_mneme" }
+        {
+          "command": "mneme.recallFile",
+          "when": "mneme.installed && resourceScheme == file",
+          "group": "9_mneme"
+        },
+        {
+          "command": "mneme.blastFile",
+          "when": "mneme.installed && resourceScheme == file",
+          "group": "9_mneme"
+        },
+        {
+          "command": "mneme.decisionsForFile",
+          "when": "mneme.installed && resourceScheme == file",
+          "group": "9_mneme"
+        }
       ],
       "editor/title": [
-        { "command": "mneme.blastFile", "when": "mneme.installed && resourceScheme == file", "group": "9_mneme" },
-        { "command": "mneme.openGraphView", "when": "mneme.installed", "group": "9_mneme" }
+        {
+          "command": "mneme.blastFile",
+          "when": "mneme.installed && resourceScheme == file",
+          "group": "9_mneme"
+        },
+        {
+          "command": "mneme.openGraphView",
+          "when": "mneme.installed",
+          "group": "9_mneme"
+        }
       ],
       "editor/context": [
-        { "command": "mneme.blastUnderCursor", "when": "mneme.installed && editorHasSelection || editorTextFocus", "group": "9_mneme" },
-        { "command": "mneme.recallFile", "when": "mneme.installed", "group": "9_mneme" },
-        { "command": "mneme.decisionsForFile", "when": "mneme.installed", "group": "9_mneme" }
+        {
+          "command": "mneme.blastUnderCursor",
+          "when": "mneme.installed && editorHasSelection || editorTextFocus",
+          "group": "9_mneme"
+        },
+        {
+          "command": "mneme.recallFile",
+          "when": "mneme.installed",
+          "group": "9_mneme"
+        },
+        {
+          "command": "mneme.decisionsForFile",
+          "when": "mneme.installed",
+          "group": "9_mneme"
+        }
       ]
     },
     "keybindings": [
-      { "command": "mneme.recall", "key": "ctrl+k m r", "mac": "cmd+k m r", "when": "mneme.installed" },
-      { "command": "mneme.blastUnderCursor", "key": "ctrl+k m b", "mac": "cmd+k m b", "when": "mneme.installed && editorTextFocus" },
-      { "command": "mneme.openGraphView", "key": "ctrl+k m g", "mac": "cmd+k m g", "when": "mneme.installed" },
-      { "command": "mneme.doctor", "key": "ctrl+k m d", "mac": "cmd+k m d", "when": "mneme.installed" }
+      {
+        "command": "mneme.recall",
+        "key": "ctrl+k m r",
+        "mac": "cmd+k m r",
+        "when": "mneme.installed"
+      },
+      {
+        "command": "mneme.blastUnderCursor",
+        "key": "ctrl+k m b",
+        "mac": "cmd+k m b",
+        "when": "mneme.installed && editorTextFocus"
+      },
+      {
+        "command": "mneme.openGraphView",
+        "key": "ctrl+k m g",
+        "mac": "cmd+k m g",
+        "when": "mneme.installed"
+      },
+      {
+        "command": "mneme.doctor",
+        "key": "ctrl+k m d",
+        "mac": "cmd+k m d",
+        "when": "mneme.installed"
+      }
     ],
     "configuration": {
       "title": "Mneme",
@@ -260,7 +551,12 @@
         "mneme.logLevel": {
           "type": "string",
           "default": "info",
-          "enum": [ "error", "warn", "info", "debug" ],
+          "enum": [
+            "error",
+            "warn",
+            "info",
+            "debug"
+          ],
           "description": "Verbosity of the Mneme output channel."
         },
         "mneme.graphViewPort": {
@@ -273,7 +569,11 @@
         "mneme.notificationLevel": {
           "type": "string",
           "default": "everything",
-          "enum": [ "off", "errors-only", "everything" ],
+          "enum": [
+            "off",
+            "errors-only",
+            "everything"
+          ],
           "description": "Which notifications to show. 'off' suppresses all toasts; 'errors-only' shows only errors; 'everything' shows everything."
         }
       }
@@ -282,13 +582,14 @@
   "scripts": {
     "compile": "tsc -p ./",
     "watch": "tsc -watch -p ./",
-    "test": "node ./out/test/parse.test.js",
+    "test": "vitest run",
     "typecheck": "tsc --noEmit",
     "vscode:prepublish": "npm run compile"
   },
   "devDependencies": {
     "@types/node": "^22.10.0",
     "@types/vscode": "^1.85.0",
-    "typescript": "^5.6.3"
+    "typescript": "^5.6.3",
+    "vitest": "^2.1.9"
   }
 }

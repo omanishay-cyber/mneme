@@ -852,25 +852,51 @@ export function fetchGalaxy3D(limit = 4000): Galaxy3DPayload {
       file_path: string | null;
     }>;
 
-    const degreeRows = graph
-      .prepare(
-        `SELECT q, COUNT(*) AS c FROM (
-           SELECT source_qualified AS q FROM edges
-           UNION ALL
-           SELECT target_qualified AS q FROM edges
-         ) GROUP BY q`,
-      )
-      .all() as Array<{ q: string; c: number }>;
+    // A6-008: scope the degree query to the actually-returned node ids
+    // instead of scanning the entire edges table. On a 10M-edge shard the
+    // unbounded UNION ALL allocates ~80MB of strings and blocks the Bun
+    // event loop for ~8s; with a 4000-node bound this drops to a single
+    // covered-index probe per id. SQLite caps host-parameter count at 999,
+    // so chunk the IN(...) lists.
     const degree = new Map<string, number>();
-    for (const r of degreeRows) degree.set(r.q, r.c);
+    if (nodes.length > 0) {
+      const ids = nodes.map((n) => n.id);
+      const CHUNK = 800;
+      for (let i = 0; i < ids.length; i += CHUNK) {
+        const chunk = ids.slice(i, i + CHUNK);
+        const placeholders = chunk.map(() => "?").join(",");
+        const rows = graph
+          .prepare(
+            `SELECT q, COUNT(*) AS c FROM (
+               SELECT source_qualified AS q FROM edges WHERE source_qualified IN (${placeholders})
+               UNION ALL
+               SELECT target_qualified AS q FROM edges WHERE target_qualified IN (${placeholders})
+             ) GROUP BY q`,
+          )
+          .all(...chunk, ...chunk) as Array<{ q: string; c: number }>;
+        for (const r of rows) degree.set(r.q, (degree.get(r.q) ?? 0) + r.c);
+      }
+    }
 
+    // A6-008 (companion): scope community-membership read to the same
+    // returned node id set. The full-table read above had identical risk
+    // on multi-million-row community tables.
     const commByNode = new Map<string, number>();
-    if (sem) {
+    if (sem && nodes.length > 0) {
       try {
-        const rows = sem
-          .prepare(`SELECT community_id, node_qualified FROM community_membership`)
-          .all() as Array<{ community_id: number; node_qualified: string }>;
-        for (const r of rows) commByNode.set(r.node_qualified, r.community_id);
+        const ids = nodes.map((n) => n.id);
+        const CHUNK = 800;
+        for (let i = 0; i < ids.length; i += CHUNK) {
+          const chunk = ids.slice(i, i + CHUNK);
+          const placeholders = chunk.map(() => "?").join(",");
+          const rows = sem
+            .prepare(
+              `SELECT community_id, node_qualified FROM community_membership
+               WHERE node_qualified IN (${placeholders})`,
+            )
+            .all(...chunk) as Array<{ community_id: number; node_qualified: string }>;
+          for (const r of rows) commByNode.set(r.node_qualified, r.community_id);
+        }
       } catch {
         /* ignore */
       }

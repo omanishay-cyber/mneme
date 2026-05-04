@@ -17,6 +17,7 @@ Versioning follows [SemVer](https://semver.org/spec/v2.0.0.html).
 ### Documentation (2026-05-04)
 
 - **CHANGELOG truth fix.** Earlier `[v0.3.2 hotfix]` entries claimed the CLI's phi-3 part-merge code in `cli/src/commands/models.rs::install_from_path_to_root` was removed. The standalone `merge-phi3-parts.ps1` helper IS gone, but the CLI retains its own merge fallback for users running `mneme models install --from-path <dir>` against a directory of split parts. CHANGELOG now reflects that.
+- **Vision-app status reconciled (bug A9-016).** All 14 vision views are live in v0.3.2 via the daemon HTTP fallback at `http://127.0.0.1:7777`. The web SPA is staged into `~/.mneme/static/vision/` and served by `supervisor/src/health.rs::resolve_static_dir()`; the project picker (URL `?project=<hash>` + dropdown) shipped under the v0.3.2 hotfix-2 entry. The standalone `mneme-vision.exe` Tauri shell (with native window chrome and direct `#[tauri::command]` invocations of the 17 graph endpoints) is still in-progress for v0.4. README, INSTALL.md, ROADMAP, and CHANGELOG were drifting on which sub-feature shipped when; this entry is the single source of truth.
 
 ---
 

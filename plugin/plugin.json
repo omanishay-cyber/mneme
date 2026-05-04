@@ -2,7 +2,7 @@
   "name": "mneme",
   "version": "0.3.2",
   "displayName": "Mneme - The AI Superbrain",
-  "description": "Persistent per-project SQLite memory + 14-view live graph + drift detector + 48 MCP tools + 11 scanners + 8 hooks + 20 expert skills + 4 workflow codewords (coldstart/hotstart/firestart/CHS). Claude never starts cold, never loses its place, and always has the right expert loaded.",
+  "description": "Persistent per-project SQLite memory + 14-view live graph + drift detector + 48 MCP tools + 11 scanners + 8 hooks (injected into ~/.claude/settings.json on install) + 26 expert skills + 4 workflow codewords (coldstart/hotstart/firestart/CHS). Claude never starts cold, never loses its place, and always has the right expert loaded.",
   "author": "Anish Trivedi & Kruti Trivedi",
   "license": "Apache-2.0",
   "homepage": "https://github.com/omanishay-cyber/mneme",

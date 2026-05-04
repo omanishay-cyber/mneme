@@ -38,9 +38,27 @@ import { shutdown as shutdownDb } from "./db.ts";
 
 type Flags = Record<string, string>;
 
+// A5-008 (2026-05-04): allowlist of flag names the hook commands actually
+// read. Anything else is dropped silently so unrecognised / hostile flags
+// (`--__proto__=evil`, typos, future-protocol drift) cannot influence
+// dispatch. Update this list whenever a new hook flag is wired upstream.
+const ALLOWED_FLAGS: ReadonlySet<string> = new Set([
+  "project",
+  "session-id",
+  "prompt",
+  "cwd",
+  "tool",
+  "params-json",
+  "params",
+  "result-file",
+]);
+
 function parseFlags(argv: string[]): { command: string | null; flags: Flags } {
   let command: string | null = null;
-  const flags: Flags = {};
+  // A5-008: build flags via `Object.create(null)` so writes to keys like
+  // `__proto__` / `constructor` / `toString` cannot mutate `Object.prototype`
+  // or otherwise short-circuit prototype-chain reads downstream.
+  const flags: Flags = Object.create(null) as Flags;
   for (let i = 0; i < argv.length; i++) {
     const arg = argv[i] ?? "";
     if (!arg.startsWith("--")) {
@@ -48,17 +66,27 @@ function parseFlags(argv: string[]): { command: string | null; flags: Flags } {
       continue;
     }
     const eq = arg.indexOf("=");
+    let key: string;
+    let value: string;
     if (eq >= 0) {
-      flags[arg.slice(2, eq)] = arg.slice(eq + 1);
+      key = arg.slice(2, eq);
+      value = arg.slice(eq + 1);
     } else {
+      key = arg.slice(2);
       const next = argv[i + 1];
       if (next && !next.startsWith("--")) {
-        flags[arg.slice(2)] = next;
+        value = next;
         i++;
       } else {
-        flags[arg.slice(2)] = "true";
+        value = "true";
       }
     }
+    // Drop empty / disallowed keys before they ever land in the map. Skipping
+    // is silent on purpose: hook callers should not need to handle "unknown
+    // flag" errors during a one-shot hook invocation.
+    if (key.length === 0) continue;
+    if (!ALLOWED_FLAGS.has(key)) continue;
+    flags[key] = value;
   }
   return { command, flags };
 }
@@ -121,8 +149,17 @@ async function runHook(command: string, flags: Flags): Promise<void> {
 
 function safeParseJson(s: string): Record<string, unknown> {
   try {
-    const v = JSON.parse(s);
-    return typeof v === "object" && v !== null ? (v as Record<string, unknown>) : {};
+    const v: unknown = JSON.parse(s);
+    // A5-009 (2026-05-04): `typeof []` is `"object"`, so the prior guard
+    // accepted top-level arrays and cast them to `Record<string, unknown>`.
+    // Downstream `params.field_name` reads then returned `undefined` for
+    // every key — silent garbage instead of loud rejection. Reject arrays
+    // explicitly so the hook gets an empty-params bag and proceeds with
+    // documented defaults.
+    if (typeof v !== "object" || v === null || Array.isArray(v)) {
+      return {};
+    }
+    return v as Record<string, unknown>;
   } catch {
     return {};
   }

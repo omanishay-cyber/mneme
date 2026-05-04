@@ -45,7 +45,11 @@ impl<T> Response<T> {
         let wire = DbErrorWire {
             kind: variant_name(&e).to_string(),
             message: e.to_string(),
-            detail: None,
+            // BUG-A2-041 fix: populate `detail` with variant-specific
+            // structured info instead of always `None`. Pre-fix, callers
+            // saw `null` for every error and had to text-parse `message`
+            // to recover holder/since/expected/etc.
+            detail: variant_detail(&e),
         };
         Self {
             success: false,
@@ -69,4 +73,56 @@ fn variant_name(e: &DbError) -> &'static str {
         DbError::InternalPanic { .. } => "internal_panic",
         DbError::Sqlite(_) => "sqlite",
     }
+}
+
+/// BUG-A2-041 helper: render a JSON-style structured detail for the
+/// variants that carry meaningful payload. Returns `None` for variants
+/// whose name+message are already complete.
+fn variant_detail(e: &DbError) -> Option<String> {
+    match e {
+        DbError::Corrupted { detail } => Some(format!("{{\"detail\":{}}}", json_str(detail))),
+        DbError::Locked { holder, since } => Some(format!(
+            "{{\"holder\":{},\"since\":{}}}",
+            json_str(holder),
+            json_str(&since.to_string())
+        )),
+        DbError::Timeout { elapsed_ms } => {
+            Some(format!("{{\"elapsed_ms\":{}}}", elapsed_ms))
+        }
+        DbError::SchemaMismatch { expected, found } => Some(format!(
+            "{{\"expected\":{},\"found\":{}}}",
+            expected, found
+        )),
+        DbError::DiskFull { available_bytes } => {
+            Some(format!("{{\"available_bytes\":{}}}", available_bytes))
+        }
+        DbError::InternalPanic { backtrace } => {
+            Some(format!("{{\"backtrace\":{}}}", json_str(backtrace)))
+        }
+        DbError::Sqlite(s) => Some(format!("{{\"sqlite\":{}}}", json_str(s))),
+        DbError::NotFound
+        | DbError::SerializationFailure
+        | DbError::PermissionDenied => None,
+    }
+}
+
+/// Tiny JSON string escaper covering the four characters that matter for
+/// the variant_detail emitter. Avoids pulling serde_json::to_string just
+/// for this helper.
+fn json_str(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    out.push('"');
+    for c in s.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
 }

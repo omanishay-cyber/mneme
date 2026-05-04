@@ -89,12 +89,19 @@ function gitLogGrep(
   limit: number,
 ): Array<{ sha: string; date: string; subject: string }> {
   try {
+    // A5-005 (2026-05-04): pass `--fixed-strings` so git treats the user
+    // query literally instead of as a POSIX BRE. Without this, queries
+    // containing regex metacharacters either match unexpectedly (e.g. `.`
+    // matches every character) or expose git's regex engine to ReDoS
+    // patterns within the 5s timeout window. Also split on `\r?\n` so
+    // Windows line endings don't leak `\r` artefacts into `subject`.
     const result = spawnSync(
       "git",
       [
         "-C",
         cwd,
         "log",
+        "--fixed-strings",
         `--grep=${query}`,
         `-n${limit}`,
         "--pretty=format:%H\t%ad\t%s",
@@ -104,7 +111,7 @@ function gitLogGrep(
     );
     if (result.status !== 0 || typeof result.stdout !== "string") return [];
     const out: Array<{ sha: string; date: string; subject: string }> = [];
-    for (const line of result.stdout.split("\n")) {
+    for (const line of result.stdout.split(/\r?\n/)) {
       const [sha, date, ...rest] = line.split("\t");
       if (sha && date) {
         out.push({ sha, date, subject: rest.join("\t") });

@@ -1,11 +1,20 @@
 # Mneme Benchmarks - Reproducible Results
 
-> **Bug DOC-7 (2026-05-01):** these numbers were measured on the
-> v0.2.0 codebase with `bench_retrieval` v0.2. The current codebase
-> is v0.3.2; a fresh re-run is parked under
-> `docs/REMAINING_WORK.md`. The results below remain a valid
-> baseline against which v0.3.2 retrieval quality + latency can be
-> compared.
+> **STALE NUMBERS WARNING — read first.**
+> Every measurement in this file is a **v0.2.0** number. The current
+> codebase is **v0.3.2**. A v0.3.2 re-run is pending and parked under
+> `docs/REMAINING_WORK.md`.
+>
+> Treat the tables below as a v0.2.0 baseline only. Real-world v0.3.2
+> performance is materially better in several axes (x86-64-v3 baseline
+> for 2-4x faster BGE inference, ORT 1.24.4 fixing the Windows BGE hang,
+> scanner fan-out for 5-10x faster audit, scan-done markers, regex
+> bomb fixes). Do not cite these numbers as the v0.3.2 product story
+> without re-running the harness against a v0.3.2 build.
+>
+> Bug DOC-7 (2026-05-01) opened the gap; bug A9-015 (2026-05-04)
+> hardened this disclaimer. Re-run harness owner: see
+> `docs/REMAINING_WORK.md`.
 
 Run date: **2026-04-23** (historical - pre-v0.3.0)
 Git SHA: `164948ccee36f74ee303ec25d0d67565fae0d96c`

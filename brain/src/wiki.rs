@@ -94,7 +94,10 @@ impl WikiBuilder {
             .unwrap_or_else(|| format!("Community {cid}"));
         let slug = slugify(&title);
 
-        // Deduplicate file paths preserving order.
+        // BUG-A2-032 fix: dropped the trailing `files.sort()` so the order
+        // the caller passed in (typically entry-point-first) is preserved.
+        // The "preserving order" comment was right; the sort contradicted
+        // it and discarded useful caller intent.
         let mut seen = BTreeSet::new();
         let mut files: Vec<String> = Vec::new();
         for f in &input.files {
@@ -102,7 +105,6 @@ impl WikiBuilder {
                 files.push(f.clone());
             }
         }
-        files.sort();
 
         let summary = derive_purpose(&input.entry_points, &title);
 

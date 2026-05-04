@@ -100,7 +100,7 @@ Compared against the two closest projects in the AI-code-context space:
 | **Live push updates (SSE + WebSocket)** | ✅ livebus worker, multi-agent pubsub | ❌ | ❌ | n/a |
 | **100% local, zero unsolicited network** | ✅ enforced across Rust / TS / Python sidecar - only opt-in network is `mneme models install --from-url` | ✅ | ⚠️ model downloads + Whisper prompts | ✅ |
 | **AI tool integration (out of the box)** | ✅ **19+** (Claude Code, Codex, Cursor, Windsurf, Zed, VS Code, Gemini, Qwen, Qoder, plus more via standard MCP) | 2 (Claude Code, VS Code ext) | 1 (manual integration) | dozens of editors via library |
-| **Cross-OS install** | ✅ Win x64 (live) * macOS Intel + Apple Silicon (live) * Linux x64 (live) * Win arm64 / Linux arm64 (CI building) | ✅ pip is OS-agnostic | ✅ pip is OS-agnostic | bindings per language |
+| **Cross-OS install** | ✅ Win x64 (live) * macOS Apple Silicon arm64 (live; Intel x86_64 = build from source) * Linux x64 (live) * Win arm64 / Linux arm64 (CI building) | ✅ pip is OS-agnostic | ✅ pip is OS-agnostic | bindings per language |
 | **HF Hub model mirror (~5× faster than GitHub Releases)** | ✅ huggingface.co/aaditya4u/mneme-models | n/a (no models) | n/a | n/a |
 | **Audit pipeline streams findings (no data loss on timeout)** | ✅ per-file flush, supervisor fan-out across 6 scanner-workers (~5× faster on multi-core) | ❌ | ❌ | n/a |
 | **License** | ✅ **Apache-2.0** | MIT | MIT | MIT |
@@ -368,7 +368,7 @@ Measured against [code-review-graph](https://github.com/tirth8205/code-review-gr
 | Storage layers | 1 | **22** | Sharded SQLite, see [`docs/architecture.md`](docs/architecture.md) |
 | MCP tools | 24 | **48** | 48 wired to real data; counted from `mcp/src/tools/*.ts` at HEAD |
 | Visualization views | 1 (D3 force) | **14** (WebGL) | `vision/src/views/*.tsx` |
-| Languages | 23 | **28** | counted from `parsers/src/language.rs` Language enum |
+| Languages | 23 | **27** | counted from `parsers/src/language.rs` Language enum |
 | Platforms supported | 10 | **19** | counted from `cli/src/platforms/mod.rs` Platform enum |
 | Compaction survival | ❌ | ✅ | Step Ledger, §7 design doc |
 | Multimodal (PDF/audio/video) | ❌ | ✅ | `workers/multimodal/` Python sidecar |
@@ -492,7 +492,7 @@ Inventory as of the v0.3.2 hotfix (2026-05-02). Most surfaces flipped from "part
 | **`--rebuild` flag on `mneme build`** | ✅ shipped in v0.3.2 | Wipes `build-state.json` checkpoint + forces `--full` re-parse. Use when you want zero state carryover. |
 | **8 Claude Code hooks default-on** | ✅ shipped in v0.3.2 (K1) | `mneme install` writes 8 hook entries under `~/.claude/settings.json::hooks` by default. Pass `--no-hooks` to skip. Hooks read STDIN JSON and exit 0 on internal error so a mneme bug can never block tool calls. |
 | **Per-worker `rss_mb` on Windows** | ✅ resolved in v0.3.2 (C1) | Supervisor SLA snapshot reports real `rss_mb` via `GetProcessMemoryInfo`. |
-| **Multi-arch + cross-OS install** | ✅ Win x64 (live) * macOS Intel + Apple Silicon (live) * Linux x64 (live) * Win arm64 / Linux arm64 (CI building) in v0.3.2 | 3 install commands (one per OS), each auto-detects arch via `$env:PROCESSOR_ARCHITECTURE` (Win) or `uname -m` (POSIX). Refuses 32-bit Windows (Bun runtime requires x64+). |
+| **Multi-arch + cross-OS install** | ✅ Win x64 (live) * macOS Apple Silicon arm64 (live; Intel x86_64 = build from source) * Linux x64 (live) * Win arm64 / Linux arm64 (CI building) in v0.3.2 | 3 install commands (one per OS), each auto-detects arch via `$env:PROCESSOR_ARCHITECTURE` (Win) or `uname -m` (POSIX). Refuses 32-bit Windows (Bun runtime requires x64+). install-mac.sh refuses Intel Macs early (no x86_64-apple-darwin binary in v0.3.2). |
 | WebSocket livebus relay (`/ws`) | ⚠️ dev-only, partial | `livebus/` crate + SSE/WebSocket schema compile. SSE works in dev when Bun server + Tauri are co-located. Production daemon does not yet host the `/ws` endpoint. v0.4 work. |
 | Voice navigation (`/api/voice`) | ⚠️ stub | Endpoint returns `{enabled: false, phase: "stub"}`. v0.6 (per Tier 1 #1 - Ambient Context Fabric). |
 | Multilingual Whisper (non-English audio transcription) | ❌ planned v0.5 (Tier 1.5.E) | multimodal-bridge currently OCR-only. whisper-rs / whisper.cpp integration on roadmap. |

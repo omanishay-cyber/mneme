@@ -42,6 +42,7 @@ use chrono::{DateTime, Utc};
 use rusqlite::{params, Connection};
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
+use tracing::warn;
 use uuid::Uuid;
 
 // ---------------------------------------------------------------------------
@@ -247,7 +248,18 @@ impl SqliteLedger {
         let id: String = row.get("id")?;
         let session_id: String = row.get("session_id")?;
         let ts_millis: i64 = row.get("timestamp")?;
-        let timestamp = DateTime::<Utc>::from_timestamp_millis(ts_millis).unwrap_or_else(Utc::now);
+        // BUG-A2-012 fix: surface invalid timestamps via warn! rather than
+        // silently substituting "now", which previously masked corruption
+        // in the `timestamp` column.
+        let timestamp =
+            DateTime::<Utc>::from_timestamp_millis(ts_millis).unwrap_or_else(|| {
+                warn!(
+                    id = %id,
+                    ts_millis,
+                    "ledger entry has invalid timestamp; substituting now"
+                );
+                Utc::now()
+            });
         let summary: String = row.get("summary")?;
         let rationale: Option<String> = row.get("rationale")?;
         let touched_files_json: String = row.get("touched_files")?;
@@ -336,85 +348,137 @@ impl Ledger for SqliteLedger {
             entry.summary,
             entry.rationale.as_deref().unwrap_or("")
         );
-        tx.execute(
+        // BUG-A2-009 fix: surface FTS write failures via warn! instead of
+        // silently swallowing them with `.ok()`. Without this, callers see
+        // empty `recall()` results despite the entry being stored — a
+        // confusing silent-degradation mode. We deliberately do NOT
+        // propagate the error: append should still succeed for the user
+        // even if the FTS mirror is broken (table dropped, etc).
+        if let Err(e) = tx.execute(
             "INSERT INTO ledger_entries_fts(rowid, text) VALUES ((SELECT _rowid_ FROM ledger_entries WHERE id = ?1), ?2)",
             params![entry.id, fts_text],
-        )
-        .ok();
+        ) {
+            warn!(
+                error = %e,
+                entry_id = %entry.id,
+                "FTS index update failed; entry stored but not keyword-searchable"
+            );
+        }
         tx.commit()?;
         Ok(entry.id)
     }
 
     fn recall(&self, query: &RecallQuery) -> LedgerResult<Vec<StepEntry>> {
-        // Build the candidate set with a simple WHERE filter; we re-rank in
-        // Rust when a query embedding is provided (cosine similarity).
-        let mut sql = String::from(
-            "SELECT id, session_id, timestamp, kind, summary, rationale, \
-                    touched_files, touched_concepts, transcript_ref, kind_payload, embedding \
-             FROM ledger_entries WHERE 1=1",
-        );
-        let mut conds: Vec<String> = Vec::new();
-        let mut bound: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
+        // BUG-A2-010 fix: when a query embedding is provided we want a
+        // candidate pool that is the UNION of "top-by-FTS" and
+        // "top-by-recency" so semantically-relevant old entries are not
+        // dropped before cosine re-rank by a pure `ORDER BY timestamp`.
+        // We collect both pools, dedupe by `id`, then cosine-sort.
+        let pool = (query.limit * 4).max(query.limit).max(20);
 
+        // Common WHERE filters (session/since/kinds).
+        let mut common_conds: Vec<String> = Vec::new();
+        let mut common_bound: Vec<Box<dyn rusqlite::ToSql>> = Vec::new();
         if let Some(sid) = &query.session_id {
-            conds.push("session_id = ?".into());
-            bound.push(Box::new(sid.clone()));
+            common_conds.push("session_id = ?".into());
+            common_bound.push(Box::new(sid.clone()));
         }
         if let Some(since) = query.since {
-            conds.push("timestamp >= ?".into());
-            bound.push(Box::new(since.timestamp_millis()));
+            common_conds.push("timestamp >= ?".into());
+            common_bound.push(Box::new(since.timestamp_millis()));
         }
         if !query.kinds.is_empty() {
             let placeholders: Vec<&str> = (0..query.kinds.len()).map(|_| "?").collect();
-            conds.push(format!("kind IN ({})", placeholders.join(",")));
+            common_conds.push(format!("kind IN ({})", placeholders.join(",")));
             for k in &query.kinds {
-                bound.push(Box::new(k.clone()));
+                common_bound.push(Box::new(k.clone()));
             }
         }
 
-        // FTS keyword prefilter — only when text is non-empty. Tolerates an
-        // empty FTS table by falling back to a non-FTS scan.
-        let use_fts = !query.text.trim().is_empty();
-        if use_fts {
-            conds.push(
-                "id IN (SELECT ledger_entries.id FROM ledger_entries_fts \
-                        JOIN ledger_entries ON ledger_entries._rowid_ = ledger_entries_fts.rowid \
-                        WHERE ledger_entries_fts MATCH ?)"
-                    .into(),
-            );
-            bound.push(Box::new(sanitize_fts(&query.text)));
-        }
-
-        if !conds.is_empty() {
-            sql.push_str(" AND ");
-            sql.push_str(&conds.join(" AND "));
-        }
-        sql.push_str(" ORDER BY timestamp DESC LIMIT ?");
-        // Candidate pool: pull 4x the requested limit so cosine re-rank has
-        // something to work with.
-        let pool = (query.limit * 4).max(query.limit).max(20);
-        bound.push(Box::new(pool as i64));
-
-        // Execute, with a graceful fallback if FTS5 is missing or the
-        // match syntax is invalid (returns no rows instead of error).
-        let mut entries: Vec<StepEntry> = {
-            let mut stmt = self.conn.prepare(&sql)?;
-            let params_slice: Vec<&dyn rusqlite::ToSql> =
-                bound.iter().map(|b| b.as_ref()).collect();
-            let iter = stmt.query_map(params_slice.as_slice(), Self::row_to_entry);
-            match iter {
-                Ok(rows) => rows.filter_map(|r| r.ok()).collect(),
-                Err(_) => Vec::new(),
-            }
+        // BUG-A2-011 fix: empty sanitized text => skip FTS entirely.
+        let sanitized = if query.text.trim().is_empty() {
+            String::new()
+        } else {
+            sanitize_fts(&query.text)
         };
+        let use_fts = !sanitized.is_empty();
 
-        // Cosine re-rank when we have a query embedding.
+        // Candidate pool A — recency.
+        let mut entries_by_id: std::collections::HashMap<String, StepEntry> =
+            std::collections::HashMap::new();
+        {
+            let mut sql = String::from(
+                "SELECT id, session_id, timestamp, kind, summary, rationale, \
+                        touched_files, touched_concepts, transcript_ref, kind_payload, embedding \
+                 FROM ledger_entries WHERE 1=1",
+            );
+            if !common_conds.is_empty() {
+                sql.push_str(" AND ");
+                sql.push_str(&common_conds.join(" AND "));
+            }
+            sql.push_str(" ORDER BY timestamp DESC LIMIT ?");
+
+            let mut bound: Vec<&dyn rusqlite::ToSql> =
+                common_bound.iter().map(|b| b.as_ref()).collect();
+            let pool_i: i64 = pool as i64;
+            bound.push(&pool_i);
+
+            let mut stmt = self.conn.prepare(&sql)?;
+            let rows_iter = stmt.query_map(bound.as_slice(), Self::row_to_entry);
+            if let Ok(rows) = rows_iter {
+                for entry in rows.flatten() {
+                    entries_by_id.insert(entry.id.clone(), entry);
+                }
+            }
+        }
+
+        // Candidate pool B — FTS match.
+        if use_fts {
+            let mut sql = String::from(
+                "SELECT id, session_id, timestamp, kind, summary, rationale, \
+                        touched_files, touched_concepts, transcript_ref, kind_payload, embedding \
+                 FROM ledger_entries WHERE id IN ( \
+                     SELECT ledger_entries.id FROM ledger_entries_fts \
+                     JOIN ledger_entries ON ledger_entries._rowid_ = ledger_entries_fts.rowid \
+                     WHERE ledger_entries_fts MATCH ?)",
+            );
+            if !common_conds.is_empty() {
+                sql.push_str(" AND ");
+                sql.push_str(&common_conds.join(" AND "));
+            }
+            sql.push_str(" ORDER BY timestamp DESC LIMIT ?");
+
+            let mut bound: Vec<&dyn rusqlite::ToSql> = Vec::with_capacity(common_bound.len() + 2);
+            bound.push(&sanitized);
+            for b in &common_bound {
+                bound.push(b.as_ref());
+            }
+            let pool_i: i64 = pool as i64;
+            bound.push(&pool_i);
+
+            // Tolerate FTS errors silently — pool A is still populated.
+            if let Ok(mut stmt) = self.conn.prepare(&sql) {
+                let rows_iter = stmt.query_map(bound.as_slice(), Self::row_to_entry);
+                if let Ok(rows) = rows_iter {
+                    for entry in rows.flatten() {
+                        entries_by_id.insert(entry.id.clone(), entry);
+                    }
+                }
+            }
+        }
+
+        let mut entries: Vec<StepEntry> = entries_by_id.into_values().collect();
+
+        // Cosine re-rank when we have a query embedding; otherwise sort
+        // by timestamp DESC to preserve the historical contract.
         if let Some(qv) = &query.embedding {
             entries.sort_by(|a, b| {
                 let sa = a.embedding.as_ref().map(|v| cosine(v, qv)).unwrap_or(0.0);
                 let sb = b.embedding.as_ref().map(|v| cosine(v, qv)).unwrap_or(0.0);
                 sb.partial_cmp(&sa).unwrap_or(std::cmp::Ordering::Equal)
             });
+        } else {
+            entries.sort_by(|a, b| b.timestamp.cmp(&a.timestamp));
         }
 
         entries.truncate(query.limit);
@@ -546,6 +610,10 @@ fn cosine(a: &[f32], b: &[f32]) -> f32 {
 
 /// FTS5 MATCH syntax is fussy — strip characters that would cause a parse
 /// error and fall back to a plain prefix query.
+///
+/// BUG-A2-011 fix: returns an EMPTY string for whitespace-only input. The
+/// caller must treat empty as "skip the FTS branch entirely" — pre-fix this
+/// returned `"*"` which is not valid FTS5 and raised a parse error.
 fn sanitize_fts(input: &str) -> String {
     let cleaned: String = input
         .chars()
@@ -559,7 +627,7 @@ fn sanitize_fts(input: &str) -> String {
         .collect();
     let words: Vec<&str> = cleaned.split_whitespace().collect();
     if words.is_empty() {
-        return "*".into();
+        return String::new();
     }
     // OR-joined prefix query.
     words

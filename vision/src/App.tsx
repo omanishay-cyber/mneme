@@ -5,6 +5,7 @@ import { FilterBar } from "./components/FilterBar";
 import { SidePanel } from "./components/SidePanel";
 import { TimelineScrubber } from "./components/TimelineScrubber";
 import { Minimap } from "./components/Minimap";
+import { ErrorBoundary } from "./components/ErrorBoundary";
 import { CommandCenter } from "./command-center/CommandCenter";
 import {
   fetchDaemonHealth,
@@ -86,22 +87,29 @@ function StatusBar({ status }: { status: GraphStatsPayload | null }): JSX.Elemen
  * the URL + localStorage), and auto-selects the first project on first
  * load when no choice was persisted.
  */
-function ProjectPicker(): JSX.Element {
+function ProjectPicker({ daemonOk }: { daemonOk: boolean }): JSX.Element {
   const projectHash = useVisionStore((s) => s.projectHash);
   const setProjectHash = useVisionStore((s) => s.setProjectHash);
   const [projects, setProjects] = useState<ProjectSummary[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
+  // A6-016: refresh on 30s cadence AND whenever the daemon health flips
+  // from missing -> running. The previous []-deps fetch never re-ran,
+  // so newly-built projects never appeared in the dropdown until the
+  // user reloaded the page.
   useEffect(() => {
     const ac = new AbortController();
     let cancelled = false;
-    (async (): Promise<void> => {
+    let nextTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const load = async (initial: boolean): Promise<void> => {
       try {
         const r = await fetchProjects(ac.signal);
         if (cancelled) return;
         setProjects(r.projects);
         if (r.error) setError(r.error);
+        else setError(null);
         // Auto-select the first project with a built shard when nothing
         // was picked yet — matches the legacy "show the only shard"
         // behaviour for single-project installs.
@@ -111,20 +119,28 @@ function ProjectPicker(): JSX.Element {
         }
       } catch (err) {
         if ((err as Error).name === "AbortError") return;
-        if (!cancelled) setError(String(err));
+        if (!cancelled && initial) setError(String(err));
+        // On refresh ticks, swallow errors silently — we keep the last
+        // successful list rendered rather than blanking the dropdown.
       } finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled) {
+          if (initial) setLoading(false);
+          nextTimer = setTimeout(() => load(false), 30_000);
+        }
       }
-    })();
+    };
+
+    load(true);
     return () => {
       cancelled = true;
       ac.abort();
+      if (nextTimer !== null) clearTimeout(nextTimer);
     };
-    // We intentionally only run once on mount — the dropdown reflects
-    // whatever exists at boot. The user can refresh via the daemon
-    // status bar's natural 30s tick if a new project lands.
+    // Re-run when daemon transitions to running -- newly-built shards
+    // become visible immediately. `projectHash` deliberately omitted to
+    // avoid loops (the auto-select set it).
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
+  }, [daemonOk]);
 
   const onChange = (e: React.ChangeEvent<HTMLSelectElement>): void => {
     setProjectHash(e.target.value);
@@ -200,11 +216,14 @@ export function App(): JSX.Element {
   const [daemon, setDaemon] = useState<DaemonHealthPayload | null>(null);
 
   // Tiny route handler — keeps deps minimal (no react-router for v1).
-  const route = useMemo(readRoute, []);
+  // A6-017: route is reactive state so popstate can swap views without
+  // a full page reload that would kill the Sigma canvas, in-flight
+  // fetches and the WebSocket.
+  const [route, setRoute] = useState<RouteState>(() => readRoute());
 
   useEffect(() => {
     const onPop = (): void => {
-      window.location.reload();
+      setRoute(readRoute());
     };
     window.addEventListener("popstate", onPop);
     return () => window.removeEventListener("popstate", onPop);
@@ -213,9 +232,16 @@ export function App(): JSX.Element {
   // Boot probes: status bar + daemon banner. Status refreshes every 30s
   // and re-runs immediately whenever the chosen project changes so the
   // visible counts always match the shard the views are reading.
+  //
+  // A6-009: single AbortController scope; the next tick is scheduled with
+  // setTimeout AFTER the previous load() resolves so we can never have
+  // two in-flight loads racing setState. StrictMode double-mount no
+  // longer flickers because the second effect's load() shares the same
+  // cancellation flag and AbortController as the first.
   useEffect(() => {
     const ac = new AbortController();
     let cancelled = false;
+    let nextTimer: ReturnType<typeof setTimeout> | null = null;
 
     const load = async (): Promise<void> => {
       try {
@@ -223,26 +249,32 @@ export function App(): JSX.Element {
           fetchStatus(ac.signal).catch(() => null),
           fetchDaemonHealth(ac.signal).catch(() => null),
         ]);
-        if (!cancelled) {
-          setStatus(s);
-          setDaemon(h);
-        }
+        if (cancelled) return;
+        setStatus(s);
+        setDaemon(h);
       } catch {
-        /* aborted */
+        /* aborted or upstream failure -- silent on refresh path */
+      } finally {
+        if (!cancelled) {
+          nextTimer = setTimeout(load, 30_000);
+        }
       }
     };
 
     load();
-    const timer = setInterval(load, 30_000);
     return () => {
       cancelled = true;
       ac.abort();
-      clearInterval(timer);
+      if (nextTimer !== null) clearTimeout(nextTimer);
     };
   }, [projectHash]);
 
   if (route.route === "command-center") {
-    return <CommandCenter />;
+    return (
+      <ErrorBoundary region="command-center">
+        <CommandCenter />
+      </ErrorBoundary>
+    );
   }
 
   const grouped = useMemo(() => {
@@ -295,25 +327,33 @@ export function App(): JSX.Element {
       </aside>
 
       <header className="vz-topbar">
-        <ProjectPicker />
+        <ProjectPicker daemonOk={Boolean(daemon?.ok)} />
         <StatusBar status={status} />
         <DaemonBanner health={daemon} />
         <FilterBar />
       </header>
 
       <main className="vz-canvas" role="main">
-        <Suspense fallback={<div className="vz-loading">loading view…</div>}>
-          <ActiveView />
-        </Suspense>
-        <Minimap />
+        <ErrorBoundary region={`view:${activeView}`}>
+          <Suspense fallback={<div className="vz-loading">loading view…</div>}>
+            <ActiveView key={`${activeView}:${projectHash}`} />
+          </Suspense>
+        </ErrorBoundary>
+        <ErrorBoundary region="minimap">
+          <Minimap />
+        </ErrorBoundary>
       </main>
 
       <aside className="vz-detail" aria-label="Selection detail">
-        <SidePanel />
+        <ErrorBoundary region="side-panel">
+          <SidePanel />
+        </ErrorBoundary>
       </aside>
 
       <footer className="vz-timeline">
-        <TimelineScrubber />
+        <ErrorBoundary region="timeline">
+          <TimelineScrubber />
+        </ErrorBoundary>
       </footer>
     </div>
   );

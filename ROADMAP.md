@@ -45,6 +45,8 @@ Detailed engineering backlog lives in [`docs/dev/v0.4-backlog.md`](docs/dev/v0.4
   `mneme blast`, `mneme godnodes` all use direct-DB fast path.
 - 19 fireworks skills + `mneme-codewords` shipped in `plugin/skills/`.
   Four workflow codewords: `coldstart`, `hotstart`, `firestart`, `CHS`.
+  Per-language fireworks skills `fireworks-go`, `fireworks-python`, and
+  `fireworks-rust` followed in the v0.3.2 hotfix wave (bug A9-014).
 - `suggest_skill(task)` MCP tool. `inject` hook auto-surfaces a skill
   recommendation on every user prompt.
 - 18 AI platform adapters including VS Code (Copilot + Claude Code
@@ -73,10 +75,20 @@ Detailed engineering backlog lives in [`docs/dev/v0.4-backlog.md`](docs/dev/v0.4
 ### v0.2.x - initial wave (2026-04-23)
 
 - 40 tools with partial wiring.
-- Leiden clustering. 14-view vision app (shipped, but see
-  `docs-and-memory/phase-a-issues.md §A1-A12` - Tauri binary not in v0.3
-  release, frontend missing production data layer, `mneme view` exits
-  gracefully). Multi-platform adapters.
+- Leiden clustering. 14-view vision app — initial wave; the standalone
+  Tauri shell `mneme-vision.exe` was not in the v0.3 binary release at
+  this point. Multi-platform adapters.
+
+### v0.3.2 - vision app shipped (daemon HTTP fallback, 2026-05-02)
+
+All 14 vision views are live in v0.3.2 via the daemon HTTP fallback at
+`http://127.0.0.1:7777`. `vision/dist/` is staged into
+`~/.mneme/static/vision/` and `supervisor/src/health.rs::resolve_static_dir()`
+serves it. Project picker (`?project=<hash>` URL param + dropdown) shipped
+under the v0.3.2 hotfix-2 entry, scoping all 17 `/api/graph/*` endpoints
+by project hash. The standalone `mneme-vision.exe` Tauri shell remains
+in-progress for v0.4 (see "In progress - v0.4" below). Bug A9-016 reconciled
+the README/INSTALL/ROADMAP drift on this status.
 
 ---
 
@@ -113,8 +125,6 @@ below is the *starting* set; Stage 1 DM responses will reorder.
   Cursor gallery, smithery, mcp.so.
 - **CLAUDE.md / AGENTS.md template updates** - ship the codewords block
   via the install manifest so every downstream platform gets them.
-- **Per-language fireworks skills** - `fireworks-go`, `fireworks-python`,
-  `fireworks-rust`.
 - **install.sh / uninstall parity** with the Windows one-liner.
 
 **Stretch:**

@@ -2,7 +2,8 @@
 name = "mneme-parsers"
 version.workspace = true
 edition.workspace = true
-description = "Mneme PARSERS — Tree-sitter worker pool: 25+ languages, incremental, parser-per-worker"
+rust-version.workspace = true
+description = "Mneme PARSERS — Tree-sitter worker pool: 27 languages, incremental, parser-per-worker"
 license.workspace = true
 publish = false
 

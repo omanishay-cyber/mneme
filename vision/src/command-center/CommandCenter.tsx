@@ -1,5 +1,5 @@
 import { useMemo } from "react";
-import { useVisionStore } from "../store";
+import { useVisionStore, shallow } from "../store";
 import { StepLedger } from "./StepLedger";
 import { DriftIndicator } from "./DriftIndicator";
 import { ResumptionBundle } from "./ResumptionBundle";
@@ -9,7 +9,9 @@ import { ResumptionBundle } from "./ResumptionBundle";
 // files-touched, decisions log, drift indicator, full session search.
 
 export function CommandCenter(): JSX.Element {
-  const cc = useVisionStore((s) => s.commandCenter);
+  // A6-022: shallow equality so unrelated store mutations (e.g. live
+  // event ticks) don't re-render the entire command center tree.
+  const cc = useVisionStore((s) => s.commandCenter, shallow);
   const setSearch = useVisionStore((s) => s.setCommandSearch);
 
   const filteredSteps = useMemo(() => {

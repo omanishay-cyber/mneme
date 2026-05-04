@@ -128,6 +128,15 @@ pub struct ChildManager {
     /// /health scrape + CLI status burst hitting in the same second
     /// produces ONE pass over the handle map, not three.
     snapshot_cache: Mutex<Option<(Instant, Vec<ChildSnapshot>)>>,
+    /// BUG-A4-013 fix (2026-05-04): per-manager round-robin index for
+    /// `dispatch_to_pool`. The doc comment claimed round-robin
+    /// dispatch but the implementation always tried `parser-worker-0`
+    /// first (alphabetical sort) -- so a wedged head-of-pool worker
+    /// absorbed every dispatch attempt for STDIN_WRITE_TIMEOUT
+    /// (10 s) before the router moved on. With 1100 in-flight files
+    /// this was 11000 s of lost time per build. AtomicUsize so the
+    /// router can mutate without taking a lock.
+    round_robin_idx: std::sync::atomic::AtomicUsize,
 }
 
 impl ChildManager {
@@ -145,6 +154,7 @@ impl ChildManager {
             restart_rx: Mutex::new(Some(restart_rx)),
             job_queue: RwLock::new(None),
             snapshot_cache: Mutex::new(None),
+            round_robin_idx: std::sync::atomic::AtomicUsize::new(0),
         }
     }
 
@@ -538,6 +548,20 @@ impl ChildManager {
         info!("restart loop online");
         while let Some(req) = rx.recv().await {
             if *self.shutdown_flag.lock().await {
+                // BUG-A4-011 fix (2026-05-04): bump
+                // `restart_dropped_count` for the affected child even
+                // when we discard the request because the supervisor
+                // is shutting down. Bug L's gauge previously only
+                // incremented on the *send* side (channel closed) so
+                // crashes that arrived during the shutdown window were
+                // silently lost from the diagnostic surface --
+                // `mneme doctor` would under-report restart drops
+                // exactly when the system was most stressed.
+                if let Some(h) = self.handle_for(&req.name).await {
+                    let mut handle = h.lock().await;
+                    handle.restart_dropped_count =
+                        handle.restart_dropped_count.saturating_add(1);
+                }
                 debug!(child = %req.name, "shutdown in progress; ignoring restart request");
                 continue;
             }
@@ -935,7 +959,21 @@ impl ChildManager {
                 .collect()
         };
         candidates.sort();
-        for name in &candidates {
+        // BUG-A4-013 fix (2026-05-04): rotate the start index per
+        // dispatch so we honour the documented round-robin contract
+        // instead of always retrying parser-worker-0 first. A wedged
+        // head-of-pool worker now eats one timeout per pool revolution,
+        // not per dispatch.
+        let n = candidates.len();
+        let start: usize = if n == 0 {
+            0
+        } else {
+            self.round_robin_idx
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+                % n
+        };
+        for offset in 0..n {
+            let name = &candidates[(start + offset) % n];
             match self.dispatch_job(name, payload).await {
                 Ok(()) => return Ok(name.clone()),
                 Err(e) => {

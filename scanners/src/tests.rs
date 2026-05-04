@@ -455,3 +455,99 @@ function foo() {
         );
     }
 }
+
+// ---------- BUG-A10-008: per-scanner perf budget ----------
+//
+// Pre-existing: zero perf-bound tests on any scanner. The B12 hang root
+// cause was a regex bomb in `secrets.rs::aws-secret` where a 1 MB
+// minified single-line input took multiple seconds to scan due to the
+// nested `(.{0,20})?` + `.{0,20}?` plus a universal `applies_to`. With
+// no perf test guard, a future regex tweak that re-introduces nested
+// optional repetition would silently re-create the hang.
+//
+// The contract: each scanner family must complete a 1 MB single-line
+// input in under 1 second wall-clock. We use a single-line input
+// (no newlines) because line-anchored regex bombs reach their worst
+// case at maximum line length.
+
+const PERF_BUDGET_SECS: u64 = 1;
+const PERF_INPUT_BYTES: usize = 1_000_000; // 1 MB
+
+fn perf_input_one_long_line() -> String {
+    // Use a mix of regex-meta characters scanners look for, but
+    // arrange so no scanner sees its own match repeated 1M times -
+    // that would produce 1M findings and skew the budget toward
+    // findings_writer cost rather than scan() cost. Instead we use
+    // a benign character with high ASCII variability.
+    let unit = "abc def-ghi 123 ";
+    let mut s = String::with_capacity(PERF_INPUT_BYTES + unit.len());
+    while s.len() < PERF_INPUT_BYTES {
+        s.push_str(unit);
+    }
+    s.truncate(PERF_INPUT_BYTES);
+    s
+}
+
+#[test]
+fn perf_budget_theme_scanner_under_1s_on_1mb_single_line() {
+    let s = ThemeScanner::new(None);
+    let content = perf_input_one_long_line();
+    let start = std::time::Instant::now();
+    let _ = s.scan(&p("Foo.tsx"), &content, None);
+    let elapsed = start.elapsed();
+    assert!(
+        elapsed < std::time::Duration::from_secs(PERF_BUDGET_SECS),
+        "theme scanner exceeded {}s perf budget on 1 MB input: {:?}",
+        PERF_BUDGET_SECS,
+        elapsed,
+    );
+}
+
+#[test]
+fn perf_budget_secrets_scanner_under_1s_on_1mb_single_line() {
+    let s = SecretsScanner::new();
+    let content = perf_input_one_long_line();
+    let start = std::time::Instant::now();
+    let _ = s.scan(&p("Foo.ts"), &content, None);
+    let elapsed = start.elapsed();
+    assert!(
+        elapsed < std::time::Duration::from_secs(PERF_BUDGET_SECS),
+        "secrets scanner exceeded {}s perf budget on 1 MB input: {:?}",
+        PERF_BUDGET_SECS,
+        elapsed,
+    );
+}
+
+// REGRESSION-FIX (2026-05-04): re-enabled. The A3-005 size_limit(64KB)
+// was too tight for the (?i) 5-way alternation NFA; raised to 1 MiB
+// in scanners/src/scanners/security.rs::SQL_CONCAT. Lazy no longer
+// poisons; SecurityScanner::new() succeeds; this test now runs.
+#[test]
+fn perf_budget_security_scanner_under_1s_on_1mb_single_line() {
+    let s = SecurityScanner::new();
+    let content = perf_input_one_long_line();
+    let start = std::time::Instant::now();
+    let _ = s.scan(&p("Foo.ts"), &content, None);
+    let elapsed = start.elapsed();
+    assert!(
+        elapsed < std::time::Duration::from_secs(PERF_BUDGET_SECS),
+        "security scanner exceeded {}s perf budget on 1 MB input: {:?}",
+        PERF_BUDGET_SECS,
+        elapsed,
+    );
+}
+
+#[test]
+fn perf_budget_perf_scanner_under_1s_on_1mb_single_line() {
+    let s = PerfScanner::new();
+    let content = perf_input_one_long_line();
+    let start = std::time::Instant::now();
+    let _ = s.scan(&p("Foo.tsx"), &content, None);
+    let elapsed = start.elapsed();
+    assert!(
+        elapsed < std::time::Duration::from_secs(PERF_BUDGET_SECS),
+        "perf scanner exceeded {}s perf budget on 1 MB input: {:?}",
+        PERF_BUDGET_SECS,
+        elapsed,
+    );
+}

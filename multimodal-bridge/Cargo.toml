@@ -2,6 +2,7 @@
 name = "mneme-multimodal"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license = "Apache-2.0"
 description = "Pure-Rust multimodal extraction for mneme (PDF / Image / Audio / Video / Markdown). No Python sidecar."
 

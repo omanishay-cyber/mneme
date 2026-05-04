@@ -58,7 +58,15 @@ function rejectDangerousCommand(cmd: string): string | null {
   // build a complete sandbox here — these patterns just catch the
   // obvious "tasks.db got pwned" cases. Real defense lives at the FS
   // permission layer on ~/.mneme.
+  //
+  // A5-004 (2026-05-04): the prior list was POSIX-only. The user's
+  // primary platform is Windows, where `del /s /q`, `rmdir /s`,
+  // PowerShell `Remove-Item -Recurse`, registry deletes, and env-var
+  // exfiltration via stdout redirection were all uncovered. Added the
+  // Windows-equivalents below. The list is still defense-in-depth and
+  // not a sandbox — the supervisor IPC path is the preferred route.
   const denyPatterns: RegExp[] = [
+    // POSIX
     /\brm\s+-[a-z]*r[a-z]*f?\s+\/\s*$/i, // rm -rf /
     /\brm\s+-[a-z]*r[a-z]*f?\s+~/i, //       rm -rf ~
     /\bmkfs\b/i, //                          mkfs (format disk)
@@ -66,6 +74,27 @@ function rejectDangerousCommand(cmd: string): string | null {
     /:\(\)\{\s*:\|/, //                      fork bomb
     /\bshutdown\s+/i, //                     shutdown
     /\bformat\s+[a-z]:/i, //                 format C:
+    // Windows cmd.exe
+    /\bdel\s+(?:\/[a-z]\s+)*[^|&\n]*[*?]/i, //         del /f /s /q  with wildcards
+    /\brmdir\s+\/s\b/i, //                             rmdir /s
+    /\brd\s+\/s\b/i, //                                rd /s (alias)
+    /\bcipher\s+\/w:/i, //                             cipher /w: (overwrite free space)
+    /\breg\s+delete\s+/i, //                           reg delete HKLM\SYSTEM /f
+    /\bnet\s+user\s+\S+\s+\/delete\b/i, //             net user X /delete
+    /\bwmic\s+/i, //                                   wmic ... (admin-broad)
+    /\btakeown\s+\/[fr]\b/i, //                        takeown /f /r
+    /\bicacls\s+\S+\s+\/grant\b.*everyone/i, //        icacls grant Everyone
+    // PowerShell
+    /\bRemove-Item\s+(?:-\S+\s+)*-(?:Recurse|Force)\b/i, // Remove-Item -Recurse / -Force
+    /\bClear-Content\s+/i, //                          Clear-Content
+    /\bSet-ExecutionPolicy\b.*\bUnrestricted\b/i, //   weaken policy
+    /\b(?:iex|invoke-expression)\b.*\b(?:invoke-webrequest|iwr|curl|wget|new-object\s+net\.webclient)\b/i, // fetch+exec
+    // Cross-shell fetch+execute supply-chain pattern
+    /\b(?:curl|wget)\b[^|&\n]*\|\s*(?:bash|sh|zsh|powershell|pwsh|cmd)\b/i,
+    // Env-var exfiltration to stdout
+    /\becho\s+\$(?:ANTHROPIC_API_KEY|OPENAI_API_KEY|AWS_(?:ACCESS|SECRET)_KEY|GITHUB_TOKEN|SSH_AUTH_SOCK)\b/i,
+    /%(?:ANTHROPIC_API_KEY|OPENAI_API_KEY|AWS_(?:ACCESS|SECRET)_KEY|GITHUB_TOKEN)%/i,
+    /\$env:(?:ANTHROPIC_API_KEY|OPENAI_API_KEY|AWS_(?:ACCESS|SECRET)_KEY|GITHUB_TOKEN)\b/i,
   ];
   for (const re of denyPatterns) {
     if (re.test(trimmed)) {

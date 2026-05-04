@@ -96,17 +96,33 @@ async fn main() -> ExitCode {
     });
 
     // Wait on whichever side completes first.
-    tokio::select! {
+    let exit_code = tokio::select! {
         r = stdin_task => {
             if let Ok(Err(e)) = r {
                 error!(error = %e, "stdin reader exited with error");
-                return ExitCode::from(2);
+                ExitCode::from(2)
+            } else {
+                ExitCode::SUCCESS
             }
         }
-        _ = stdout_task => {}
+        _ = stdout_task => ExitCode::SUCCESS,
+    };
+
+    // BUG-A2-018 fix: drain any leftover ledger entries on exit. Without
+    // this, jobs that arrived on stdin but never produced a result before
+    // the result channel closed would leak Instant entries forever in a
+    // long-running daemon. The drain is a no-op in the common (clean
+    // shutdown) case but bounds memory in the partial-failure case.
+    {
+        let mut g = ledger.lock().await;
+        let stranded = g.len();
+        if stranded > 0 {
+            warn!(stranded, "brain shutdown: dropping stranded ledger entries");
+            g.clear();
+        }
     }
 
-    ExitCode::SUCCESS
+    exit_code
 }
 
 async fn forward_results(

@@ -192,15 +192,44 @@ impl FederatedStore {
     /// Find up to `k` local fingerprints most similar to `fp`, ranked by
     /// the composite similarity ([`PatternFingerprint::similarity`]).
     ///
-    /// Strategy: pull candidates with matching `pattern_kind` *or* a close
-    /// SimHash (hamming ≤ 16, i.e. 75% bit agreement) and rerank in Rust.
-    /// This keeps the SQL side cheap while the re-rank gets us the right
-    /// ordering.
+    /// Strategy: pull the most-recent `LIMIT_CANDIDATES` candidates with
+    /// matching `pattern_kind` and rerank in Rust by composite similarity
+    /// (which combines SimHash hamming distance, MinHash Jaccard, and AST
+    /// shape match).
+    ///
+    /// BUG-A2-025 fix: the prior docstring claimed cross-`pattern_kind`
+    /// hamming filtering but the SQL only filtered by `pattern_kind`.
+    /// Doing real cross-kind hamming-prefilter inside SQLite needs a
+    /// `popcount` UDF and an index, which is a v0.4 effort. For now we
+    /// keep `pattern_kind` matching and document it honestly. The Rust
+    /// re-rank still uses the full composite similarity, so similar
+    /// patterns within a kind rank correctly.
+    ///
+    /// BUG-A2-026 mitigation: `LIMIT_CANDIDATES` is exposed via the
+    /// telemetry log when the table holds more than that for a given
+    /// kind, so users can tell when the cap is biting. v0.4 should
+    /// promote this to a `RetrievalConfig` field.
     pub fn query_similar(
         &self,
         fp: &PatternFingerprint,
         k: usize,
     ) -> BrainResult<Vec<(PatternFingerprint, f32)>> {
+        const LIMIT_CANDIDATES: i64 = 512;
+        // Best-effort population check; a missing index here is non-fatal.
+        if let Ok(count) = self.conn.query_row::<i64, _, _>(
+            "SELECT COUNT(*) FROM pattern_fingerprints WHERE pattern_kind = ?1",
+            params![fp.pattern_kind],
+            |r| r.get(0),
+        ) {
+            if count > LIMIT_CANDIDATES {
+                tracing::warn!(
+                    pattern_kind = %fp.pattern_kind,
+                    population = count,
+                    cap = LIMIT_CANDIDATES,
+                    "federated query_similar candidate pool truncated by LIMIT"
+                );
+            }
+        }
         let mut stmt = self
             .conn
             .prepare(
@@ -209,11 +238,11 @@ impl FederatedStore {
                  FROM pattern_fingerprints
                  WHERE pattern_kind = ?1
                  ORDER BY created_at DESC
-                 LIMIT 512",
+                 LIMIT ?2",
             )
             .map_err(|e| BrainError::Invalid(format!("prepare query: {e}")))?;
         let rows = stmt
-            .query_map(params![fp.pattern_kind], row_to_fp)
+            .query_map(params![fp.pattern_kind, LIMIT_CANDIDATES], row_to_fp)
             .map_err(|e| BrainError::Invalid(format!("query fingerprints: {e}")))?;
 
         let mut scored: Vec<(PatternFingerprint, f32)> = Vec::new();
@@ -303,6 +332,39 @@ impl FederatedStore {
     /// Path of the underlying SQLite file.
     pub fn path(&self) -> &Path {
         &self.path
+    }
+
+    /// BUG-A2-027 fix: mark a batch of fingerprint ids as uploaded so they
+    /// stop appearing in `export_for_upload`'s `WHERE uploaded = 0` filter.
+    ///
+    /// The relay-sync path (v0.3): export -> POST -> on success, call this
+    /// with the returned ids. Without this method the relay had no way to
+    /// advance state and would re-upload the same fingerprints forever.
+    ///
+    /// Returns the number of rows actually flipped (may be less than
+    /// `ids.len()` if some are unknown / already-uploaded).
+    pub fn mark_uploaded(&mut self, ids: &[String]) -> BrainResult<usize> {
+        if ids.is_empty() {
+            return Ok(0);
+        }
+        let tx = self
+            .conn
+            .transaction()
+            .map_err(|e| BrainError::Invalid(format!("mark_uploaded begin: {e}")))?;
+        let mut total = 0usize;
+        for id in ids {
+            let n = tx
+                .execute(
+                    "UPDATE pattern_fingerprints SET uploaded = 1 \
+                     WHERE id = ?1 AND uploaded = 0",
+                    params![id],
+                )
+                .map_err(|e| BrainError::Invalid(format!("mark_uploaded update: {e}")))?;
+            total += n;
+        }
+        tx.commit()
+            .map_err(|e| BrainError::Invalid(format!("mark_uploaded commit: {e}")))?;
+        Ok(total)
     }
 }
 

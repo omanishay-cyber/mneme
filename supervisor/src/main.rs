@@ -115,7 +115,7 @@ fn main() -> std::process::ExitCode {
     // predictable. max_blocking_threads(8) keeps stdin/stdout forwarder
     // tasks from accreting on a flapping worker pool.
     let rt = match tokio::runtime::Builder::new_multi_thread()
-        .worker_threads(num_cpus::get().clamp(1, 4))
+        .worker_threads(supervisor_worker_threads(num_cpus::get()))
         .max_blocking_threads(8)
         .enable_all()
         .build()
@@ -348,6 +348,15 @@ fn print_response(resp: &ControlResponse) {
     }
 }
 
+/// Per-read deadline applied to the IPC client. The server side already
+/// honours `IPC_READ_TIMEOUT` (`ipc.rs`) but the client previously
+/// awaited reads forever, which let a wedged daemon (e.g. dispatcher
+/// starved by BUG-A4-001) hang `mneme daemon status` indefinitely. Set
+/// to 30 s -- long enough for legitimate slow responses (status
+/// snapshot of 10+ workers) but short enough that the user knows the
+/// daemon is unresponsive without learning to hit Ctrl+C.
+const CLIENT_READ_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(30);
+
 async fn round_trip(
     socket: &Path,
     cmd: &ControlCommand,
@@ -360,11 +369,33 @@ async fn round_trip(
     stream.write_all(&body).await?;
     stream.flush().await?;
 
+    // BUG-A4-007 fix (2026-05-04): wrap response reads in a timeout so
+    // a wedged daemon does not hang the CLI forever. The previous code
+    // awaited `read_exact` with no upper bound; if the daemon accepted
+    // the connection but its dispatcher was starved (e.g. by sync
+    // SQLite work in api_graph BUG-A4-001) the client would block
+    // indefinitely -- only Ctrl+C broke out.
     let mut len_buf = [0u8; 4];
-    stream.read_exact(&mut len_buf).await?;
+    match tokio::time::timeout(CLIENT_READ_TIMEOUT, stream.read_exact(&mut len_buf)).await {
+        Ok(r) => r?,
+        Err(_) => {
+            return Err(SupervisorError::Ipc(format!(
+                "daemon not responding (no reply within {:?}); is the supervisor wedged?",
+                CLIENT_READ_TIMEOUT
+            )));
+        }
+    };
     let resp_len = u32::from_be_bytes(len_buf) as usize;
     let mut resp_body = vec![0u8; resp_len];
-    stream.read_exact(&mut resp_body).await?;
+    match tokio::time::timeout(CLIENT_READ_TIMEOUT, stream.read_exact(&mut resp_body)).await {
+        Ok(r) => r?,
+        Err(_) => {
+            return Err(SupervisorError::Ipc(format!(
+                "daemon not responding mid-read (timeout after {:?})",
+                CLIENT_READ_TIMEOUT
+            )));
+        }
+    };
 
     let resp: ControlResponse = serde_json::from_slice(&resp_body)?;
     Ok(resp)
@@ -420,10 +451,81 @@ fn default_ipc_path() -> PathBuf {
     if let Ok(contents) = std::fs::read_to_string(&disco) {
         let trimmed = contents.trim();
         if !trimmed.is_empty() {
-            return PathBuf::from(trimmed);
+            // BUG-A4-012 fix (2026-05-04): validate the discovery file
+            // against `~/.mneme/run/daemon.pid` before returning the
+            // value. On a supervisor crash / SIGKILL / OOM-kill the
+            // best-effort cleanup in lib.rs:run() never runs, so
+            // `supervisor.pipe` retains the dead PID-scoped pipe name
+            // and every subsequent `mneme daemon status` failed with
+            // an opaque "connection refused" error. Now: if the pid
+            // file is missing, or the pid is not alive, we drop the
+            // stale discovery file and fall through to the fallback so
+            // the user gets the canonical "supervisor not running"
+            // message instead of a confusing pipe-busy error.
+            if discovery_pid_alive(&home_dir()) {
+                return PathBuf::from(trimmed);
+            }
+            tracing::debug!(
+                "supervisor.pipe discovery file references a dead daemon; \
+                 ignoring and falling back to default ipc path"
+            );
+            // Best-effort cleanup so the next CLI invocation doesn't
+            // hit the same stale read.
+            let _ = std::fs::remove_file(&disco);
         }
     }
     default_ipc_fallback()
+}
+
+/// Return true iff `~/.mneme/run/daemon.pid` exists, parses, and the
+/// PID it points at is currently alive on the system. Used by
+/// `default_ipc_path` (BUG-A4-012) to validate the discovery file
+/// before trusting the pipe name written there.
+fn discovery_pid_alive(home: &Path) -> bool {
+    let pid_path = home.join(".mneme").join("run").join("daemon.pid");
+    let raw = match std::fs::read_to_string(&pid_path) {
+        Ok(s) => s,
+        Err(_) => return false,
+    };
+    let pid: u32 = match raw.trim().parse() {
+        Ok(p) => p,
+        Err(_) => return false,
+    };
+    pid_is_alive(pid)
+}
+
+#[cfg(windows)]
+fn pid_is_alive(pid: u32) -> bool {
+    // OpenProcess with PROCESS_QUERY_LIMITED_INFORMATION on a dead pid
+    // returns ERROR_INVALID_PARAMETER. We avoid taking a winapi
+    // dependency just for this by shelling out to `tasklist` -- not
+    // pretty but cheap (only on CLI startup) and avoids a new crate.
+    use std::process::Command;
+    let out = match Command::new("tasklist")
+        .args(["/FI", &format!("PID eq {pid}"), "/NH"])
+        .output()
+    {
+        Ok(o) => o,
+        Err(_) => return false,
+    };
+    if !out.status.success() {
+        return false;
+    }
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    // tasklist prints "INFO: No tasks are running..." on miss; otherwise
+    // a row containing the PID. Cheap substring match is enough.
+    stdout.contains(&format!(" {pid} ")) || stdout.contains(&format!("\t{pid}\t"))
+}
+
+#[cfg(unix)]
+fn pid_is_alive(pid: u32) -> bool {
+    // kill(pid, 0) is the standard probe -- returns 0 if the process
+    // exists and we have permission, ESRCH if not.
+    let pid_i = pid as i32;
+    // SAFETY: libc::kill with sig=0 is a pure liveness probe; no signal
+    // is sent. We don't take a libc dependency just for this either --
+    // /proc/<pid> existence is the cross-distro probe.
+    std::path::Path::new(&format!("/proc/{pid_i}")).exists()
 }
 
 #[cfg(windows)]
@@ -456,4 +558,39 @@ fn home_dir() -> PathBuf {
         }
     }
     PathBuf::from(".")
+}
+
+/// A10-010 (2026-05-04): pure tokio-runtime worker-thread sizing
+/// extracted from `main()`. The supervisor is a long-lived control-
+/// plane process - worker_threads should NOT scale with num_cpus on
+/// a 32-core box. clamp(1, 4) keeps baseline RSS predictable while
+/// covering typical IPC burst.
+fn supervisor_worker_threads(cpus: usize) -> usize {
+    cpus.clamp(1, 4)
+}
+
+#[cfg(test)]
+mod supervisor_pool_size_tests {
+    use super::supervisor_worker_threads;
+
+    #[test]
+    fn supervisor_worker_threads_floors_at_1() {
+        assert_eq!(supervisor_worker_threads(0), 1);
+        assert_eq!(supervisor_worker_threads(1), 1);
+    }
+
+    #[test]
+    fn supervisor_worker_threads_caps_at_4_on_high_core_hosts() {
+        assert_eq!(supervisor_worker_threads(4), 4);
+        assert_eq!(supervisor_worker_threads(8), 4);
+        assert_eq!(supervisor_worker_threads(16), 4);
+        assert_eq!(supervisor_worker_threads(32), 4);
+        assert_eq!(supervisor_worker_threads(64), 4);
+    }
+
+    #[test]
+    fn supervisor_worker_threads_passes_through_2_and_3() {
+        assert_eq!(supervisor_worker_threads(2), 2);
+        assert_eq!(supervisor_worker_threads(3), 3);
+    }
 }

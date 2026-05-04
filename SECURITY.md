@@ -76,10 +76,45 @@ following kinds of data may end up in its SQLite files:
   `AGENTS.md`, notes, PRDs
 - Embeddings derived from all of the above
 
-**Mneme never uploads any of this.** It has no network code in the hot path;
-the only network call the installer makes is to github.com for the release
-asset. If you see mneme making unexpected outbound connections, that IS a
+**Mneme never uploads any of this.** It has no network code in the hot path.
+If you see mneme making unexpected outbound connections, that IS a
 vulnerability - report it via the flow above.
+
+### Network endpoints (installer + first-run only)
+
+The bootstrap installer and first-run model setup touch a small, audited set
+of HTTPS endpoints. None of these are reached during steady-state daemon
+operation.
+
+| Host | When | Why |
+|---|---|---|
+| `github.com` | install + self-update | Release zip, `bootstrap-install.ps1`, GitHub Releases fallback for model files |
+| `huggingface.co` | first-run model fetch (primary) | BGE-small ONNX + Phi-3 model bundles via the `aaditya4u/mneme-models` mirror |
+| `bun.sh` | install (only if Bun is missing) | Bun runtime installer for the MCP server |
+
+All requests are HTTPS-only. There are no telemetry, analytics, or
+phone-home endpoints. The daemon binds only to `127.0.0.1:7777` on the
+loopback interface.
+
+### Verification
+
+Every artifact that crosses the network is integrity-checked locally before
+it is executed or imported:
+
+- **Release zip integrity (winget).** The published winget manifests
+  (`winget/Anish/Mneme/0.3.2/Anish.Mneme.installer.yaml` and the parallel
+  `Anish.Mnemeos` manifest) carry SHA-256 hashes for both the x64 and arm64
+  Windows zips. winget refuses to install a zip whose hash does not match.
+- **Bootstrap script + model files (sidecar manifest).** The bootstrap
+  installer downloads a `release-checksums.json` sidecar from the same GitHub
+  release and verifies every model file (BGE-small ONNX, Phi-3 GGUF parts,
+  tokenizer JSON) against the SHA-256 listed there before unpacking. A hash
+  mismatch aborts the install.
+- **MCP dependency lock-in.** The MCP server's `bun install` step in CI and
+  in the user installer uses `bun install --frozen-lockfile`. This refuses to
+  resolve any dependency version not pinned by `mcp/bun.lock`, so a
+  compromised registry mirror cannot inject a different version of
+  `@modelcontextprotocol/sdk` or `zod` at install time.
 
 ## Hardening tips
 

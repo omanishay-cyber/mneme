@@ -71,12 +71,25 @@ pub enum RetrievalSource {
 }
 
 /// Result of [`RetrievalEngine::retrieve`].
+///
+/// BUG-A2-015 fix: `semantic_available` lets the caller (and `mneme_recall`
+/// MCP tool) surface a clear "running BM25+Graph only" message instead of
+/// silently degrading retrieval quality.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RetrievalResult {
     pub hits: Vec<ScoredHit>,
     pub tokens_used: u32,
     pub budget_tokens: u32,
     pub latency_ms: u64,
+    /// True iff the embedder was installed AND used during this retrieval.
+    /// When false, the caller should warn the user that semantic search
+    /// is offline (likely missing BGE model).
+    #[serde(default = "default_true")]
+    pub semantic_available: bool,
+}
+
+fn default_true() -> bool {
+    true
 }
 
 // ---------------------------------------------------------------------------
@@ -281,6 +294,10 @@ pub struct RetrievalEngine {
     /// Mapping from opaque node_id → caller-supplied string id, so the
     /// fusion step can unify results across retrievers.
     pub node_labels: HashMap<NodeId, String>,
+    /// BUG-A2-016 fix: reverse index `label -> node_id` so `text_for` is
+    /// O(1) instead of O(N) per semantic-only hit. Populated lazily on
+    /// first lookup; safe because both maps are append-only after build.
+    pub label_to_node: HashMap<String, NodeId>,
 }
 
 impl std::fmt::Debug for RetrievalEngine {
@@ -305,7 +322,20 @@ impl RetrievalEngine {
             embedder: None,
             node_text: HashMap::new(),
             node_labels: HashMap::new(),
+            label_to_node: HashMap::new(),
         }
+    }
+
+    /// Re-derive the reverse `label -> node_id` map from `node_labels`.
+    /// Call after the engine's labels are populated; the retrieve path
+    /// will lazy-rebuild if it's empty but stale rebuilds are free.
+    /// BUG-A2-016 helper.
+    pub fn rebuild_label_index(&mut self) {
+        self.label_to_node = self
+            .node_labels
+            .iter()
+            .map(|(nid, lbl)| (lbl.clone(), *nid))
+            .collect();
     }
 
     /// Install an embedder (optional).
@@ -330,6 +360,9 @@ impl RetrievalEngine {
         anchors: &[String],
     ) -> BrainResult<RetrievalResult> {
         let t0 = std::time::Instant::now();
+
+        // BUG-A2-015 fix: capture semantic-availability for the result.
+        let semantic_available = self.embedder.is_some();
 
         // 1. Parallel retrievers — in-process, no async needed.
         let bm25_hits = self.bm25.search(task, 50);
@@ -364,8 +397,12 @@ impl RetrievalEngine {
         candidates.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
         // 3. Optional reranker — top N only.
+        // BUG-A2-033 fix: skip the rerank step entirely when the inner
+        // backend is a stub. Pre-fix the engine still tagged the top N
+        // hits with `RetrievalSource::Reranker`, lying about a transform
+        // that didn't happen.
         #[cfg(feature = "reranker")]
-        if let Some(rr) = self.reranker.as_ref() {
+        if let Some(rr) = self.reranker.as_ref().filter(|r| r.is_active()) {
             let top: Vec<(String, f32)> = candidates
                 .iter()
                 .take(RERANK_CANDIDATES)
@@ -375,10 +412,30 @@ impl RetrievalEngine {
                 })
                 .collect();
             if let Ok(rescored) = rr.rerank(task, top) {
-                // Overwrite the top N scores and mark source = Reranker.
+                // BUG-A2-017 fix: blend the rerank output with the existing
+                // RRF score after min-max normalising the rerank scores
+                // into `[0, 1]`. Pre-fix, raw cross-encoder logits could be
+                // negative or unbounded and clobbered the RRF scale, which
+                // made positions 26+ (still on RRF scale) incorrectly
+                // outrank reranked items at position N for negative logits.
+                let rescored: Vec<(String, f32)> = rescored;
+                let (mut min_s, mut max_s) = (f32::INFINITY, f32::NEG_INFINITY);
+                for (_, s) in &rescored {
+                    if *s < min_s {
+                        min_s = *s;
+                    }
+                    if *s > max_s {
+                        max_s = *s;
+                    }
+                }
+                let span = (max_s - min_s).max(f32::EPSILON);
                 for (i, (_text, new_score)) in rescored.into_iter().enumerate() {
                     if let Some(c) = candidates.get_mut(i) {
-                        c.1 = new_score;
+                        let normalised = ((new_score - min_s) / span).clamp(0.0, 1.0);
+                        // 50/50 blend keeps RRF agreement when the
+                        // reranker is weak / stub-like and lets a
+                        // confident reranker win the tie-break.
+                        c.1 = 0.5 * c.1 + 0.5 * normalised;
                         c.2.push(RetrievalSource::Reranker);
                     }
                 }
@@ -416,6 +473,7 @@ impl RetrievalEngine {
             tokens_used: used,
             budget_tokens,
             latency_ms: t0.elapsed().as_millis() as u64,
+            semantic_available,
         })
     }
 
@@ -446,7 +504,14 @@ impl RetrievalEngine {
         if let Some(t) = self.graph.text_for(id) {
             return Some(t.to_string());
         }
-        // Semantic-only hit: look up via the label→node_text map.
+        // Semantic-only hit: look up via the reverse `label -> node_id` map.
+        // BUG-A2-016 fix: O(1) hash lookup instead of an O(N) linear scan.
+        // When the reverse map hasn't been populated yet (the legacy
+        // build path didn't call `rebuild_label_index`), fall back to the
+        // O(N) scan so the call still succeeds — slow but correct.
+        if let Some(nid) = self.label_to_node.get(id) {
+            return self.node_text.get(nid).cloned();
+        }
         self.node_labels
             .iter()
             .find(|(_, lbl)| lbl.as_str() == id)

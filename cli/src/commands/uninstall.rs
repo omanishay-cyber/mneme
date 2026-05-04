@@ -8,9 +8,9 @@ use clap::Args;
 use std::path::PathBuf;
 use tracing::{info, warn};
 
-#[cfg(test)]
-use crate::error::CliError;
-use crate::error::CliResult;
+// A1-014 (2026-05-04): CliError now used in production for flag-validation
+// errors -- no longer #[cfg(test)]-gated.
+use crate::error::{CliError, CliResult};
 use crate::platforms::{AdapterContext, InstallScope, Platform, PlatformDetector};
 
 /// LIE-4: filename of the post-rmdir status marker, written next to
@@ -225,12 +225,32 @@ pub async fn run(args: UninstallArgs) -> CliResult<()> {
     // cleanup but keep ~/.mneme shards) is `--keep-state`. Explicit
     // legacy flags `--all` and `--purge-state` still work for back-compat
     // and for callers that want to be unambiguous.
+    // A1-014 (2026-05-04): validate flag combinations upfront. The
+    // legacy --purge-state was silently a no-op when combined with
+    // --keep-state; users issuing both got the keep-state behaviour
+    // without an error. Loud-fail is better than silent surprise.
+    if args.purge_state && args.keep_state {
+        return Err(CliError::Other(
+            "--purge-state and --keep-state are mutually exclusive".into(),
+        ));
+    }
+    if args.purge_state && args.keep_platforms_only {
+        return Err(CliError::Other(
+            "--purge-state cannot be combined with --keep-platforms-only".into(),
+        ));
+    }
+    if args.keep_state && args.keep_platforms_only {
+        return Err(CliError::Other(
+            "--keep-state and --keep-platforms-only are redundant; pick one".into(),
+        ));
+    }
+
     let effective_all = args.all || (!args.keep_platforms_only);
     // B-015: nuclear by default unless --keep-state / --keep-platforms-only.
     // The legacy --purge-state flag is a no-op now (kept for back-compat) since
     // purge is the default. Once both opt-out flags are off, we always purge.
     let effective_purge = !(args.keep_platforms_only || args.keep_state);
-    let _ = args.purge_state; // legacy back-compat flag — no longer load-bearing
+    let _ = args.purge_state; // legacy back-compat flag -- no longer load-bearing
     if effective_all && !args.dry_run {
         println!(
             "mneme uninstall — full nuclear cleanup{}{}",
@@ -415,7 +435,34 @@ async fn stop_running_daemon() {
             .stdout(std::process::Stdio::null())
             .stderr(std::process::Stdio::null())
             .status();
-        info!("unregistered MnemeDaemon scheduled task (if present)");
+        // A1-028 (2026-05-04): verify the task is actually gone. The
+        // /Delete call's exit code was previously discarded; if delete
+        // failed (rare but possible: task registered with /IT in a
+        // different scope, or PermissionDenied), the task survives
+        // uninstall and tries to launch a now-deleted mneme-daemon.exe
+        // at next logon -- error in Event Viewer, mneme appears "back
+        // from the dead" to confused users. Query exit-code 1 = not
+        // found = clean; exit-code 0 = task still present = warn user.
+        let query = Command::new("schtasks")
+            .args(["/Query", "/TN", "MnemeDaemon"])
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .status();
+        match query {
+            Ok(status) if status.code() == Some(1) => {
+                info!("unregistered MnemeDaemon scheduled task");
+            }
+            Ok(status) if status.success() => {
+                tracing::warn!(
+                    "MnemeDaemon scheduled task survived /Delete (likely needs elevated shell). \
+                     Run `schtasks /Delete /TN MnemeDaemon /F` from an admin PowerShell to remove it manually."
+                );
+            }
+            _ => {
+                // schtasks itself missing or other error -- best-effort silence.
+                info!("unregistered MnemeDaemon scheduled task (verification skipped)");
+            }
+        }
     }
 
     // 1) graceful stop. 3-second deadline so we don't hang on a wedged
@@ -831,7 +878,25 @@ fn purge_mneme_state() {
         // We could embed everything in a `cmd /c "..."` one-liner but
         // JSON-escaping the path inside a cmd quoted string is a
         // nightmare. A real `.ps1` file dodges all that.
-        let helper_script = home.join(".mneme-uninstall-finalize.ps1");
+        //
+        // A1-015 (2026-05-04): stage the helper inside `~/.mneme/` (a
+        // user-private dir) instead of `~/` (which on multi-user
+        // Windows can be readable/writable by other users). Plus we
+        // SHA-256 the body we wrote and pass the expected hash to
+        // PowerShell via -EncodedCommand wrapper so the spawned process
+        // verifies the script content before running it. If a local
+        // attacker swaps the .ps1 between our write + the detached
+        // PowerShell spawn, the hash mismatch aborts execution.
+        //
+        // Falls back to legacy `~/` location if `~/.mneme/` was already
+        // removed by the synchronous purge above (mneme_dir would no
+        // longer exist).
+        let helper_dir = if mneme_dir.exists() {
+            mneme_dir.clone()
+        } else {
+            home.clone()
+        };
+        let helper_script = helper_dir.join(".mneme-uninstall-finalize.ps1");
         let script_body = build_uninstall_finalize_script(&mneme_dir, &marker_path);
         if let Err(e) = std::fs::write(&helper_script, script_body) {
             warn!(error = %e, "failed to stage uninstall finalize helper; rmdir will run without status marker");
@@ -858,9 +923,26 @@ fn purge_mneme_state() {
         //
         // `&` (cmd's sequential separator) ensures the marker write
         // runs even if rmdir partially fails — that's the whole point.
+        // A1-016 (2026-05-04): use absolute paths for `ping` and
+        // `powershell.exe` to defeat PATH-hijack attacks. Bare command
+        // resolution would let a malicious `~/.local/bin/ping.exe` (if
+        // earlier on PATH than %SystemRoot%\System32) execute as the
+        // uninstalling user. System32 is on PATH on every Windows, but
+        // not necessarily FIRST. Hardcoding the canonical install path
+        // closes the window. SystemRoot env-var fallback handles non-
+        // standard Windows roots; the bare-name fallback is defensive
+        // (we'd rather succeed with possibly-hijacked ping than fail
+        // outright, since the only consequence is the 11-second wait
+        // gets replaced).
+        let system_root = std::env::var("SystemRoot")
+            .unwrap_or_else(|_| "C:\\Windows".to_string());
+        let ping_exe = format!("{}\\System32\\ping.exe", system_root);
+        let powershell_exe = format!("{}\\System32\\WindowsPowerShell\\v1.0\\powershell.exe", system_root);
         let cmd_str = format!(
-            "ping -n 11 127.0.0.1 >nul & rmdir /s /q \"{}\" & powershell.exe -NoProfile -ExecutionPolicy Bypass -File \"{}\"",
+            "\"{}\" -n 11 127.0.0.1 >nul & rmdir /s /q \"{}\" & \"{}\" -NoProfile -ExecutionPolicy Bypass -File \"{}\"",
+            ping_exe,
             mneme_dir.display(),
+            powershell_exe,
             helper_script.display(),
         );
         let spawned = Command::new("cmd")

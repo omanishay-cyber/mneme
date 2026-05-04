@@ -21,12 +21,14 @@ Each script auto-detects your architecture (x64 / ARM64), downloads the matching
 iex (irm https://github.com/omanishay-cyber/mneme/releases/download/v0.3.2/bootstrap-install.ps1)
 ```
 
-### macOS (Intel x64 / Apple Silicon arm64)
+### macOS (Apple Silicon arm64)
 
 ```bash
 # auto-detects via uname -m
 curl -fsSL https://github.com/omanishay-cyber/mneme/releases/download/v0.3.2/install-mac.sh | bash
 ```
+
+> **Intel Macs (x86_64) are not supported in v0.3.2.** v0.3.2 ships only an `aarch64-apple-darwin` binary. Intel Mac users must build from source: `git clone` + `cargo build --release --workspace`. Native Intel Mac binaries may return in a later release if GitHub-hosted runner capacity recovers.
 
 ### Linux (x64 / ARM64)
 
@@ -52,7 +54,7 @@ The PyPI distribution name is `mnemeos` (the bare `mneme` was claimed on PyPI in
 
 | Requirement | Detail |
 |---|---|
-| **OS** | 64-bit Windows 10/11 (x64 live, arm64 in CI build), macOS 14+ (Intel + Apple Silicon, both live), Ubuntu 22.04+ / Debian / Fedora (x64 live, arm64 in CI build) |
+| **OS** | 64-bit Windows 10/11 (x64 live, arm64 in CI build), macOS 14+ Apple Silicon (arm64 live; Intel x86_64 build-from-source only in v0.3.2), Ubuntu 22.04+ / Debian / Fedora (x64 live, arm64 in CI build) |
 | **CPU baseline** | x86-64-v3 - AVX2 / BMI2 / FMA. Intel Haswell (2013+) or AMD Excavator (2015+). Almost every PC sold since 2013 qualifies. The bootstrap refuses pre-Haswell hardware with a clear error. |
 | **Disk** | 5 GB free (binaries ~250 MB, models ~3.4 GB, room for first project's shards) |
 | **Privileges** | No admin needed. Defender exclusions are added best-effort if elevated; install proceeds without them otherwise. |
@@ -116,6 +118,67 @@ mneme daemon logs        # tail the last 200 lines of daemon log
 ```
 
 If any of these print sensible output, you're set.
+
+---
+
+## Operational (run + abort + self-update)
+
+### Aborting an in-flight job
+
+Long-running operations (`mneme build`, `mneme audit`, `mneme graphify`,
+`mneme update`) can be aborted cleanly. The supervisor catches the abort
+signal, flushes any partial work to the on-disk shards, and stops the
+worker pool without orphaning subprocesses or leaving WAL files in a torn
+state.
+
+```powershell
+mneme abort                       # ask the active session to stop (SIGINT-like)
+mneme abort --force               # immediate stop (SIGKILL-like); used only if the soft
+                                  #   path stalls past --timeout-secs
+mneme abort --all                 # abort every active job across every project for this user
+mneme abort --timeout-secs 30     # how long the soft path waits before escalating
+                                  #   (default: 10s)
+```
+
+The graceful path is always tried first. `--force` is a last-resort
+escape hatch and is documented because it has to exist, not because you
+should reach for it.
+
+### Self-updating the binaries
+
+`mneme self-update` is a cross-OS in-place upgrade of the `~/.mneme/bin/`
+binaries. It performs the daemon-stop / download / SHA-256 verify /
+atomic-rename / daemon-restart sequence the install scripts would run on
+a fresh box, but without re-running the full installer.
+
+```powershell
+mneme self-update                 # stop daemon, fetch latest release, verify, swap, restart
+mneme self-update --dry-run       # show what would happen, change nothing
+mneme self-update --pin 0.3.2     # pin to a specific version instead of "latest"
+mneme self-update --allow-unsigned
+                                  # skip signature verification (DEV use only — prefer SHA-256)
+```
+
+What it actually does, in order:
+
+1. Calls `mneme daemon stop` and waits for the supervisor + worker pool
+   to exit cleanly.
+2. Resolves the target version (default: latest GitHub release tag).
+3. Downloads the platform-correct release zip + `release-checksums.json`
+   sidecar from the GitHub release.
+4. Verifies SHA-256 of the zip against the sidecar manifest. Aborts on
+   mismatch.
+5. Extracts to a temp dir, then atomic-renames into `~/.mneme/`.
+6. Restarts the daemon. Final `mneme doctor` confirms the upgraded
+   binaries are live.
+
+If a step fails, the previous installation is left in place. There is no
+torn state where some binaries upgraded and others didn't.
+
+`--allow-unsigned` exists for development builds where the signature
+sidecar isn't published. SHA-256 still runs; the flag only skips the
+`minisign` / `cosign` signature step. Production users should not pass
+this flag.
 
 ---
 

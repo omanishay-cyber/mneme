@@ -90,6 +90,16 @@ pub async fn run(args: RecallArgs, socket_override: Option<PathBuf>) -> CliResul
     if args.query.trim().is_empty() {
         return Err(CliError::Other("query must not be empty".to_string()));
     }
+    // A1-029 (2026-05-04): reject queries containing NUL bytes upfront.
+    // SQLite's TEXT bind uses the C-string API which truncates at NUL,
+    // silently dropping any trailing query text. A user pasting
+    // `foo\x00bar` would see results for `foo` only with no indication
+    // why their search was incomplete.
+    if args.query.contains('\0') {
+        return Err(CliError::Other(
+            "query contains NUL byte (\\0) -- SQLite would truncate the search; remove the NUL and retry".to_string(),
+        ));
+    }
 
     // K3: warn once per session if no embedding model is installed so
     // users aren't surprised when keyword-only results are weak.
@@ -128,6 +138,20 @@ pub async fn run(args: RecallArgs, socket_override: Option<PathBuf>) -> CliResul
             Err(CliError::Ipc(msg)) => {
                 // IO-level problem: pipe gone, timeout. Fall through.
                 tracing::warn!(error = %msg, "supervisor IPC failed; falling back to direct-db");
+            }
+            // A1-030 (2026-05-04): broaden fallback to malformed-wire
+            // errors. Previously CliError::Other was treated as "real
+            // error, surface it" but a corrupted shard or wire skew
+            // would surface CliError::Other("decode failed: ...") --
+            // which the file's contract (line 81-85) promises will
+            // fall back to direct-db. Match the documented contract.
+            Err(CliError::Other(msg))
+                if msg.contains("decode")
+                    || msg.contains("EOF")
+                    || msg.contains("unexpected end")
+                    || msg.contains("invalid utf") =>
+            {
+                tracing::warn!(error = %msg, "supervisor wire decode failed; falling back to direct-db");
             }
             Err(e) => return Err(e),
         }

@@ -1,5 +1,14 @@
 # yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.6.0.schema.json
 
+# TODO (bug A9-019, 2026-05-04): verify InstallerSha256 against the actual
+# release zip hash AFTER any re-upload of the v0.3.2 zip. The CHANGELOG
+# documents that v0.3.2 zips have been re-uploaded multiple times under
+# the same tag for hotfixes, and each re-upload changes the SHA. Run:
+#   Invoke-WebRequest "<InstallerUrl>" -OutFile zip; Get-FileHash -Algorithm SHA256 zip
+# Compare against InstallerSha256 below. If drift, update both the
+# Anish.Mneme and parallel Anish.Mnemeos manifests, then re-PR to
+# microsoft/winget-pkgs. Tracked in MASTER-TASK-LIST.md.
+
 PackageIdentifier: Anish.Mnemeos
 PackageVersion: 0.3.2
 InstallerType: zip

@@ -10,7 +10,7 @@
 //! - [`ConstraintKind::Required`] — flag any file *missing* the pattern
 
 use once_cell::sync::Lazy;
-use regex::Regex;
+use regex::{Regex, RegexBuilder};
 use serde::{Deserialize, Serialize};
 use std::path::Path;
 
@@ -87,14 +87,26 @@ static EMPTY: Lazy<Vec<Finding>> = Lazy::new(Vec::new);
 impl DriftScanner {
     /// Build a scanner from the supplied specs. Specs whose pattern fails
     /// to compile are silently skipped (logged via tracing).
+    ///
+    /// A3-019 (2026-05-04): user-supplied constraint patterns (loaded from
+    /// the project's `constraints.db`) are now bounded via RegexBuilder
+    /// `size_limit(64 KB)` + `dfa_size_limit(64 KB)`. The regex crate's
+    /// defaults are 10 MB compiled NFA -- too generous for a hot-path
+    /// scanner where a malicious or accidentally-pathological pattern
+    /// (e.g. `(a+)+$`) could DoS the audit. Patterns that need more
+    /// state legitimately should be split into multiple smaller specs.
     #[must_use]
     pub fn new(specs: Vec<ConstraintSpec>) -> Self {
         let mut compiled = Vec::with_capacity(specs.len());
         for spec in specs {
-            match Regex::new(&spec.pattern) {
+            match RegexBuilder::new(&spec.pattern)
+                .size_limit(64 * 1024)
+                .dfa_size_limit(64 * 1024)
+                .build()
+            {
                 Ok(re) => compiled.push(CompiledConstraint { spec, re }),
                 Err(e) => {
-                    tracing::warn!(rule = %spec.rule_id, error = %e, "drift constraint regex failed to compile; skipping");
+                    tracing::warn!(rule = %spec.rule_id, error = %e, "drift constraint regex failed to compile or exceeds size_limit; skipping");
                 }
             }
         }

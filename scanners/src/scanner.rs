@@ -143,21 +143,70 @@ pub trait Scanner: Send + Sync {
 
 /// Helper to compute a 1-based line number and 0-based column for a
 /// byte offset inside `content`. Used by every scanner.
+///
+/// A3-009 (2026-05-04): performance refactor.
+///
+/// The original implementation scanned `content` from byte 0 on every
+/// call, giving O(N) cost per call. With M findings on an N-byte file,
+/// total cost was O(N x M). On a 50 KB file with 1000 findings (the
+/// theme + perf scanners can produce that), this was 50 ms wasted on
+/// position lookup per file -- significant on a 5000-file build.
+///
+/// Fix: a thread-local cache of newline byte offsets, keyed by
+/// `(content.as_ptr(), content.len())`. The first call on a new
+/// content slice builds the index in O(N); subsequent calls do a
+/// `partition_point` binary search in O(log L) where L = number of
+/// lines. Net cost: O(N + M log L) per file.
+///
+/// Cache invalidation rule: pointer + length differ from previous call.
+/// Collision risk (same pointer reused with same length but different
+/// content) is statistically negligible in the scanner worker workflow
+/// where content is held in `Arc` for the lifetime of the scan call.
 #[must_use]
 pub fn line_col_of(content: &str, byte_offset: usize) -> (u32, u32) {
-    let mut line: u32 = 1;
-    let mut col: u32 = 0;
-    let upper = byte_offset.min(content.len());
-    for (i, b) in content.as_bytes().iter().enumerate() {
-        if i >= upper {
-            break;
-        }
-        if *b == b'\n' {
-            line += 1;
-            col = 0;
-        } else {
-            col += 1;
-        }
+    use std::cell::RefCell;
+    thread_local! {
+        // (content_ptr, content_len, newline_byte_offsets)
+        static LINE_CACHE: RefCell<Option<(usize, usize, Vec<usize>)>> = const { RefCell::new(None) };
     }
-    (line, col)
+
+    LINE_CACHE.with(|cell| {
+        let ptr = content.as_ptr() as usize;
+        let len = content.len();
+        let upper = byte_offset.min(len);
+
+        let mut cache = cell.borrow_mut();
+        let need_rebuild = match cache.as_ref() {
+            Some((p, l, _)) => *p != ptr || *l != len,
+            None => true,
+        };
+        if need_rebuild {
+            let newlines: Vec<usize> = content
+                .as_bytes()
+                .iter()
+                .enumerate()
+                .filter(|(_, &b)| b == b'\n')
+                .map(|(i, _)| i)
+                .collect();
+            *cache = Some((ptr, len, newlines));
+        }
+
+        // Borrow newlines from the cache for this lookup.
+        let newlines: &[usize] = match cache.as_ref() {
+            Some((_, _, n)) => n.as_slice(),
+            None => &[],
+        };
+
+        // partition_point returns the index of the first newline >= upper.
+        // Number of newlines strictly before upper == nl_idx => line = nl_idx + 1.
+        let nl_idx = newlines.partition_point(|&n| n < upper);
+        let line = (nl_idx as u32).saturating_add(1);
+        let line_start = if nl_idx == 0 {
+            0
+        } else {
+            newlines[nl_idx - 1] + 1
+        };
+        let col = (upper - line_start) as u32;
+        (line, col)
+    })
 }

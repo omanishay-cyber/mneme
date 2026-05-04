@@ -197,8 +197,37 @@ enum Command {
     },
 }
 
+/// A1-031 (2026-05-04): force the Windows console to UTF-8 at startup
+/// so user-facing strings containing characters like `>=`, `->`, `*`,
+/// or `[ok]` (and any future Unicode glyph) render correctly instead
+/// of mojibake (`>=` -> `ΓëÑ`, etc.). Equivalent to `chcp 65001`. Best-
+/// effort: a non-Windows host or a host where SetConsoleOutputCP fails
+/// (rare; legacy console host without UTF-8 support) silently falls
+/// through. The fix is one Win32 call at startup; no per-string sweep.
+#[cfg(windows)]
+fn ensure_utf8_console() {
+    extern "system" {
+        fn SetConsoleOutputCP(wCodePageID: u32) -> i32;
+        fn SetConsoleCP(wCodePageID: u32) -> i32;
+    }
+    const CP_UTF8: u32 = 65001;
+    // Safety: SetConsoleOutputCP / SetConsoleCP are Win32 calls that take
+    // a UINT and return BOOL; no pointer arithmetic, no aliasing.
+    unsafe {
+        let _ = SetConsoleOutputCP(CP_UTF8);
+        let _ = SetConsoleCP(CP_UTF8);
+    }
+}
+
+#[cfg(not(windows))]
+fn ensure_utf8_console() {
+    // POSIX consoles are UTF-8 by default; nothing to do.
+}
+
 #[tokio::main(flavor = "current_thread")]
 async fn main() -> ExitCode {
+    ensure_utf8_console();
+
     let cli = Cli::parse();
 
     init_tracing(cli.verbose, cli.log_json);

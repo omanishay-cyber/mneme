@@ -2,6 +2,7 @@
 name = "mneme-common"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license.workspace = true
 description = "Shared types for the mneme workspace"
 

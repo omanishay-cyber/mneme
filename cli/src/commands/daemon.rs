@@ -221,7 +221,23 @@ fn try_register_and_run_scheduled_task(
     daemon_path: &std::path::Path,
 ) -> Result<(), std::io::Error> {
     let task_name = "MnemeDaemon";
-    let tr = format!("\"{}\" start", daemon_path.display());
+
+    // A1-027 (2026-05-04): validate daemon_path against shell-meta chars
+    // before splicing into a schtasks /TR string. The /TR argument is
+    // parsed by schtasks as a command line, so a path containing `"`,
+    // `&`, `|`, `<`, `>`, `^`, `;`, or newline could inject extra
+    // commands or corrupt task registration. NTFS technically permits
+    // some of these characters in filenames; user-controlled MNEME_HOME
+    // could put a malicious path into our process. Refuse loudly.
+    let path_str = daemon_path.display().to_string();
+    let bad_chars = ['"', '&', '|', '<', '>', '^', ';', '\n', '\r'];
+    if path_str.chars().any(|c| bad_chars.contains(&c)) {
+        return Err(std::io::Error::other(format!(
+            "daemon path contains shell-meta characters refusing to register schtasks task: {:?}",
+            path_str
+        )));
+    }
+    let tr = format!("\"{}\" start", path_str);
 
     let create = Command::new("schtasks.exe")
         .args([

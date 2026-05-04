@@ -2,6 +2,7 @@
 name = "mneme-md-ingest"
 version.workspace = true
 edition.workspace = true
+rust-version.workspace = true
 license = "Apache-2.0"
 description = "v0.1 stub: markdown ingestion worker placeholder (real impl in v0.2)"
 

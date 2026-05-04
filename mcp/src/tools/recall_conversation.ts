@@ -50,15 +50,29 @@ export const tool: ToolDescriptor<
       input.since,
     );
 
-    const turns: ConversationTurn[] = rows.map((r) => ({
-      turn_id: String(r.id),
-      session_id: r.session_id,
-      role: coerceRole(r.role),
-      content: r.content,
-      tool_calls: [],
-      timestamp: r.timestamp,
-      similarity: undefined,
-    }));
+    // A5-016 (2026-05-04): derive a 0..1 similarity from the FTS5 bm25 rank
+    // so callers see an actual relevance signal. SQLite returns negative
+    // rank values where smaller magnitude = more relevant. The classic
+    // monotonic mapping `1 / (1 + |rank|)` keeps the result in (0, 1] and
+    // preserves ordering. On the LIKE fallback path `r.rank` is null and
+    // we leave `similarity` undefined.
+    const turns: ConversationTurn[] = rows.map((r) => {
+      let similarity: number | undefined;
+      if (typeof r.rank === "number" && Number.isFinite(r.rank)) {
+        similarity = 1 / (1 + Math.abs(r.rank));
+        if (similarity < 0) similarity = 0;
+        if (similarity > 1) similarity = 1;
+      }
+      return {
+        turn_id: String(r.id),
+        session_id: r.session_id,
+        role: coerceRole(r.role),
+        content: r.content,
+        tool_calls: [],
+        timestamp: r.timestamp,
+        similarity,
+      };
+    });
 
     return { turns };
   },

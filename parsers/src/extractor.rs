@@ -472,15 +472,30 @@ impl Extractor {
 // Tree-walking helpers
 // ---------------------------------------------------------------------------
 
+/// A3-018 (2026-05-04): cap on tree-sitter walk depth.
+///
+/// A pathologically deep AST (a 1 MB JS minified file with deeply
+/// nested ternaries / parens, or a fuzz-generated source) can pile up
+/// nodes on the heap-Vec stack. Tree-sitter's `n.child(i)` accessor is
+/// not deeply recursive itself but each visited node allocates a few
+/// hundred bytes; an unbounded iter on adversarial input can OOM.
+/// 4096 is well past any realistic AST depth (deepest known
+/// hand-written code rarely exceeds 200 levels).
+const MAX_WALK_DEPTH: usize = 4096;
+
 fn iter_all<'a>(root: TsNode<'a>, cursor: &mut tree_sitter::TreeCursor<'a>) -> Vec<TsNode<'a>> {
     let mut out = Vec::new();
     cursor.reset(root);
-    let mut stack = vec![root];
-    while let Some(n) = stack.pop() {
+    // (node, depth) so we can prune at MAX_WALK_DEPTH (A3-018).
+    let mut stack: Vec<(TsNode<'a>, usize)> = vec![(root, 0)];
+    while let Some((n, depth)) = stack.pop() {
         out.push(n);
+        if depth >= MAX_WALK_DEPTH {
+            continue;
+        }
         for i in 0..n.child_count() {
             if let Some(c) = n.child(i) {
-                stack.push(c);
+                stack.push((c, depth + 1));
             }
         }
     }
@@ -488,8 +503,9 @@ fn iter_all<'a>(root: TsNode<'a>, cursor: &mut tree_sitter::TreeCursor<'a>) -> V
 }
 
 fn walk_for_errors(root: TsNode<'_>, out: &mut Vec<SyntaxIssue>) {
-    let mut stack = vec![root];
-    while let Some(n) = stack.pop() {
+    // (node, depth) so we can prune at MAX_WALK_DEPTH (A3-018).
+    let mut stack: Vec<(TsNode<'_>, usize)> = vec![(root, 0)];
+    while let Some((n, depth)) = stack.pop() {
         if n.is_error() || n.is_missing() {
             let r = n.range();
             out.push(SyntaxIssue {
@@ -503,9 +519,12 @@ fn walk_for_errors(root: TsNode<'_>, out: &mut Vec<SyntaxIssue>) {
                 hint: format!("{} at line {}", n.kind(), r.start_point.row + 1),
             });
         }
+        if depth >= MAX_WALK_DEPTH {
+            continue;
+        }
         for i in 0..n.child_count() {
             if let Some(c) = n.child(i) {
-                stack.push(c);
+                stack.push((c, depth + 1));
             }
         }
     }
@@ -579,6 +598,16 @@ fn is_callable_kind(kind: &str, lang: Language) -> bool {
 /// continues, and the user-visible result is "K7 partially fixed for
 /// this file" rather than a crash.
 fn collect_js_import_bindings(import_node: TsNode<'_>, bytes: &[u8]) -> Vec<String> {
+    // A3-020 (2026-05-04): explicit guard for non-import_statement nodes.
+    // The TS query `(call_expression function: (import)) @import` (used
+    // for dynamic imports / CJS require) wraps the WHOLE call_expression,
+    // not an import_statement. Walking such a node looking for
+    // import_clause finds nothing -- which is correct, but the guard
+    // makes that intent explicit and avoids surprising future maintainers
+    // who add import_clause-shaped grammar to other node kinds.
+    if import_node.kind() != "import_statement" {
+        return Vec::new();
+    }
     let mut out: Vec<String> = Vec::new();
 
     // Walk the immediate descendants of the import_statement looking

@@ -253,12 +253,27 @@ download_dual_source() {
     local fallback_url="$3"
     local dest="$4"
 
+    # A7-001 (2026-05-04): on success, verify SHA-256 against the manifest.
+    # If the user passed MNEME_SKIP_HASH_CHECK=1, skip integrity verification
+    # entirely (used for hand-cut beta zips before the manifest is regenerated).
+    # If the manifest isn't loaded OR the name isn't pinned, verify_sha256
+    # logs a single WARN and returns 0 (legacy unverified path).
+    _maybe_verify() {
+        if [ -n "${MNEME_SKIP_HASH_CHECK:-}" ]; then
+            return 0
+        fi
+        local expected
+        expected=$(lookup_expected_hash "${name}" 2>/dev/null || echo "")
+        verify_sha256 "${dest}" "${expected}"
+    }
+
     say "fetching ${name} from primary source"
     # Run primary in a subshell so its fail() (called by download_with_retry
     # on exhaustion) doesn't kill the whole installer -- we want to fall
     # back. Capture exit code via the standard `if` form which `set -e`
     # explicitly excuses from immediate exit.
     if ( download_with_retry "${primary_url}" "${dest}" 3 ); then
+        _maybe_verify
         return 0
     fi
 
@@ -271,6 +286,7 @@ download_dual_source() {
     # Fallback is allowed to fail() for real -- if both sources are dead,
     # there's nothing more we can do.
     download_with_retry "${fallback_url}" "${dest}" 3
+    _maybe_verify
 }
 
 # ---------------------------------------------------------------------------
@@ -320,4 +336,93 @@ verify_sha256() {
        (file removed; refusing to install possibly-tampered or partial download)"
     fi
     ok "SHA-256 verified for $(basename "${file}")"
+}
+
+# ---------------------------------------------------------------------------
+# A7-001 (2026-05-04): release-checksums.json manifest support
+# ---------------------------------------------------------------------------
+# load_hash_manifest <release_base_url>
+#
+# Fetches release-checksums.json from the GH Release alongside the binary
+# zips/tarballs and parses it into two parallel arrays
+# (_MNEME_HASH_NAMES / _MNEME_HASH_VALUES) keyed by file name. Bash 3.2
+# (macOS default) lacks associative arrays, hence the parallel-array
+# pattern. Naive JSON parse via grep+sed avoids a jq dependency.
+#
+# Manifest format (sidecar file):
+#   {
+#     "version": "v0.3.2",
+#     "generated": "2026-05-04T05:00:00Z",
+#     "files": {
+#       "mneme-v0.3.2-linux-x64.tar.gz": "0123ABCD...",
+#       "bge-small-en-v1.5.onnx":        "...",
+#       ...
+#     }
+#   }
+#
+# A missing manifest is non-fatal: this function emits a single WARN and
+# returns 0, leaving the parallel arrays empty. Each download then falls
+# through to the legacy unverified path. Once a release ships a manifest,
+# downloads of files listed there become hard-fail on hash mismatch.
+_MNEME_HASH_NAMES=()
+_MNEME_HASH_VALUES=()
+load_hash_manifest() {
+    local release_base="$1"
+    if [ -z "${release_base}" ]; then
+        warn "load_hash_manifest called without release_base; skipping"
+        return 0
+    fi
+    local tmp
+    tmp=$(mktemp -t mneme-hashes.XXXXXX) || tmp="/tmp/mneme-hashes.json"
+    if command -v curl >/dev/null 2>&1; then
+        if ! curl --fail --silent --location --show-error --max-time 10 \
+                -o "${tmp}" "${release_base}/release-checksums.json" 2>/dev/null; then
+            warn "release-checksums.json not available at ${release_base} -- continuing with unverified downloads"
+            rm -f "${tmp}"
+            return 0
+        fi
+    elif command -v wget >/dev/null 2>&1; then
+        if ! wget --quiet --tries=1 --timeout=10 \
+                --output-document="${tmp}" "${release_base}/release-checksums.json"; then
+            warn "release-checksums.json not available at ${release_base} -- continuing with unverified downloads"
+            rm -f "${tmp}"
+            return 0
+        fi
+    else
+        warn "neither curl nor wget available; cannot load checksum manifest"
+        return 0
+    fi
+
+    # Naive JSON parse: pick out lines matching `"name": "HASH",?` inside the
+    # `files` object. The hash regex is hex-only so it can't accidentally
+    # eat the "version"/"generated" string fields.
+    local line name value
+    while IFS= read -r line; do
+        name=$(printf '%s' "${line}" | sed -E 's/^[[:space:]]*"([^"]+)":[[:space:]]*"[a-fA-F0-9]+",?$/\1/')
+        value=$(printf '%s' "${line}" | sed -E 's/^[[:space:]]*"[^"]+":[[:space:]]*"([a-fA-F0-9]+)",?$/\1/')
+        if [ "${name}" != "${line}" ] && [ -n "${value}" ]; then
+            _MNEME_HASH_NAMES+=("${name}")
+            _MNEME_HASH_VALUES+=("${value}")
+        fi
+    done < <(grep -E '^\s*"[^"]+":\s*"[a-fA-F0-9]+",?\s*$' "${tmp}")
+    rm -f "${tmp}"
+    ok "loaded SHA-256 manifest: ${#_MNEME_HASH_NAMES[@]} pinned files"
+    return 0
+}
+
+# lookup_expected_hash <name>
+#
+# Echoes the expected hex hash for <name>, or empty string if not in the
+# manifest. Linear scan because Bash 3.2 lacks associative arrays.
+lookup_expected_hash() {
+    local needle="$1"
+    local i=0
+    while [ "${i}" -lt "${#_MNEME_HASH_NAMES[@]}" ]; do
+        if [ "${_MNEME_HASH_NAMES[${i}]}" = "${needle}" ]; then
+            echo "${_MNEME_HASH_VALUES[${i}]}"
+            return 0
+        fi
+        i=$((i + 1))
+    done
+    return 1
 }

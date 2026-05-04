@@ -128,9 +128,19 @@ impl VideoExtractor {
         )
         .map_err(|e| ExtractError::Other(format!("ffmpeg sws: {e}")))?;
 
+        // A8-007 (2026-05-04): the previous version put `.max(1)` on the
+        // numerator but not the denominator, so a malformed AV1 / WebM
+        // stream reporting `time_base = N/0` (which some weird captures
+        // produce) divided by zero and panicked the build worker. Both
+        // sides now floor to 1, and the multiplication uses
+        // `saturating_mul` so a 60 fps video with `frame_sample_secs=5`
+        // and a `1/AV_TIME_BASE` (1e6 ticks/sec) container can no longer
+        // overflow `i64`.
+        let denom = (v_time_base.denominator() as i64).max(1);
+        let num = (v_time_base.numerator() as i64).max(1);
         let interval_ticks: i64 = (self.frame_sample_secs as i64)
-            * v_time_base.denominator() as i64
-            / v_time_base.numerator().max(1) as i64;
+            .saturating_mul(denom)
+            / num;
         let mut next_sample_ticks: i64 = 0;
 
         for (stream, packet) in ictx.packets() {

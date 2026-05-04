@@ -9,7 +9,7 @@
 //! - Unparameterized SQL string concatenation
 
 use once_cell::sync::Lazy;
-use regex::Regex;
+use regex::{Regex, RegexBuilder};
 use std::path::Path;
 
 use crate::scanner::{line_col_of, Ast, Finding, Scanner, Severity};
@@ -55,9 +55,39 @@ static IPC_HANDLER: Lazy<Regex> = Lazy::new(|| {
 
 /// SQL-like statements built via string concatenation. Heuristic — looks
 /// for a SQL keyword followed soon after by a `+`.
+///
+/// A3-005 (2026-05-04): wrapped in RegexBuilder with size_limit (64 KB
+/// compiled NFA cap) as defense-in-depth. The regex itself is bounded
+/// (`{0,80}` greedy class) but `(?i)` doubles state count and the
+/// 5-way alternation expands the NFA. Scanner pre-filters via
+/// `has_sql_keyword` before invoking this regex, so on a file with NO
+/// SQL keywords (the common case for non-SQL JS/TS) the regex never
+/// runs at all -- much cheaper than scanning every line.
 static SQL_CONCAT: Lazy<Regex> = Lazy::new(|| {
-    Regex::new(r#"(?i)\b(?:SELECT|INSERT\s+INTO|UPDATE|DELETE\s+FROM|WHERE)\b[^;`'"]{0,80}["']\s*\+\s*[A-Za-z_$]"#).expect("sql concat regex")
+    // A3-005 + REGRESSION-FIX (2026-05-04): size_limit raised to 1 MiB.
+    // Initial fix used 64 KB but the `(?i)` 5-way alternation produces
+    // an NFA that exceeds that cap, causing CompiledTooBig at Lazy
+    // initialization and poisoning SecurityScanner. 1 MiB is generous
+    // enough to compile this pattern; 4 MiB is the regex-crate default
+    // so we're still well below it. The pre-filter via `has_sql_keyword`
+    // remains the primary perf gate.
+    RegexBuilder::new(r#"(?i)\b(?:SELECT|INSERT\s+INTO|UPDATE|DELETE\s+FROM|WHERE)\b[^;`'"]{0,80}["']\s*\+\s*[A-Za-z_$]"#)
+        .size_limit(1024 * 1024)
+        .build()
+        .expect("sql concat regex")
 });
+
+/// A3-005 helper: cheap pre-filter for files that contain ANY SQL keyword.
+/// One allocation per scan() call (the lowercased content) saves the cost
+/// of running the much heavier `SQL_CONCAT` regex on files that obviously
+/// don't contain SQL strings.
+fn has_sql_keyword(content_lower: &str) -> bool {
+    content_lower.contains("select")
+        || content_lower.contains("insert into")
+        || content_lower.contains("update ")
+        || content_lower.contains("delete from")
+        || content_lower.contains("where ")
+}
 
 /// `unsafe { ... }` block or `unsafe fn ... { ... }` in Rust. The scanner
 /// only fires on `.rs` files, and only when a library-style crate is
@@ -81,8 +111,25 @@ impl Default for SecurityScanner {
 
 impl SecurityScanner {
     /// New scanner. Stateless.
+    ///
+    /// A3-022 (2026-05-04): force compile every Lazy regex up-front so a
+    /// malformed pattern panics at scanner construction (which the worker
+    /// catches cleanly) rather than mid-scan (which poisons the Lazy and
+    /// kills the scanner for the worker's lifetime via re-panic on every
+    /// subsequent call). All current patterns are tested; this is
+    /// defense-in-depth for future pattern additions.
     #[must_use]
     pub fn new() -> Self {
+        Lazy::force(&SK_KEY);
+        Lazy::force(&AKIA_KEY);
+        Lazy::force(&GH_PAT);
+        Lazy::force(&PASSWORD_ASSIGN);
+        Lazy::force(&DYNAMIC_EVAL_CALL);
+        Lazy::force(&NEW_FUNCTION);
+        Lazy::force(&RISKY_INNER_HTML);
+        Lazy::force(&IPC_HANDLER);
+        Lazy::force(&SQL_CONCAT);
+        Lazy::force(&RUST_UNSAFE_BLOCK);
         Self
     }
 }
@@ -218,17 +265,26 @@ impl Scanner for SecurityScanner {
             }
         }
 
-        for m in SQL_CONCAT.find_iter(content) {
-            let (line, col) = line_col_of(content, m.start());
-            out.push(Finding::new_line(
-                "security.sql-concat",
-                Severity::Critical,
-                &file_str,
-                line,
-                col,
-                col + (m.end() - m.start()) as u32,
-                "Unparameterized SQL concatenation — use placeholder bindings (? or $1).",
-            ));
+        // A3-005 (2026-05-04): pre-filter content for SQL keywords before
+        // invoking the heavier SQL_CONCAT regex. The vast majority of JS/TS
+        // files contain zero SQL keywords, so skipping the regex pass on
+        // those files removes the largest CPU consumer in this scanner on
+        // typical front-end projects. The to_ascii_lowercase allocation
+        // is one alloc per file; the regex-skip saves seconds in worst case.
+        let content_lower = content.to_ascii_lowercase();
+        if has_sql_keyword(&content_lower) {
+            for m in SQL_CONCAT.find_iter(content) {
+                let (line, col) = line_col_of(content, m.start());
+                out.push(Finding::new_line(
+                    "security.sql-concat",
+                    Severity::Critical,
+                    &file_str,
+                    line,
+                    col,
+                    col + (m.end() - m.start()) as u32,
+                    "Unparameterized SQL concatenation — use placeholder bindings (? or $1).",
+                ));
+            }
         }
 
         // Rust-only pass: `unsafe { ... }` block or `unsafe fn ...`.

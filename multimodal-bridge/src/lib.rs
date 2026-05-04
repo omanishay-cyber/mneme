@@ -38,6 +38,52 @@ pub use types::{ExtractError, ExtractResult, ExtractedDoc, PageText, TranscriptS
 /// Canonical extractor version. Written to `media.extractor_version`.
 pub const VERSION: &str = concat!("mneme-multimodal@", env!("CARGO_PKG_VERSION"));
 
+/// A8-001 (2026-05-04): default per-file size cap (bytes) for whole-file
+/// extractors that read the entire file into RAM (PDF, Markdown, Image
+/// preflight). Override at runtime via the `MNEME_MULTIMODAL_MAX_BYTES`
+/// env var. Default = 64 MiB. Files larger than this are rejected with
+/// [`ExtractError::Other`] before any allocation, so a single oversized
+/// file can no longer OOM the build worker on a low-RAM dev VM.
+pub const DEFAULT_MAX_BYTES: u64 = 64 * 1024 * 1024;
+
+/// A8-001 (2026-05-04): resolve the active size cap from the
+/// `MNEME_MULTIMODAL_MAX_BYTES` env var, falling back to
+/// [`DEFAULT_MAX_BYTES`] if unset or unparseable.
+pub fn max_bytes() -> u64 {
+    std::env::var("MNEME_MULTIMODAL_MAX_BYTES")
+        .ok()
+        .and_then(|s| s.parse::<u64>().ok())
+        .unwrap_or(DEFAULT_MAX_BYTES)
+}
+
+/// A8-001 (2026-05-04): preflight size gate. Returns `Err` if the file
+/// is missing or larger than [`max_bytes()`]. Callers use this BEFORE
+/// `fs::read` / `fs::read_to_string` so they never allocate gigabytes
+/// for a malformed input.
+///
+/// TODO (out of A8 scope): the streaming SHA-256 in
+/// `cli::commands::build::persist_multimodal` still does a second
+/// whole-file `fs::read` to recompute the hash, doubling peak RSS for
+/// every accepted file. Convert that to a buffered `Sha256::new()` +
+/// 64 KiB chunked reader (CLI crate, not this one).
+pub fn check_size(path: &std::path::Path) -> ExtractResult<u64> {
+    let meta = std::fs::metadata(path).map_err(|source| ExtractError::Io {
+        path: path.to_path_buf(),
+        source,
+    })?;
+    let len = meta.len();
+    let cap = max_bytes();
+    if len > cap {
+        return Err(ExtractError::Other(format!(
+            "file too large: {} bytes > MNEME_MULTIMODAL_MAX_BYTES={} bytes (path={})",
+            len,
+            cap,
+            path.display()
+        )));
+    }
+    Ok(len)
+}
+
 /// True iff the binary was compiled with the `tesseract` Cargo feature.
 /// When `false`, image extractors only emit width/height/EXIF and the
 /// per-page text from PDFs/markdown is the only "real" multimodal text
@@ -65,7 +111,8 @@ pub const OCR_ENABLED: bool = cfg!(feature = "tesseract");
 /// CLI consumers (`mneme build` summary) should use this instead of
 /// the bare [`OCR_ENABLED`] constant so the user-facing summary
 /// reflects what mneme will ACTUALLY do, not what it was compiled
-/// with. Cheap (~10ms cold, cached). Safe to call from sync code.
+/// with. Cost: ~30-100ms cold; cached after first call -- see
+/// `locate_tesseract_exe` `OnceLock`. Safe to call from sync code.
 pub fn ocr_runtime_available() -> bool {
     if OCR_ENABLED {
         return true;

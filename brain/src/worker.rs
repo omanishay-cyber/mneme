@@ -11,6 +11,7 @@
 //! blocking pool so the runtime stays responsive.
 
 use std::sync::Arc;
+use std::time::Duration;
 
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -41,6 +42,14 @@ pub struct WorkerConfig {
     pub summarizer: Summarizer,
     pub cluster: ClusterRunner,
     pub channel_capacity: usize,
+    /// BUG-A2-043 fix: flush the embed store every N seconds during normal
+    /// operation, so a daemon crash doesn't lose all writes since the last
+    /// successful flush. Default = 60s; 0 disables.
+    pub flush_interval_secs: u64,
+    /// BUG-A2-044 fix: per-job timeout. Slow stdout consumer + fast job
+    /// producer used to balloon job latency unboundedly because there was
+    /// no per-job deadline. Default = 5 minutes; 0 disables.
+    pub job_timeout_secs: u64,
 }
 
 impl std::fmt::Debug for WorkerConfig {
@@ -62,6 +71,8 @@ impl WorkerConfig {
             summarizer: Summarizer::new(),
             cluster: ClusterRunner::new(ClusterRunnerConfig::default()),
             channel_capacity: 256,
+            flush_interval_secs: 60,
+            job_timeout_secs: 300,
         })
     }
 }
@@ -76,31 +87,89 @@ pub fn spawn_worker(cfg: WorkerConfig) -> WorkerHandle {
     let extractor = cfg.extractor.clone();
     let summarizer = cfg.summarizer.clone();
     let cluster = cfg.cluster.clone();
+    let flush_interval = cfg.flush_interval_secs;
+    let job_timeout = cfg.job_timeout_secs;
 
     let join = tokio::spawn(async move {
         info!("brain worker started");
-        while let Some(job) = jobs_rx.recv().await {
-            if matches!(job, BrainJob::Shutdown) {
-                info!("brain worker shutting down");
-                break;
-            }
-            let result = handle(
-                job,
-                embedder.clone(),
-                store.clone(),
-                extractor.clone(),
-                summarizer.clone(),
-                cluster.clone(),
-            )
-            .await;
-            if results_tx.send(result).await.is_err() {
-                warn!("brain result receiver dropped — exiting");
-                break;
+        // BUG-A2-043 fix: periodic flush so unflushed embeds are bounded
+        // even if the daemon crashes between explicit flushes.
+        let mut flush_tick = if flush_interval > 0 {
+            Some(tokio::time::interval(Duration::from_secs(flush_interval)))
+        } else {
+            None
+        };
+        // Skip the immediate first tick (intervals fire at zero by default).
+        if let Some(t) = flush_tick.as_mut() {
+            t.tick().await;
+        }
+        loop {
+            tokio::select! {
+                maybe_job = jobs_rx.recv() => {
+                    let Some(job) = maybe_job else { break; };
+                    if matches!(job, BrainJob::Shutdown) {
+                        info!("brain worker shutting down");
+                        break;
+                    }
+                    // BUG-A2-044 fix: cap each job at `job_timeout_secs` so
+                    // backpressure can't balloon individual job latency.
+                    let job_id = job.id();
+                    let fut = handle(
+                        job,
+                        embedder.clone(),
+                        store.clone(),
+                        extractor.clone(),
+                        summarizer.clone(),
+                        cluster.clone(),
+                    );
+                    let result = if job_timeout > 0 {
+                        match tokio::time::timeout(Duration::from_secs(job_timeout), fut).await {
+                            Ok(r) => r,
+                            Err(_) => {
+                                warn!(job_id, secs = job_timeout, "brain job timed out");
+                                JobResult::Error {
+                                    id: job_id,
+                                    message: format!("job timed out after {}s", job_timeout),
+                                }
+                            }
+                        }
+                    } else {
+                        fut.await
+                    };
+                    if results_tx.send(result).await.is_err() {
+                        warn!("brain result receiver dropped - exiting");
+                        break;
+                    }
+                }
+                _ = async {
+                    if let Some(t) = flush_tick.as_mut() {
+                        t.tick().await;
+                    } else {
+                        std::future::pending::<()>().await;
+                    }
+                }, if flush_tick.is_some() => {
+                    if let Err(e) = store.flush() {
+                        warn!(error = %e, "periodic embed store flush failed");
+                    }
+                }
             }
         }
-        // Best-effort flush of the embed store on shutdown.
+        // BUG-A2-043 fix: on shutdown flush failure, write to a
+        // recovery file so the next startup can pick up unflushed data.
         if let Err(e) = store.flush() {
             warn!(error = %e, "embed store flush on shutdown failed");
+            // Try to write a marker so the next startup can warn the user.
+            if let Some(dir) = dirs::home_dir() {
+                let marker = dir.join(".mneme").join("cache").join("embed").join(
+                    format!("pending_{}.marker", chrono::Utc::now().timestamp()),
+                );
+                if let Some(parent) = marker.parent() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+                if let Err(me) = std::fs::write(&marker, format!("flush failed: {e}\n")) {
+                    warn!(error = %me, path = %marker.display(), "failed to write pending-flush marker");
+                }
+            }
         }
     });
 
@@ -125,7 +194,14 @@ async fn handle(
             let res = run_blocking(move || {
                 let v = embedder.embed(&text)?;
                 if let Some(n) = node {
-                    store.upsert(n, &v)?;
+                    // BUG-A2-042 fix: invalidate the embedder cache entry
+                    // when the store upsert fails so a future
+                    // `embedder.embed(&text)` doesn't return a vector
+                    // that the store doesn't actually have.
+                    if let Err(e) = store.upsert(n, &v) {
+                        embedder.invalidate_cache_for(&text);
+                        return Err(e);
+                    }
                 }
                 Ok::<_, crate::error::BrainError>(v)
             })
@@ -151,7 +227,15 @@ async fn handle(
                     out.push((*node, v));
                 }
                 if !to_store.is_empty() {
-                    store.upsert_many(&to_store)?;
+                    if let Err(e) = store.upsert_many(&to_store) {
+                        // BUG-A2-042 fix: invalidate the cache for every
+                        // text in the failed batch so the embedder cache
+                        // and persisted store can't drift.
+                        for (_, t) in &items {
+                            embedder.invalidate_cache_for(t);
+                        }
+                        return Err(e);
+                    }
                 }
                 Ok::<_, crate::error::BrainError>(out)
             })

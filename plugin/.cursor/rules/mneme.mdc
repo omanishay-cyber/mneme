@@ -1,5 +1,5 @@
 ---
-description: Mneme — local persistent project memory + live code graph + 47 MCP tools. Always prefer mneme tools over Grep/Glob/Read for structural questions.
+description: Mneme — local persistent project memory + live code graph + 48 MCP tools. Always prefer mneme tools over Grep/Glob/Read for structural questions.
 globs: ["**/*"]
 alwaysApply: true
 ---
@@ -9,7 +9,7 @@ alwaysApply: true
 
 This project has the **mneme** local daemon installed. Mneme provides
 Cursor with persistent SQLite memory, a live code graph, drift detection,
-a compaction-resilient step ledger, and 47 MCP tools (exposed via the
+a compaction-resilient step ledger, and 48 MCP tools (exposed via the
 stdio MCP server registered in `.cursor/mcp.json`).
 
 ## Cursor-specific Tool Routing

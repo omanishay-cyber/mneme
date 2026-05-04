@@ -21,7 +21,7 @@
  * turn immediately before a forced compaction.
  */
 
-import { query as dbQuery } from "./db.ts";
+import { query as dbQuery, livebus } from "./db.ts";
 import { errMsg } from "./errors.ts";
 import type { ConversationTurn, Step } from "./types.ts";
 
@@ -95,6 +95,18 @@ export class CompactionGuard {
     } catch (err) {
       // Swallow — the guard must never take the harness down.
       console.error("[mneme-mcp] CompactionGuard failed:", err);
+      // A5-012 (2026-05-04): the snapshot was NOT delivered. Re-arm so the
+      // next over-threshold measurement gets another chance instead of
+      // sitting silent until usage drops back below the threshold (by
+      // which time the harness has already compacted and lost context).
+      // Also emit an observability event so scrapers / vision can surface
+      // the failure to the user.
+      this.armed = true;
+      void livebus.emit("compaction.inject_failed", {
+        error: errMsg(err),
+        ratio,
+        sessionId: m.sessionId ?? null,
+      });
     }
   }
 
@@ -229,16 +241,24 @@ export class CompactionGuard {
 
 export const defaultInjectionSink: InjectionSink = {
   async inject(msg) {
-    await dbQuery
-      .raw<{ injected: true }>("session.inject", {
+    // A5-012 (2026-05-04): the prior implementation `.catch(...)`-swallowed
+    // every error, so the guard's `armed` flag stayed flipped to false even
+    // when the snapshot was never actually injected. Re-throw so the guard
+    // can restore `armed = true` and emit `compaction.inject_failed` on the
+    // livebus. Logs are kept for stderr diagnostics.
+    try {
+      await dbQuery.raw<{ injected: true }>("session.inject", {
         kind: msg.kind,
         content: msg.content,
-      })
-      .catch((err: unknown) => {
-        console.error(
-          "[mneme-mcp] failed to inject compaction snapshot:",
-          errMsg(err),
-        );
       });
+    } catch (err) {
+      console.error(
+        "[mneme-mcp] failed to inject compaction snapshot:",
+        errMsg(err),
+      );
+      throw err instanceof Error
+        ? err
+        : new Error(`session.inject failed: ${String(err)}`);
+    }
   },
 };

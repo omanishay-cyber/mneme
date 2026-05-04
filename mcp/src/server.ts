@@ -24,6 +24,12 @@ import { registry } from "./tools/index.ts";
 import type { ToolContext, ToolDescriptor } from "./types.ts";
 import { zodToJsonSchema } from "zod-to-json-schema";
 import { getLastIndexed, graphStats, shardDbPath } from "./store.ts";
+// A5-001 (2026-05-04): SDK server `version` MUST stay in lockstep with
+// `mcp/package.json`. Bun supports the JSON import attribute natively, so
+// we read the published version directly from the manifest at module load.
+// Drift between this string and package.json poisons client-cached tool
+// schemas (see TS-1 commentary below). One source of truth.
+import pkg from "../package.json" with { type: "json" };
 
 // ---------------------------------------------------------------------------
 // Copyright line — matches mcp/package.json `author`. Both maintainers
@@ -38,7 +44,17 @@ const COPYRIGHT = "© 2026 Anish Trivedi & Kruti Trivedi";
 // hook nudges: one string, delivered once, zero crash surface per tool call.
 // ---------------------------------------------------------------------------
 
-const SERVER_INSTRUCTIONS = `╔══════════════════════════════════════════════════════════════╗
+// A5-002 (2026-05-04): the banner advertised a hardcoded "47 tools" while the
+// registry actually wires 48. Build the banner at boot from the live registry
+// so the count is always truthful — no more drift between banner and doctor.
+function renderServerInstructions(): string {
+  const toolCount = registry.list().length;
+  const toolLine = `persistent memory · code graph · drift detector · ${toolCount} tools`;
+  // Pad/truncate the line to fit the fixed-width box (60 inner chars between
+  // the side bars + leading 3-space indent). Falls back to a safe default if
+  // the count somehow grows past the box width.
+  const padded = toolLine.length <= 60 ? toolLine.padEnd(60) : toolLine.slice(0, 60);
+  return `╔══════════════════════════════════════════════════════════════╗
 ║                                                              ║
 ║   ███╗   ███╗███╗   ██╗███████╗███╗   ███╗███████╗          ║
 ║   ████╗ ████║████╗  ██║██╔════╝████╗ ████║██╔════╝          ║
@@ -47,7 +63,7 @@ const SERVER_INSTRUCTIONS = `╔════════════════
 ║   ██║ ╚═╝ ██║██║ ╚████║███████╗██║ ╚═╝ ██║███████╗          ║
 ║   ╚═╝     ╚═╝╚═╝  ╚═══╝╚══════╝╚═╝     ╚═╝╚══════╝          ║
 ║                                                              ║
-║   persistent memory · code graph · drift detector · 47 tools ║
+║   ${padded} ║
 ║   100% local · Apache-2.0 · connected ✓                      ║
 ║                                                              ║
 ║   ${COPYRIGHT.padEnd(58)}║
@@ -74,6 +90,7 @@ Multi-step tasks: track with step_plan_from -> step_show -> step_verify -> step_
 Budget: <= 5 Mneme tool calls per task, <= 800 tokens of graph-injected context per turn. Fall back to Grep/Read only when Mneme doesn't cover the question.
 
 Full reference: read the MCP resource \`mneme://commands\` on demand.`;
+}
 
 // ---------------------------------------------------------------------------
 // Phase A D4: dynamic context line. The static banner is identical for every
@@ -130,7 +147,7 @@ function buildDynamicBannerSuffix(): string {
 }
 
 function buildServerInstructions(): string {
-  return SERVER_INSTRUCTIONS + buildDynamicBannerSuffix();
+  return renderServerInstructions() + buildDynamicBannerSuffix();
 }
 
 // Resolve the path to MNEME-COMMANDS.md — the full reference the
@@ -203,16 +220,12 @@ export class MnemeMcpServer {
     this.server = new Server(
       {
         name: "mneme",
-        // Bug TS-1 (2026-05-01): keep this in sync with `mcp/package.json`
-        // "version" field. The MCP SDK uses this in capability negotiation
-        // and clients cache tool schemas keyed by server version — drift
-        // here causes opaque "invalid arguments" errors after upgrades
-        // because the cached schema doesn't match what the server now
-        // exposes. TODO(v0.3.3): replace with
-        //   import pkg from "../package.json" with { type: "json" };
-        // once we verify `bun build --target=bun` inlines it correctly
-        // across all release targets.
-        version: "0.3.2",
+        // Bug TS-1 / A5-001: read the live version from package.json via the
+        // JSON import attribute (top of file). This eliminates the prior
+        // hardcoded literal — clients cache tool schemas keyed by server
+        // version, so any drift between this and the manifest poisons the
+        // cache and produces opaque "invalid arguments" errors after upgrade.
+        version: pkg.version,
       },
       {
         capabilities: {
@@ -251,13 +264,16 @@ export class MnemeMcpServer {
     // want the decision tree + every tool's when-to-use can read this once
     // and cache it. No hook required; the client pulls on demand.
     this.server.setRequestHandler(ListResourcesRequestSchema, async () => {
+      // A5-002: derive tool count from the live registry instead of a stale
+      // hardcoded literal so this description stays truthful as tools come
+      // and go.
+      const toolCount = registry.list().length;
       return {
         resources: [
           {
             uri: "mneme://commands",
             name: "Mneme command reference",
-            description:
-              "Full reference: decision tree, 47 MCP tools (all wired), 25 CLI commands, 13 slash commands, hook behavior, data locations.",
+            description: `Full reference: decision tree, ${toolCount} MCP tools (all wired), 25 CLI commands, 13 slash commands, hook behavior, data locations.`,
             mimeType: "text/markdown",
           },
           {

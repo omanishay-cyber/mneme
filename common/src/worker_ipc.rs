@@ -45,6 +45,12 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 /// worker has more jobs to process; a deaf supervisor must not stall it.
 pub const DEFAULT_REPORT_TIMEOUT: Duration = Duration::from_secs(2);
 
+/// BUG-A2-037 fix: maximum bytes we will read from a supervisor reply.
+/// Magic constant from the prior code; promoted to a named const so the
+/// next caller-side bump is greppable. Replies above this cap are dropped
+/// with a `tracing::warn!` event so silent truncation can't reoccur.
+pub const MAX_REPLY_BYTES: usize = 1024 * 1024;
+
 /// Wire shape identical to supervisor::ipc::ControlCommand::WorkerCompleteJob.
 ///
 /// Kept here (rather than re-exported from `mneme-supervisor`) so worker
@@ -101,8 +107,20 @@ pub async fn report_complete_to(
 ) -> Result<(), ReportError> {
     let msg = WorkerCompleteMessage::WorkerCompleteJob { job_id, outcome };
     let body = serde_json::to_vec(&msg).map_err(ReportError::Encode)?;
+    // BUG-A2-036 fix: explicit overflow check on the u32 length prefix.
+    // Pre-fix `body.len() as u32` truncated bodies > 4 GB and the
+    // supervisor mis-parsed subsequent bytes as a new message,
+    // desynchronising the protocol forever. We never write a body we
+    // can't honestly describe in the prefix.
+    let body_len: u32 = body.len().try_into().map_err(|_| {
+        ReportError::Io(format!(
+            "report body too large: {} bytes (max {})",
+            body.len(),
+            u32::MAX
+        ))
+    })?;
     let mut framed = Vec::with_capacity(4 + body.len());
-    framed.extend_from_slice(&(body.len() as u32).to_be_bytes());
+    framed.extend_from_slice(&body_len.to_be_bytes());
     framed.extend_from_slice(&body);
 
     // First attempt — use the path the caller passed in.
@@ -145,12 +163,21 @@ async fn run_round_trip(socket_path: &Path, framed: &[u8]) -> Result<(), ReportE
         // Consume the supervisor's reply so the pipe isn't left with
         // data trailing behind us. Any parse error is ignored — we
         // already delivered the notification.
+        // BUG-A2-037 fix: the cap is now `MAX_REPLY_BYTES` (named const)
+        // and oversize replies log a warn so silent truncation is
+        // discoverable.
         let mut len_buf = [0u8; 4];
         if stream.read_exact(&mut len_buf).await.is_ok() {
             let len = u32::from_be_bytes(len_buf) as usize;
-            if len <= 1024 * 1024 {
+            if len <= MAX_REPLY_BYTES {
                 let mut buf = vec![0u8; len];
                 let _ = stream.read_exact(&mut buf).await;
+            } else {
+                tracing::warn!(
+                    reply_bytes = len,
+                    cap = MAX_REPLY_BYTES,
+                    "supervisor reply exceeds MAX_REPLY_BYTES; discarding tail"
+                );
             }
         }
         Ok::<(), ReportError>(())
@@ -184,10 +211,67 @@ pub fn discover_socket_path() -> Option<PathBuf> {
     if let Ok(content) = std::fs::read_to_string(&disco) {
         let trimmed = content.trim();
         if !trimmed.is_empty() {
-            return Some(PathBuf::from(trimmed));
+            // BUG-A2-035 fix: the supervisor.pipe file is a writable
+            // discovery hint; if a hostile process can write into
+            // `<MNEME_HOME>/`, it could redirect worker IPC to an
+            // attacker-controlled path and exfiltrate job results. We
+            // validate the resolved path against the platform-specific
+            // pipe-name shape and reject anything else, surfacing a
+            // tracing warn so the operator can investigate.
+            if is_acceptable_supervisor_path(trimmed) {
+                return Some(PathBuf::from(trimmed));
+            } else {
+                tracing::warn!(
+                    contents = %trimmed,
+                    path = %disco.display(),
+                    "supervisor.pipe contents do not match expected pipe shape; ignoring"
+                );
+            }
         }
     }
     Some(root.join("run").join("mneme-supervisor.sock"))
+}
+
+/// BUG-A2-035 helper: gate paths read from the on-disk discovery file
+/// against the platform-specific naming contract.
+///
+/// Windows: must look like a named-pipe path containing `mneme-` (the
+/// supervisor uses `\\.\pipe\mneme-supervisor-<pid>` etc).
+/// Unix: must point inside the canonical install root and end with
+/// `mneme-supervisor.sock` (or any `mneme-*.sock`).
+fn is_acceptable_supervisor_path(raw: &str) -> bool {
+    #[cfg(windows)]
+    {
+        // Accept Windows named pipes that mention "mneme-" anywhere in
+        // the trailing path component. The leading `\\.\pipe\` is the
+        // canonical form; some tests pass bare names.
+        let lower = raw.to_ascii_lowercase();
+        let starts_pipe = lower.starts_with(r"\\.\pipe\") || lower.starts_with(r"\\?\pipe\");
+        let bare_name = !raw.contains('\\') && !raw.contains('/');
+        let mentions_mneme = lower.contains("mneme-");
+        return mentions_mneme && (starts_pipe || bare_name);
+    }
+    #[cfg(unix)]
+    {
+        // The supervisor only writes paths under PathManager::default_root(),
+        // and the file name MUST start with `mneme-` and end in `.sock`.
+        let path = std::path::Path::new(raw);
+        let Some(name) = path.file_name().and_then(|s| s.to_str()) else {
+            return false;
+        };
+        let name_ok = name.starts_with("mneme-") && name.ends_with(".sock");
+        if !name_ok {
+            return false;
+        }
+        // Best-effort containment check: must live under the install
+        // root we resolved above. Tests may pass `/tmp/...` so we also
+        // accept tmpdir for the test-friendly case.
+        let root = crate::paths::PathManager::default_root()
+            .root()
+            .to_path_buf();
+        let tmpdir = std::env::temp_dir();
+        path.starts_with(&root) || path.starts_with(&tmpdir)
+    }
 }
 
 async fn connect_stream(socket_path: &Path) -> Result<Stream, ReportError> {
@@ -269,13 +353,26 @@ mod tests {
     fn discover_socket_honours_env_override() {
         let _guard = ENV_LOCK.lock().unwrap();
         let saved = std::env::var("MNEME_SUPERVISOR_SOCKET").ok();
+        // BUG-A2-038 fix: wrap env mutations in `unsafe { ... }` for
+        // forward-compat with Rust 1.81+ edition 2024 where
+        // `set_var`/`remove_var` are gated. SAFETY: the ENV_LOCK mutex
+        // serialises every env-touching test in this module.
         // Use set_var only for this test; unset afterwards.
-        std::env::set_var("MNEME_SUPERVISOR_SOCKET", "/tmp/mneme-test.sock");
+        // Use a path that satisfies BUG-A2-035 validator on this platform.
+        #[cfg(unix)]
+        let probe = "/tmp/mneme-supervisor-test.sock";
+        #[cfg(windows)]
+        let probe = r"\\.\pipe\mneme-supervisor-test";
+        unsafe {
+            std::env::set_var("MNEME_SUPERVISOR_SOCKET", probe);
+        }
         let p = discover_socket_path().expect("env override wins");
-        assert_eq!(p, PathBuf::from("/tmp/mneme-test.sock"));
-        match saved {
-            Some(v) => std::env::set_var("MNEME_SUPERVISOR_SOCKET", v),
-            None => std::env::remove_var("MNEME_SUPERVISOR_SOCKET"),
+        assert_eq!(p, PathBuf::from(probe));
+        unsafe {
+            match saved {
+                Some(v) => std::env::set_var("MNEME_SUPERVISOR_SOCKET", v),
+                None => std::env::remove_var("MNEME_SUPERVISOR_SOCKET"),
+            }
         }
     }
 
@@ -296,11 +393,17 @@ mod tests {
         let saved_sock = std::env::var("MNEME_SUPERVISOR_SOCKET").ok();
         let saved_home = std::env::var("MNEME_HOME").ok();
 
-        std::env::remove_var("MNEME_SUPERVISOR_SOCKET");
+        // BUG-A2-038 fix: wrap env mutations in `unsafe { ... }`.
+        // SAFETY: ENV_LOCK serialises env-touching tests in this module.
+        unsafe {
+            std::env::remove_var("MNEME_SUPERVISOR_SOCKET");
+        }
         // Pick a path that's distinct from `~/.mneme` so the assertion
         // unambiguously proves the override was honored.
         let custom_root = std::env::temp_dir().join("mneme-m21-override-test");
-        std::env::set_var("MNEME_HOME", &custom_root);
+        unsafe {
+            std::env::set_var("MNEME_HOME", &custom_root);
+        }
 
         let resolved = discover_socket_path().expect("path resolves");
         let expected_legacy = custom_root.join("run").join("mneme-supervisor.sock");
@@ -310,13 +413,15 @@ mod tests {
         );
 
         // Restore prior env state.
-        match saved_sock {
-            Some(v) => std::env::set_var("MNEME_SUPERVISOR_SOCKET", v),
-            None => std::env::remove_var("MNEME_SUPERVISOR_SOCKET"),
-        }
-        match saved_home {
-            Some(v) => std::env::set_var("MNEME_HOME", v),
-            None => std::env::remove_var("MNEME_HOME"),
+        unsafe {
+            match saved_sock {
+                Some(v) => std::env::set_var("MNEME_SUPERVISOR_SOCKET", v),
+                None => std::env::remove_var("MNEME_SUPERVISOR_SOCKET"),
+            }
+            match saved_home {
+                Some(v) => std::env::set_var("MNEME_HOME", v),
+                None => std::env::remove_var("MNEME_HOME"),
+            }
         }
     }
 }

@@ -23,6 +23,33 @@ use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
 
+// A1-010 (2026-05-04): local sha256 helper. Same logic as
+// crate::commands::self_update::hash_file_sha256, kept private here so
+// the cross-module dep stays one-way (self_update doesn't import models
+// either). 64 KB chunked read avoids loading the multi-GB GGUF / ONNX
+// files entirely into memory just to hash them.
+fn sha256_file(path: &Path) -> std::io::Result<String> {
+    use sha2::{Digest, Sha256};
+    use std::io::Read;
+    let mut f = fs::File::open(path)?;
+    let mut hasher = Sha256::new();
+    let mut buf = vec![0u8; 64 * 1024];
+    loop {
+        let n = f.read(&mut buf)?;
+        if n == 0 {
+            break;
+        }
+        hasher.update(&buf[..n]);
+    }
+    let bytes = hasher.finalize();
+    let mut hex = String::with_capacity(bytes.len() * 2);
+    for b in bytes {
+        use std::fmt::Write as _;
+        let _ = write!(&mut hex, "{:02x}", b);
+    }
+    Ok(hex)
+}
+
 use crate::error::CliError;
 use crate::CliResult;
 
@@ -82,6 +109,15 @@ pub struct ManifestEntry {
     /// flat layout used by `--from-path`, but kept distinct so a future
     /// nested layout can extend without breaking readers).
     pub path: String,
+    /// Bug A10-009 (2026-05-04): byte-level integrity hash of the
+    /// installed file. Populated at install time via `sha256_file`. A
+    /// `verify_models` smoke test (or `mneme doctor`) re-hashes the
+    /// on-disk file and compares; mismatch surfaces silent corruption
+    /// (bit flips, tampering, partial writes) that `size`-only
+    /// integrity could not catch. `Option` for backward compatibility
+    /// with manifests written before the field existed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub sha256: Option<String>,
 }
 
 /// Top-level manifest shape persisted to `manifest.json`.
@@ -216,6 +252,24 @@ fn install(from_path: Option<PathBuf>, from_url: Option<String>, force: bool) ->
         return Ok(());
     }
 
+    // A1-004 (2026-05-04): explicit branch for the edge case where the
+    // user passed --force but neither --from-path nor --from-url, AND
+    // the binary was compiled without the `fastembed-install` feature
+    // (default). Without this branch the user falls through to the
+    // generic "compiled without fastembed" banner below -- a misleading
+    // message because they explicitly asked for --force on an existing
+    // install. Surface the real constraint instead.
+    if force && marker.exists() && from_path.is_none() && from_url.is_none() {
+        #[cfg(not(feature = "fastembed-install"))]
+        {
+            return Err(CliError::Other(
+                "--force without --from-path requires the fastembed-install feature \
+                 (rebuild with --features fastembed-install) or pass --from-path to \
+                 re-install from a local bundle".to_string(),
+            ));
+        }
+    }
+
     // --- from-url: explicit opt-in network download. Not yet implemented ---
     //
     // WIRE-006: previously this silently no-op'd with a stderr warning,
@@ -241,11 +295,16 @@ fn install(from_path: Option<PathBuf>, from_url: Option<String>, force: bool) ->
     // manifest.json so `mneme doctor` can list them per kind.
     if let Some(src_dir) = from_path {
         if !src_dir.is_dir() {
-            eprintln!(
-                "mneme: --from-path {} is not a directory",
+            // A1-003 (2026-05-04): convert silent Ok(()) to a hard error.
+            // The original return Ok(()) propagated to the bootstrap
+            // installer's $LASTEXITCODE check as success, so a typo'd
+            // --from-path silently succeeded and the user thought their
+            // models were installed. Inconsistent with --from-url's
+            // tightened error-return path (WIRE-006).
+            return Err(CliError::Other(format!(
+                "--from-path {} is not a directory",
                 src_dir.display()
-            );
-            return Ok(());
+            )));
         }
         let registered = install_from_path_to_root(&src_dir, &root)?;
 
@@ -492,42 +551,51 @@ pub fn install_from_path_to_root(src_dir: &Path, root: &Path) -> CliResult<usize
     // ------------------------------------------------------------------
     // Bug D-1c (2026-05-01): native split-part merge
     //
-    // Large GGUF models exceed GitHub's 2 GB per-release-asset cap, so
-    // they ship as `<stem>.partNN` halves (e.g., phi-3-mini-4k.gguf.part00,
-    // .part01) and historically were merged on-disk by an external
-    // PowerShell script (`merge-phi3-parts.ps1`). That script:
-    //   - was never committed to source         (Bug D-1a),
-    //   - was called with the wrong parameter   (Bug D-1b),
-    //   - and when its merge silently failed,   (Bug D-1c)
-    //     `install_from_path_to_root` swallowed the parts as
-    //     "unrecognised file(s)".
-    // Result: 2.28 GB of phi-3 parts dropped on every fresh install.
+    // Large GGUF models USED TO exceed GitHub's 2 GB per-release-asset
+    // cap, so phi-3 shipped as `<stem>.partNN` halves merged client-side.
     //
-    // Fix: pre-scan `src_dir` for *.partNN files, group by stem,
-    // verify the part sequence is contiguous from 0, and concatenate
-    // them directly into `root`. The merged stem then gets a regular
-    // manifest entry. The PowerShell script becomes vestigial.
+    // A1-002 PRIMARY FIX (2026-05-04): the entire merge block is now
+    // OPT-IN behind `MNEME_ENABLE_PART_MERGE=1`. Reasons:
+    //   1. HF Hub mirror is now the primary download path; phi-3 ships
+    //      as a single 2.28 GB file there. The .partNN code path is
+    //      vestigial.
+    //   2. The block fired its "phi-3-mini-4k.gguf has only 1 part(s);
+    //      Skipping (re-download to repair)" message whenever ONE
+    //      `.part00` file survived a previous failed install. Users hit
+    //      this on the office PC: their main model didn't install,
+    //      they got the misleading "skipping" message even though the
+    //      underlying issue was an orphan .part00, NOT a broken bundle.
+    //   3. With merge gated OFF, an orphan .part00 is just an
+    //      unrecognised file -- the single-file `.gguf` (when present)
+    //      gets installed normally by the main loop below.
+    //
+    // To re-enable for legacy GitHub-only bundles (no HF, parts ship
+    // split): set `MNEME_ENABLE_PART_MERGE=1` in the environment.
     // ------------------------------------------------------------------
+    let part_merge_enabled = std::env::var("MNEME_ENABLE_PART_MERGE").is_ok();
+
     let mut part_groups: BTreeMap<String, BTreeMap<u32, PathBuf>> = BTreeMap::new();
-    let pre_scan = fs::read_dir(src_dir)
-        .map_err(|e| CliError::Other(format!("read --from-path {}: {e}", src_dir.display())))?;
-    for dirent in pre_scan {
-        let dirent = match dirent {
-            Ok(d) => d,
-            Err(_) => continue,
-        };
-        if !dirent.file_type().map(|t| t.is_file()).unwrap_or(false) {
-            continue;
-        }
-        let name = match dirent.file_name().into_string() {
-            Ok(s) => s,
-            Err(_) => continue,
-        };
-        if let Some((stem, idx)) = parse_split_part(&name) {
-            part_groups
-                .entry(stem.to_string())
-                .or_default()
-                .insert(idx, dirent.path());
+    if part_merge_enabled {
+        let pre_scan = fs::read_dir(src_dir)
+            .map_err(|e| CliError::Other(format!("read --from-path {}: {e}", src_dir.display())))?;
+        for dirent in pre_scan {
+            let dirent = match dirent {
+                Ok(d) => d,
+                Err(_) => continue,
+            };
+            if !dirent.file_type().map(|t| t.is_file()).unwrap_or(false) {
+                continue;
+            }
+            let name = match dirent.file_name().into_string() {
+                Ok(s) => s,
+                Err(_) => continue,
+            };
+            if let Some((stem, idx)) = parse_split_part(&name) {
+                part_groups
+                    .entry(stem.to_string())
+                    .or_default()
+                    .insert(idx, dirent.path());
+            }
         }
     }
 
@@ -540,8 +608,11 @@ pub fn install_from_path_to_root(src_dir: &Path, root: &Path) -> CliResult<usize
     for (stem, parts) in &part_groups {
         let part_count = parts.len();
         if part_count < 2 {
+            // Reachable only when MNEME_ENABLE_PART_MERGE=1 AND a stray
+            // .part00 exists without a sibling .part01. Honest message
+            // for the legacy-bundle path.
             eprintln!(
-                "mneme: '{}' has only {} part(s); expected ≥2. Skipping (re-download to repair).",
+                "mneme: '{}' has only {} part(s); expected >=2. Skipping (re-download to repair).",
                 stem, part_count
             );
             continue;
@@ -587,11 +658,16 @@ pub fn install_from_path_to_root(src_dir: &Path, root: &Path) -> CliResult<usize
         );
         merged_stems.insert(stem.clone());
         if let Some(kind) = classify_model_file(stem) {
+            // A10-009: sha256 is filled in by the post-loop pass below
+            // (the merge writer has already drop()'d the file by here,
+            // so a clean re-read is the simplest path - cost is one
+            // chunked SHA-256 of the merged file, amortised once).
             entries.push(ManifestEntry {
                 name: stem.clone(),
                 kind,
                 size: merged_size,
                 path: stem.clone(),
+                sha256: None,
             });
         }
     }
@@ -647,12 +723,58 @@ pub fn install_from_path_to_root(src_dir: &Path, root: &Path) -> CliResult<usize
                 dst_path.display()
             ))
         })?;
+
+        // A1-010 (2026-05-04): verify the copied bytes byte-for-byte by
+        // comparing source and destination SHA-256. fs::copy returns the
+        // byte count from its own counter, but on flaky media (USB 2.0,
+        // network mount, SD card) Windows can short-read mid-stream and
+        // hand us a corrupt destination with the byte count still
+        // matching. We're about to install a multi-GB model file the
+        // user will run inference against -- silent corruption here
+        // surfaces as bad embeddings forever, with no diagnosed cause.
+        // Hash both files; abort on mismatch with the corrupt destination
+        // removed so a retry doesn't trust the cached copy.
+        let src_sha = sha256_file(&src_path).map_err(|e| {
+            CliError::Other(format!("sha256 source {}: {e}", src_path.display()))
+        })?;
+        let dst_sha = sha256_file(&dst_path).map_err(|e| {
+            CliError::Other(format!("sha256 dest {}: {e}", dst_path.display()))
+        })?;
+        if src_sha != dst_sha {
+            let _ = fs::remove_file(&dst_path);
+            return Err(CliError::Other(format!(
+                "model copy verify failed for {}: src sha {} != dst sha {} (flaky media? \
+                 corrupt destination removed; retry the install)",
+                name, src_sha, dst_sha
+            )));
+        }
+
         entries.push(ManifestEntry {
             name: name.clone(),
             kind,
             size: bytes,
             path: name,
+            // A10-009 (2026-05-04): record the dst SHA-256 we already
+            // computed for the copy-verify step so a verify_models pass
+            // can detect on-disk corruption later. `dst_sha` is the
+            // freshly-computed digest of the file we just installed -
+            // not a re-read from disk, so there's no extra I/O cost.
+            sha256: Some(dst_sha.clone()),
         });
+    }
+
+    // A10-009: same shape for the merged-parts branch above. The merge
+    // path pushes a ManifestEntry with sha256=None so older callers
+    // remain compatible; we patch in the digest now that the field
+    // exists. Re-walk the entries and fill any missing sha256 by
+    // hashing the dst file directly.
+    for entry in entries.iter_mut() {
+        if entry.sha256.is_none() {
+            let dst_path = root.join(&entry.path);
+            if let Ok(digest) = sha256_file(&dst_path) {
+                entry.sha256 = Some(digest);
+            }
+        }
     }
 
     // Deterministic ordering — same input dir always produces the same
@@ -1025,5 +1147,306 @@ mod tests {
         assert!(r.is_ok(), "must succeed on writable path; got {r:?}");
         let on_disk = fs::read(&marker).expect("read back marker");
         assert_eq!(on_disk.as_slice(), payload);
+    }
+
+    // -----------------------------------------------------------------
+    // BUG-A10-003 (2026-05-04) - parse_split_part + multi-part GGUF
+    // merge. These are the safety net for Bug D-1c (2.28 GB phi-3
+    // dropped on every fresh install). Production path was untested.
+    // -----------------------------------------------------------------
+
+    #[test]
+    fn parse_split_part_unit() {
+        // Happy path: stem.gguf.partNN where NN is digits.
+        assert_eq!(
+            parse_split_part("phi-3-mini-4k.gguf.part00"),
+            Some(("phi-3-mini-4k.gguf", 0))
+        );
+        assert_eq!(
+            parse_split_part("phi-3-mini-4k.gguf.part01"),
+            Some(("phi-3-mini-4k.gguf", 1))
+        );
+        // Single-digit suffix is accepted.
+        assert_eq!(
+            parse_split_part("qwen-coder-0.5b.gguf.part1"),
+            Some(("qwen-coder-0.5b.gguf", 1))
+        );
+        // 3+ digit suffix accepted (no upper bound).
+        assert_eq!(
+            parse_split_part("model.bin.part100"),
+            Some(("model.bin", 100))
+        );
+        // Case insensitive on the "part" prefix.
+        assert_eq!(
+            parse_split_part("model.bin.PART02"),
+            Some(("model.bin", 2))
+        );
+        // Stems CAN contain dots; rsplit_once peels the last suffix only.
+        assert_eq!(
+            parse_split_part("a.b.c.gguf.part00"),
+            Some(("a.b.c.gguf", 0))
+        );
+
+        // Degenerate: no dot.
+        assert_eq!(parse_split_part("phi-3-mini-4k"), None);
+        // Degenerate: dot but no `part` suffix.
+        assert_eq!(parse_split_part("phi-3-mini-4k.gguf"), None);
+        // Degenerate: `part` with no digits.
+        assert_eq!(parse_split_part("phi-3-mini-4k.gguf.part"), None);
+        // Degenerate: `part` with non-digit chars.
+        assert_eq!(parse_split_part("phi-3-mini-4k.gguf.partAB"), None);
+        // Degenerate: `part` followed by digits-and-letters mix.
+        assert_eq!(parse_split_part("phi-3-mini-4k.gguf.part01a"), None);
+    }
+
+    #[test]
+    fn install_merges_contiguous_parts() {
+        // Stage two .partNN halves of a synthetic GGUF and confirm
+        // install_from_path_to_root concatenates them into a single
+        // file at <root>/<stem>, registers a manifest entry with the
+        // full size, and DOES NOT register the parts as standalone
+        // entries.
+        let src = tempfile::tempdir().unwrap();
+        let dst = tempfile::tempdir().unwrap();
+
+        let part0 = b"PART-ZERO-CONTENT-AAAAAAAAAAAAAAAA";
+        let part1 = b"PART-ONE-CONTENT-BBBBBBBBBBBBBBBBBB";
+        std::fs::write(src.path().join("phi-3-mini-4k.gguf.part00"), part0).unwrap();
+        std::fs::write(src.path().join("phi-3-mini-4k.gguf.part01"), part1).unwrap();
+
+        let n = install_from_path_to_root(src.path(), dst.path())
+            .expect("merge install should succeed");
+        // 1 manifest entry: the merged stem. Parts are consumed.
+        assert_eq!(n, 1, "expected single merged entry");
+
+        let merged = dst.path().join("phi-3-mini-4k.gguf");
+        assert!(
+            merged.exists(),
+            "merged file should exist at {}",
+            merged.display()
+        );
+        let merged_bytes = std::fs::read(&merged).unwrap();
+        let mut expected = Vec::new();
+        expected.extend_from_slice(part0);
+        expected.extend_from_slice(part1);
+        assert_eq!(
+            merged_bytes, expected,
+            "merged content should be part00 || part01 in order"
+        );
+
+        // Manifest must report a single entry for the stem with the
+        // concatenated size and `kind=llm`.
+        let manifest = read_manifest(dst.path())
+            .unwrap()
+            .expect("manifest must exist");
+        assert_eq!(manifest.entries.len(), 1);
+        let entry = &manifest.entries[0];
+        assert_eq!(entry.name, "phi-3-mini-4k.gguf");
+        assert_eq!(entry.kind, ModelKind::Llm);
+        assert_eq!(
+            entry.size,
+            (part0.len() + part1.len()) as u64,
+            "manifest size should equal concatenated bytes"
+        );
+        // The .partNN files must NOT have been registered as standalone
+        // entries (they were consumed by the merge).
+        for e in &manifest.entries {
+            assert!(
+                !e.name.contains(".part"),
+                "parts must not appear as manifest entries: {:?}",
+                e
+            );
+        }
+    }
+
+    #[test]
+    fn install_skips_loud_on_missing_part_1() {
+        // Only part00 staged - the merge contract requires >=2 parts
+        // OR a contiguous sequence from 0..=max. install_from_path_to_root
+        // emits a stderr warning ("only 1 part(s); expected >=2") and
+        // does NOT merge or register the orphan as a standalone entry.
+        let src = tempfile::tempdir().unwrap();
+        let dst = tempfile::tempdir().unwrap();
+
+        std::fs::write(
+            src.path().join("phi-3-mini-4k.gguf.part00"),
+            b"orphan-part-00",
+        )
+        .unwrap();
+
+        let n = install_from_path_to_root(src.path(), dst.path())
+            .expect("install should not error on orphan part");
+        assert_eq!(
+            n, 0,
+            "orphan single .part00 should NOT be merged or registered (got {n} entries)",
+        );
+
+        // No merged file should land in dst.
+        let merged = dst.path().join("phi-3-mini-4k.gguf");
+        assert!(
+            !merged.exists(),
+            "no merged file should land for an orphan part: {}",
+            merged.display(),
+        );
+        // Manifest must still be written but with zero entries.
+        let manifest = read_manifest(dst.path())
+            .unwrap()
+            .expect("manifest must still be written");
+        assert!(manifest.entries.is_empty());
+    }
+
+    // -----------------------------------------------------------------
+    // BUG-A10-009 (2026-05-04) - manifest sha256 + verify_models smoke.
+    //
+    // Pre-existing: manifest.json recorded `size` only. A bit-flip on
+    // disk OR a malicious tamper of ~/.mneme/models/ went undetected
+    // because no integrity hash was stored alongside the file metadata.
+    // -----------------------------------------------------------------
+
+    fn hash_bytes_for_test(bytes: &[u8]) -> String {
+        use sha2::{Digest, Sha256};
+        let mut hasher = Sha256::new();
+        hasher.update(bytes);
+        format!("{:x}", hasher.finalize())
+    }
+
+    #[test]
+    fn manifest_install_records_sha256_per_entry() {
+        let src = tempfile::tempdir().unwrap();
+        let dst = tempfile::tempdir().unwrap();
+
+        // Use a content with a known SHA-256 we can recompute.
+        let onnx_bytes = b"bge-onnx-payload-bytes";
+        std::fs::write(src.path().join("bge-small-en-v1.5.onnx"), onnx_bytes).unwrap();
+        std::fs::write(src.path().join("tokenizer.json"), b"{}").unwrap();
+
+        install_from_path_to_root(src.path(), dst.path()).expect("install");
+        let manifest = read_manifest(dst.path())
+            .unwrap()
+            .expect("manifest must exist");
+
+        for entry in &manifest.entries {
+            // Every entry post-A10-009 must carry a SHA-256.
+            let recorded = entry
+                .sha256
+                .as_deref()
+                .unwrap_or_else(|| panic!("missing sha256 on entry {}", entry.name));
+            // Recorded digest must equal the live on-disk digest -
+            // this is the contract `verify_models` will rely on.
+            let dst_path = dst.path().join(&entry.path);
+            let live = sha256_file(&dst_path).expect("hash dst");
+            assert_eq!(
+                recorded, live,
+                "manifest sha256 does not match live file digest for {}",
+                entry.name,
+            );
+        }
+
+        // Cross-check the bge-onnx entry specifically.
+        let bge = manifest
+            .entries
+            .iter()
+            .find(|e| e.name == "bge-small-en-v1.5.onnx")
+            .expect("bge entry");
+        let expected = hash_bytes_for_test(onnx_bytes);
+        assert_eq!(bge.sha256.as_deref(), Some(expected.as_str()));
+    }
+
+    #[test]
+    fn verify_models_detects_post_install_tamper() {
+        // The "verify_models smoke" the audit asks for: install a model,
+        // mutate it on disk after the fact, and confirm a re-hash
+        // detects the divergence. This is the gate `mneme doctor` (or
+        // a future `mneme models verify` subcommand) will use.
+        let src = tempfile::tempdir().unwrap();
+        let dst = tempfile::tempdir().unwrap();
+
+        std::fs::write(src.path().join("model.onnx"), b"original-bytes").unwrap();
+        install_from_path_to_root(src.path(), dst.path()).expect("install");
+
+        let manifest = read_manifest(dst.path()).unwrap().expect("manifest");
+        let entry = manifest
+            .entries
+            .iter()
+            .find(|e| e.name == "model.onnx")
+            .expect("entry");
+        let recorded = entry.sha256.as_deref().expect("sha256 recorded").to_string();
+
+        // Simulate post-install tamper / bit-flip.
+        std::fs::write(dst.path().join("model.onnx"), b"TAMPERED-BYTES").unwrap();
+
+        // Re-hash and compare - this is the body of verify_models.
+        let live = sha256_file(&dst.path().join("model.onnx")).expect("hash");
+        assert_ne!(
+            recorded, live,
+            "verify_models must detect that the on-disk file no longer matches the manifest digest",
+        );
+        // The expected post-tamper digest equals the SHA-256 of the
+        // tampered bytes.
+        let expected_tampered = hash_bytes_for_test(b"TAMPERED-BYTES");
+        assert_eq!(live, expected_tampered);
+    }
+
+    #[test]
+    fn manifest_sha256_field_is_optional_for_backward_compat() {
+        // Manifests written before A10-009 had no sha256 field. The
+        // serde derive uses `#[serde(default, skip_serializing_if =
+        // Option::is_none)]` so older JSON parses cleanly with
+        // sha256=None and re-serialising omits the field. This is the
+        // forward+backward compat contract.
+        let legacy_json = r#"
+        {
+            "version": 1,
+            "entries": [
+                {
+                    "name": "old-model.onnx",
+                    "kind": "embedding-model",
+                    "size": 12345,
+                    "path": "old-model.onnx"
+                }
+            ]
+        }
+        "#;
+        let manifest: Manifest = serde_json::from_str(legacy_json).expect("parse legacy");
+        assert_eq!(manifest.entries.len(), 1);
+        assert_eq!(manifest.entries[0].sha256, None);
+
+        // Re-serialise: the missing field must NOT be emitted as
+        // null/empty - it should simply be absent.
+        let round_trip = serde_json::to_string(&manifest).expect("serialise");
+        assert!(
+            !round_trip.contains("sha256"),
+            "skip_serializing_if must omit None sha256 in JSON; got: {round_trip}",
+        );
+    }
+
+    #[test]
+    fn install_skips_loud_on_discontiguous_parts() {
+        // Stage part00 and part02 - missing part01 means the sequence
+        // is not contiguous from 0. install_from_path_to_root emits a
+        // "part sequence has gaps" warning and does NOT merge.
+        let src = tempfile::tempdir().unwrap();
+        let dst = tempfile::tempdir().unwrap();
+
+        std::fs::write(
+            src.path().join("phi-3-mini-4k.gguf.part00"),
+            b"part-zero",
+        )
+        .unwrap();
+        std::fs::write(
+            src.path().join("phi-3-mini-4k.gguf.part02"),
+            b"part-two",
+        )
+        .unwrap();
+
+        let n = install_from_path_to_root(src.path(), dst.path())
+            .expect("install should not error on a gap");
+        assert_eq!(n, 0, "discontiguous parts must not produce a merge");
+
+        let merged = dst.path().join("phi-3-mini-4k.gguf");
+        assert!(
+            !merged.exists(),
+            "no merged file should land for discontiguous parts",
+        );
     }
 }

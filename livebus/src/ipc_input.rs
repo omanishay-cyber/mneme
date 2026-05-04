@@ -31,7 +31,7 @@ use interprocess::local_socket::{GenericFilePath, ToFsName};
 #[cfg(windows)]
 use interprocess::local_socket::{GenericNamespaced, ToNsName};
 use interprocess::local_socket::{ListenerOptions, Name};
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncReadExt, AsyncWriteExt, BufReader};
 use tracing::{debug, error, info, warn};
 
 use crate::error::LivebusError;
@@ -129,19 +129,71 @@ fn build_socket_name(path: &std::path::Path) -> Result<Name<'static>, LivebusErr
 async fn handle_connection(conn: IpcStream, mgr: SubscriberManager) -> Result<(), LivebusError> {
     let (rd, mut wr) = tokio::io::split(conn);
     let mut reader = BufReader::with_capacity(64 * 1024, rd);
-    let mut line = String::new();
+    // BUG-A4-002 fix: bound the per-line read at MAX_FRAME_BYTES + 1
+    // BEFORE allocating, so a peer that writes garbage without a newline
+    // cannot drive the String to multi-GiB heap allocations. The
+    // previous implementation called `read_line` (which grows the buffer
+    // unboundedly) and only checked the size *after* the read returned,
+    // making the cap a no-op against an OOM-DoS attempt.
+    //
+    // We use `AsyncBufReadExt::read_until` over a `Take` adapter on the
+    // underlying reader: `Take` short-circuits the read at the byte
+    // limit, after which `read_until` returns with whatever was buffered
+    // and we treat the situation as an over-large frame. The +1 is so
+    // we can distinguish "exactly at the cap" from "over the cap".
+    let mut line_buf: Vec<u8> = Vec::with_capacity(4096);
     let bus = mgr.bus();
 
     loop {
-        line.clear();
-        let n = match reader.read_line(&mut line).await {
-            Ok(0) => break, // peer closed
-            Ok(n) => n,
-            Err(e) => return Err(LivebusError::Io(e)),
-        };
-        if n > MAX_FRAME_BYTES {
-            return Err(LivebusError::FrameTooLarge(n, MAX_FRAME_BYTES));
+        line_buf.clear();
+        // Manual byte-by-byte (well, buffered-byte) read into `line_buf`
+        // with a hard cap. We keep using the outer `BufReader`'s 64 KiB
+        // buffer for throughput, but bound the per-frame allocation
+        // ourselves rather than trusting `read_line` to honour the cap
+        // (it doesn't -- it grows the destination String unboundedly).
+        let cap: usize = MAX_FRAME_BYTES;
+        let mut byte = [0u8; 1];
+        let mut frame_done = false;
+        let mut peer_closed = false;
+        loop {
+            match reader.read(&mut byte).await {
+                Ok(0) => {
+                    peer_closed = true;
+                    break;
+                }
+                Ok(_) => {
+                    line_buf.push(byte[0]);
+                    if byte[0] == b'\n' {
+                        frame_done = true;
+                        break;
+                    }
+                    if line_buf.len() > cap {
+                        return Err(LivebusError::FrameTooLarge(line_buf.len(), cap));
+                    }
+                }
+                Err(e) => return Err(LivebusError::Io(e)),
+            }
         }
+        if peer_closed && line_buf.is_empty() {
+            break; // clean EOF
+        }
+        if peer_closed && !frame_done {
+            // half-line at EOF -- treat as protocol error and drop.
+            return Err(LivebusError::Io(std::io::Error::new(
+                std::io::ErrorKind::UnexpectedEof,
+                "ipc peer closed mid-frame",
+            )));
+        }
+        // UTF-8 validate -- malformed bytes get the same treatment as
+        // bad JSON below (skip with an error ack), not connection drop.
+        let line: &str = match std::str::from_utf8(&line_buf) {
+            Ok(s) => s,
+            Err(e) => {
+                let msg = format!("{{\"op\":\"error\",\"message\":\"bad utf8: {e}\"}}\n");
+                let _ = wr.write_all(msg.as_bytes()).await;
+                continue;
+            }
+        };
         let trimmed = line.trim();
         if trimmed.is_empty() {
             continue;

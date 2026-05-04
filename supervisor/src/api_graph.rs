@@ -471,8 +471,12 @@ async fn stub_handler() -> impl IntoResponse {
 // 1. Picks the first project under `<MNEME_HOME>/projects/` whose
 //    `<layer>.db` exists. (D3 will let the UI choose a project.)
 // 2. Opens the layer DB read-only.
-// 3. Runs the query inside `spawn_blocking` — `rusqlite` is sync; doing
+// 3. Runs the query inside `spawn_blocking` -- `rusqlite` is sync; doing
 //    this on the tokio runtime would starve other handlers under load.
+//    BUG-A4-001 fix (2026-05-04): the helper `with_layer_db_sync` now
+//    actually dispatches to `tokio::task::spawn_blocking` to honour
+//    this contract; previously the sync work ran inline on the tokio
+//    worker.
 // 4. Serialises into the wire shape `vision/src/api/*` expects.
 //
 // Any I/O / SQL error short-circuits to an EMPTY payload with HTTP 200,
@@ -528,12 +532,16 @@ fn find_active_layer_db(
     candidates.into_iter().next()
 }
 
-/// Run a `rusqlite` query inline (no `spawn_blocking`). Each query
-/// here is small (≤2k rows) and the read is bounded by short busy
-/// timeout, so blocking the async runtime briefly is acceptable. Opens
-/// via plain path with `SQLITE_OPEN_READ_ONLY` — same flags `bun:sqlite`
-/// uses successfully against the same db while the store-worker's
-/// writer is active. Silent fall to `None` on any error.
+/// Run a `rusqlite` query on the blocking-thread pool via
+/// `tokio::task::spawn_blocking`. `rusqlite` is synchronous; running it
+/// directly on the tokio runtime can starve other handlers (and the IPC
+/// accept loop) under writer contention because the 500 ms busy_timeout
+/// blocks the worker thread. BUG-A4-001 fix: dispatch every shard read
+/// to the blocking pool so async workers stay free.
+///
+/// Opens via plain path with `SQLITE_OPEN_READ_ONLY` -- same flags
+/// `bun:sqlite` uses successfully against the same db while the
+/// store-worker's writer is active. Silent fall to `None` on any error.
 ///
 /// `requested_project` threads the optional `?project=<hash>` param
 /// from the request. When `Some`, the shard at
@@ -541,28 +549,54 @@ fn find_active_layer_db(
 /// "first shard alphabetically" fallback fires. This lets the multi-
 /// project picker in the vision SPA switch shards without breaking
 /// callers (curl, the old Bun dev server) that never pass the param.
-fn with_layer_db_sync<F, T>(
+async fn with_layer_db_sync<F, T>(
     state: &ApiGraphState,
     layer: &'static str,
     requested_project: Option<&str>,
     work: F,
 ) -> Option<T>
 where
-    F: FnOnce(&rusqlite::Connection) -> Option<T>,
+    F: FnOnce(&rusqlite::Connection) -> Option<T> + Send + 'static,
+    T: Send + 'static,
 {
-    let db_path = find_active_layer_db(state, layer, requested_project)?;
-    let conn = match rusqlite::Connection::open_with_flags(
-        &db_path,
-        rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
-    ) {
-        Ok(c) => c,
+    // Clone what we need to satisfy the `'static` bound for spawn_blocking.
+    // ApiGraphState is Clone (Arc-backed) and the requested project hash is
+    // a short owned string -- both cheap.
+    let state_for_blocking = state.clone();
+    let requested_owned: Option<String> = requested_project.map(|s| s.to_string());
+
+    match tokio::task::spawn_blocking(move || {
+        let db_path = find_active_layer_db(
+            &state_for_blocking,
+            layer,
+            requested_owned.as_deref(),
+        )?;
+        let conn = match rusqlite::Connection::open_with_flags(
+            &db_path,
+            rusqlite::OpenFlags::SQLITE_OPEN_READ_ONLY,
+        ) {
+            Ok(c) => c,
+            Err(e) => {
+                tracing::warn!(
+                    error = %e,
+                    layer,
+                    db = %db_path.display(),
+                    "open shard failed"
+                );
+                return None;
+            }
+        };
+        let _ = conn.busy_timeout(std::time::Duration::from_millis(500));
+        work(&conn)
+    })
+    .await
+    {
+        Ok(v) => v,
         Err(e) => {
-            tracing::warn!(error = %e, layer, db = %db_path.display(), "open shard failed");
-            return None;
+            tracing::warn!(error = %e, layer, "with_layer_db_sync: spawn_blocking join error");
+            None
         }
-    };
-    let _ = conn.busy_timeout(std::time::Duration::from_millis(500));
-    work(&conn)
+    }
 }
 
 /// Serialised graph node — matches `GraphNode` in `vision/src/api.ts`.
@@ -686,6 +720,7 @@ async fn api_graph_nodes(
                     .collect(),
             )
         })
+        .await
         .unwrap_or_default();
     Json(nodes)
 }
@@ -729,6 +764,7 @@ async fn api_graph_edges(
                     .collect(),
             )
         })
+        .await
         .unwrap_or_default();
     Json(edges)
 }
@@ -739,8 +775,17 @@ async fn api_graph_status(
     Query(q): Query<ProjectQuery>,
 ) -> impl IntoResponse {
     let project_param = q.project.as_deref();
-    let shard_root: Option<String> = find_active_layer_db(&state, "graph", project_param)
-        .and_then(|p| p.parent().map(|q| q.display().to_string()));
+    // BUG-A4-006 fix: `find_active_layer_db` does N+1 sync read_dir/stat
+    // syscalls. Run it on the blocking-thread pool so the async runtime
+    // stays responsive under burst polling from the vision SPA.
+    let state_for_locator = state.clone();
+    let project_owned: Option<String> = project_param.map(|s| s.to_string());
+    let shard_root: Option<String> = tokio::task::spawn_blocking(move || {
+        find_active_layer_db(&state_for_locator, "graph", project_owned.as_deref())
+            .and_then(|p| p.parent().map(|q| q.display().to_string()))
+    })
+    .await
+    .unwrap_or(None);
 
     let stats: GraphStatusOut = with_layer_db_sync(&state, "graph", project_param, |conn| {
         let nodes: i64 = conn
@@ -776,6 +821,7 @@ async fn api_graph_status(
             by_kind: serde_json::Value::Object(by_kind),
         })
     })
+    .await
     .unwrap_or(GraphStatusOut {
         project: None,
         shard_root: None,
@@ -828,6 +874,7 @@ async fn api_graph_files(
                 .ok()?;
             Some(rows.filter_map(|r| r.ok()).collect())
         })
+        .await
         .unwrap_or_default();
     Json(files)
 }
@@ -886,6 +933,7 @@ async fn api_graph_findings(
                 .ok()?;
             Some(rows.filter_map(|r| r.ok()).collect())
         })
+        .await
         .unwrap_or_default();
     Json(findings)
 }
@@ -1012,6 +1060,7 @@ async fn api_graph_file_tree(
         }
         Some(root)
     })
+    .await
     .unwrap_or_else(|| FileTreeNodeOut::new("project"));
     Json(tree)
 }
@@ -1115,6 +1164,7 @@ async fn api_graph_kind_flow(
                 .collect();
             Some(KindFlowPayloadOut { nodes, links })
         })
+        .await
         .unwrap_or_default();
     Json(payload)
 }
@@ -1210,6 +1260,7 @@ async fn api_graph_domain_flow(
                 .collect();
             Some(DomainFlowPayloadOut { nodes, links })
         })
+        .await
         .unwrap_or_default();
     Json(payload)
 }
@@ -1276,7 +1327,8 @@ async fn api_graph_community_matrix(
             .filter_map(|r| r.ok())
             .collect();
         Some((comm_rows, members))
-    });
+    })
+    .await;
 
     let (comm_rows, members) = match semantic_data {
         Some(d) => d,
@@ -1303,9 +1355,14 @@ async fn api_graph_community_matrix(
     }
 
     // Step 2: walk edges in graph.db, accumulate matrix[i][j].
+    // BUG-A4-001 fix: closure runs on the blocking-thread pool, so we
+    // must move (`node_to_comm`, `matrix`) in by value and return the
+    // mutated matrix back out -- the previous `&mut`-by-capture pattern
+    // is not `Send + 'static` and would not compile under spawn_blocking.
     let n = comm_rows.len();
-    let mut matrix: Vec<Vec<i64>> = vec![vec![0_i64; n]; n];
-    let _ = with_layer_db_sync(&state, "graph", project_param, |conn| {
+    let initial_matrix: Vec<Vec<i64>> = vec![vec![0_i64; n]; n];
+    let matrix: Vec<Vec<i64>> = with_layer_db_sync(&state, "graph", project_param, move |conn| {
+        let mut local_matrix = initial_matrix;
         let mut stmt = conn
             .prepare(
                 "SELECT source_qualified, target_qualified \
@@ -1319,15 +1376,17 @@ async fn api_graph_community_matrix(
             let si = node_to_comm.get(&r.0);
             let ti = node_to_comm.get(&r.1);
             if let (Some(&s), Some(&t)) = (si, ti) {
-                if let Some(row) = matrix.get_mut(s) {
+                if let Some(row) = local_matrix.get_mut(s) {
                     if let Some(cell) = row.get_mut(t) {
                         *cell += 1;
                     }
                 }
             }
         }
-        Some(())
-    });
+        Some(local_matrix)
+    })
+    .await
+    .unwrap_or_else(|| vec![vec![0_i64; n]; n]);
 
     let communities: Vec<CommunityInfoOut> = comm_rows
         .into_iter()
@@ -1397,6 +1456,7 @@ async fn api_graph_commits(
                 .ok()?;
             Some(rows.filter_map(|r| r.ok()).collect())
         })
+        .await
         .unwrap_or_default();
     Json(commits)
 }
@@ -1483,7 +1543,8 @@ async fn api_graph_heatmap(
             }
         }
         Some((files, complexity))
-    });
+    })
+    .await;
 
     let (files, complexity) = match from_graph {
         Some(d) => d,
@@ -1527,6 +1588,7 @@ async fn api_graph_heatmap(
             }
             Some(map)
         })
+        .await
         .unwrap_or_default();
 
     let rows = files
@@ -1790,6 +1852,7 @@ async fn api_graph_test_coverage(
                 .collect();
             Some(out)
         })
+        .await
         .unwrap_or_default();
     Json(rows)
 }
@@ -1957,6 +2020,7 @@ async fn api_graph_layers(
                 entries,
             })
         })
+        .await
         .unwrap_or_default();
     Json(payload)
 }
@@ -2057,7 +2121,8 @@ async fn api_graph_galaxy_3d(
             .collect();
 
         Some((nodes, degree, edges))
-    });
+    })
+    .await;
 
     let (nodes_raw, degree, edges_raw) = match from_graph {
         Some(d) => d,
@@ -2080,6 +2145,7 @@ async fn api_graph_galaxy_3d(
             }
             Some(map)
         })
+        .await
         .unwrap_or_default();
 
     let nodes: Vec<Galaxy3DNodeOut> = nodes_raw
@@ -2198,6 +2264,7 @@ async fn api_graph_theme_palette(
             }
             Some(deduped)
         })
+        .await
         .unwrap_or_default();
     Json(rows)
 }
@@ -2359,6 +2426,7 @@ async fn api_graph_hierarchy(
             }
             Some(root)
         })
+        .await
         .unwrap_or_else(|| HierarchyNodeOut::new("project"));
     Json(tree)
 }

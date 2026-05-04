@@ -39,7 +39,19 @@ fn build_catalog() -> Vec<SecretPattern> {
         p(
             "secrets.aws-secret",
             "AWS secret key (heuristic)",
-            r#"(?i)\baws(.{0,20})?(secret|access).{0,20}?["'][A-Za-z0-9/+=]{40}["']"#,
+            // A3-003 (2026-05-04): rewritten to eliminate regex bomb.
+            //
+            // Original: r#"(?i)\baws(.{0,20})?(secret|access).{0,20}?["'][A-Za-z0-9/+=]{40}["']"#
+            //          two `.{0,20}` runs with `(?i)` over universal-applies-to.
+            //          On a `.test.ts` file with synthetic AWS-shaped strings,
+            //          per-file scan time grew to seconds-to-minutes -- the
+            //          most likely cause of the observed Orion B12 hang.
+            //
+            // Fix: anchor the high-signal shape (40-char base64 quoted string)
+            //      FIRST, then check for the `aws` marker on the same line.
+            //      No multi-segment greedy `.` runs, no `(?i)` on the secret
+            //      payload (only on the marker word).
+            r#"["'][A-Za-z0-9/+=]{40}["'][^\n]{0,40}?(?i)\baws"#,
         ),
         p(
             "secrets.azure-storage-key",
@@ -255,10 +267,42 @@ fn build_catalog() -> Vec<SecretPattern> {
 }
 
 /// File extensions skipped by the scanner — binary blobs etc.
-const SKIP_EXTS: &[&str] = &[
-    "png", "jpg", "jpeg", "gif", "webp", "ico", "pdf", "zip", "tar", "gz", "exe", "dll", "bin",
-    "ttf", "woff", "woff2", "mp3", "mp4", "wav", "ogg",
+/// A3-004 (2026-05-04): switched from inverted skip-list to an explicit
+/// allowlist of source extensions plausibly containing credentials.
+///
+/// The previous SKIP_EXTS approach treated any non-binary file as eligible.
+/// Result: the secrets scanner ran 44 regexes against multi-MB lockfiles
+/// (`pnpm-lock.yaml`), `.min.js` bundles, generated `.geojson`, npm-shrinkwrap
+/// JSON, etc. Combined with the pre-A3-003 aws-secret regex bomb, a single
+/// large file could exhaust the per-file 60 s scanner budget.
+///
+/// New rule: only scan extensions where a hand-typed credential plausibly
+/// lives. Build artifacts and lockfiles are excluded -- if a developer
+/// somehow checked a secret into a lockfile, gitleaks will find it; we
+/// don't need to pay the per-build cost.
+const SECRETS_EXTS: &[&str] = &[
+    // Code
+    "ts", "tsx", "js", "jsx", "mjs", "cjs",
+    "py", "rb", "go", "rs", "java", "kt", "swift",
+    "c", "cc", "cpp", "h", "hh", "hpp",
+    "cs", "fs", "vb", "php", "scala", "lua", "pl", "pm",
+    // Config
+    "yaml", "yml", "toml", "ini", "conf", "cfg", "properties",
+    "env", "dotenv",
+    // Shell / build
+    "sh", "bash", "zsh", "fish", "ps1", "psm1", "psd1", "bat", "cmd",
+    "dockerfile", "containerfile",
+    // Data and docs (developers paste secrets into READMEs more often than they should)
+    "json", "md", "markdown", "txt", "rst",
+    // Web
+    "html", "htm", "css", "scss", "sass", "less", "vue", "svelte",
 ];
+
+/// A3-004: per-file content cap. When a file exceeds this size, only
+/// the first 1 MiB is scanned. 99% of source files fit comfortably; the
+/// long tail (lockfiles, generated bundles) gets a partial scan rather
+/// than burning the per-file timeout budget.
+const MAX_SECRETS_BYTES: usize = 1_048_576;
 
 /// Gitleaks-style secret scanner.
 pub struct SecretsScanner;
@@ -285,18 +329,38 @@ impl Scanner for SecretsScanner {
     }
 
     fn applies_to(&self, file: &Path) -> bool {
-        !matches!(
-            file.extension().and_then(|e| e.to_str()),
-            Some(ext) if SKIP_EXTS.iter().any(|s| s.eq_ignore_ascii_case(ext))
-        )
+        // A3-004 (2026-05-04): allowlist source extensions only.
+        file.extension()
+            .and_then(|e| e.to_str())
+            .map(|ext| {
+                SECRETS_EXTS
+                    .iter()
+                    .any(|allowed| allowed.eq_ignore_ascii_case(ext))
+            })
+            .unwrap_or(false)
     }
 
     fn scan(&self, file: &Path, content: &str, _ast: Option<Ast<'_>>) -> Vec<Finding> {
         let file_str = file.to_string_lossy().to_string();
         let mut out = Vec::new();
+
+        // A3-004 (2026-05-04): cap per-file scan content at MAX_SECRETS_BYTES.
+        // Snap to a UTF-8 char boundary so we don't slice mid-codepoint and
+        // hand the regex engine an invalid &str (which it can still scan
+        // but logs a warn-worthy boundary on debug builds).
+        let scan_slice: &str = if content.len() > MAX_SECRETS_BYTES {
+            let mut end = MAX_SECRETS_BYTES;
+            while end > 0 && !content.is_char_boundary(end) {
+                end -= 1;
+            }
+            &content[..end]
+        } else {
+            content
+        };
+
         for pat in CATALOG.iter() {
-            for m in pat.re.find_iter(content) {
-                let (line, col) = line_col_of(content, m.start());
+            for m in pat.re.find_iter(scan_slice) {
+                let (line, col) = line_col_of(scan_slice, m.start());
                 out.push(Finding::new_line(
                     pat.rule_id.to_string(),
                     Severity::Critical,

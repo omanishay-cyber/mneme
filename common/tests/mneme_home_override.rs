@@ -46,14 +46,24 @@ use std::sync::Mutex;
 static ENV_LOCK: Mutex<()> = Mutex::new(());
 
 /// Helper: snapshot, set, run closure, restore — for `MNEME_HOME`.
+///
+/// BUG-A2-038: env mutations are wrapped in `unsafe { ... }` for forward-
+/// compat with Rust 1.81+ edition 2024 where `set_var`/`remove_var`
+/// require unsafe. SAFETY: ENV_LOCK serialises every env-touching test
+/// in this file, and these mutations happen before/after the closure
+/// (no concurrent read by f's body via getenv from other threads).
 fn with_mneme_home<F: FnOnce(&PathBuf)>(custom_root: &PathBuf, f: F) {
     let _guard = ENV_LOCK.lock().unwrap();
     let saved = std::env::var("MNEME_HOME").ok();
-    std::env::set_var("MNEME_HOME", custom_root);
+    unsafe {
+        std::env::set_var("MNEME_HOME", custom_root);
+    }
     f(custom_root);
-    match saved {
-        Some(v) => std::env::set_var("MNEME_HOME", v),
-        None => std::env::remove_var("MNEME_HOME"),
+    unsafe {
+        match saved {
+            Some(v) => std::env::set_var("MNEME_HOME", v),
+            None => std::env::remove_var("MNEME_HOME"),
+        }
     }
 }
 
@@ -77,7 +87,10 @@ fn cli_runtime_dir_pattern_lands_under_override() {
     let custom = std::env::temp_dir().join("mneme-home-test-B");
     with_mneme_home(&custom, |root| {
         let saved_runtime = std::env::var("MNEME_RUNTIME_DIR").ok();
-        std::env::remove_var("MNEME_RUNTIME_DIR");
+        // SAFETY: BUG-A2-038 — ENV_LOCK held across this whole test.
+        unsafe {
+            std::env::remove_var("MNEME_RUNTIME_DIR");
+        }
 
         let pm = PathManager::default_root();
         let runtime = pm.root().join("run");
@@ -87,9 +100,11 @@ fn cli_runtime_dir_pattern_lands_under_override() {
         );
         assert_eq!(runtime, root.join("run"));
 
-        match saved_runtime {
-            Some(v) => std::env::set_var("MNEME_RUNTIME_DIR", v),
-            None => std::env::remove_var("MNEME_RUNTIME_DIR"),
+        unsafe {
+            match saved_runtime {
+                Some(v) => std::env::set_var("MNEME_RUNTIME_DIR", v),
+                None => std::env::remove_var("MNEME_RUNTIME_DIR"),
+            }
         }
     });
 }
@@ -100,14 +115,19 @@ fn cli_state_dir_pattern_lands_under_override() {
     let custom = std::env::temp_dir().join("mneme-home-test-C");
     with_mneme_home(&custom, |root| {
         let saved_state = std::env::var("MNEME_STATE_DIR").ok();
-        std::env::remove_var("MNEME_STATE_DIR");
+        // SAFETY: BUG-A2-038 — ENV_LOCK serialises this test.
+        unsafe {
+            std::env::remove_var("MNEME_STATE_DIR");
+        }
 
         let pm = PathManager::default_root();
         assert_eq!(pm.root(), root.as_path());
 
-        match saved_state {
-            Some(v) => std::env::set_var("MNEME_STATE_DIR", v),
-            None => std::env::remove_var("MNEME_STATE_DIR"),
+        unsafe {
+            match saved_state {
+                Some(v) => std::env::set_var("MNEME_STATE_DIR", v),
+                None => std::env::remove_var("MNEME_STATE_DIR"),
+            }
         }
     });
 }
@@ -226,16 +246,21 @@ fn supervisor_jobs_db_pattern_lands_under_override() {
     let custom = std::env::temp_dir().join("mneme-home-test-M");
     with_mneme_home(&custom, |root| {
         let saved = std::env::var("MNEME_JOBS_DB").ok();
-        std::env::remove_var("MNEME_JOBS_DB");
+        // SAFETY: BUG-A2-038 — ENV_LOCK serialises this test.
+        unsafe {
+            std::env::remove_var("MNEME_JOBS_DB");
+        }
 
         let pm = PathManager::default_root();
         let jobs_db = pm.root().join("run").join("jobs.db");
         assert!(jobs_db.starts_with(root));
         assert_eq!(jobs_db, root.join("run").join("jobs.db"));
 
-        match saved {
-            Some(v) => std::env::set_var("MNEME_JOBS_DB", v),
-            None => std::env::remove_var("MNEME_JOBS_DB"),
+        unsafe {
+            match saved {
+                Some(v) => std::env::set_var("MNEME_JOBS_DB", v),
+                None => std::env::remove_var("MNEME_JOBS_DB"),
+            }
         }
     });
 }
@@ -272,7 +297,10 @@ fn worker_ipc_discovery_lands_under_override() {
     let custom = std::env::temp_dir().join("mneme-home-test-P");
     with_mneme_home(&custom, |root| {
         let saved = std::env::var("MNEME_SUPERVISOR_SOCKET").ok();
-        std::env::remove_var("MNEME_SUPERVISOR_SOCKET");
+        // SAFETY: BUG-A2-038 — ENV_LOCK serialises this test.
+        unsafe {
+            std::env::remove_var("MNEME_SUPERVISOR_SOCKET");
+        }
 
         let resolved = discover_socket_path().expect("legacy fallback always resolves");
         // The resolved path may be either the supervisor.pipe contents
@@ -286,9 +314,11 @@ fn worker_ipc_discovery_lands_under_override() {
             "discover_socket_path returned {resolved:?}, expected prefix {root:?}"
         );
 
-        match saved {
-            Some(v) => std::env::set_var("MNEME_SUPERVISOR_SOCKET", v),
-            None => std::env::remove_var("MNEME_SUPERVISOR_SOCKET"),
+        unsafe {
+            match saved {
+                Some(v) => std::env::set_var("MNEME_SUPERVISOR_SOCKET", v),
+                None => std::env::remove_var("MNEME_SUPERVISOR_SOCKET"),
+            }
         }
     });
 }
@@ -299,7 +329,10 @@ fn empty_mneme_home_falls_back_to_dirs_home() {
     // resolver falls through to `dirs::home_dir().join(".mneme")`.
     let _guard = ENV_LOCK.lock().unwrap();
     let saved = std::env::var("MNEME_HOME").ok();
-    std::env::set_var("MNEME_HOME", "");
+    // SAFETY: BUG-A2-038 — ENV_LOCK serialises this test.
+    unsafe {
+        std::env::set_var("MNEME_HOME", "");
+    }
 
     let pm = PathManager::default_root();
     // We can't assert the absolute path (test machine differs) but we
@@ -310,8 +343,10 @@ fn empty_mneme_home_falls_back_to_dirs_home() {
         "expected fallback root to end with `.mneme` or `mneme`, got {root_str}"
     );
 
-    match saved {
-        Some(v) => std::env::set_var("MNEME_HOME", v),
-        None => std::env::remove_var("MNEME_HOME"),
+    unsafe {
+        match saved {
+            Some(v) => std::env::set_var("MNEME_HOME", v),
+            None => std::env::remove_var("MNEME_HOME"),
+        }
     }
 }

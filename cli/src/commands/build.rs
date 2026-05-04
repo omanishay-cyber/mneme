@@ -2345,7 +2345,7 @@ pub(crate) fn audit_route(inline: bool) -> AuditRoute {
 /// `mneme audit` later.
 async fn run_audit_pass(project: &Path, inline: bool, children: &BuildChildRegistry) -> AuditStats {
     let route = audit_route(inline);
-    let result: CliResult<()> = match route {
+    let result: CliResult<AuditRouteTaken> = match route {
         AuditRoute::Inline => {
             // 4.3: bypass `audit::run` entirely. That entrypoint dials
             // the supervisor first and `IpcClient::request` will
@@ -2362,6 +2362,7 @@ async fn run_audit_pass(project: &Path, inline: bool, children: &BuildChildRegis
                 Some(children.clone()),
             )
             .await
+            .map(|_| AuditRouteTaken::Inline)
         }
         AuditRoute::IpcWithFallback => {
             // B-001/B-002 (v0.3.2): try IPC ONCE with no-autospawn +
@@ -2380,15 +2381,15 @@ async fn run_audit_pass(project: &Path, inline: bool, children: &BuildChildRegis
         }
     };
     match result {
-        Ok(()) => AuditStats {
+        // A1-025 (2026-05-04): surface the actual taken path in the
+        // build summary instead of the previously-opaque
+        // "ok (ipc-or-fallback)". User now sees `audit: ok
+        // (path=ipc-supervisor)` vs `audit: ok (path=direct-fallback)`
+        // vs `audit: ok (path=inline)` so they can tell whether the
+        // supervisor handled it or the CLI fell through.
+        Ok(taken) => AuditStats {
             ran: true,
-            status: format!(
-                "ok ({})",
-                match route {
-                    AuditRoute::Inline => "inline",
-                    AuditRoute::IpcWithFallback => "ipc-or-fallback",
-                }
-            ),
+            status: format!("ok (path={})", taken.label()),
         },
         Err(e) => {
             warn!(error = %e, ?route, "audit pass failed; findings.db will not be populated this build");
@@ -2405,10 +2406,32 @@ async fn run_audit_pass(project: &Path, inline: bool, children: &BuildChildRegis
 /// `Error` response) fall through to the same direct-subprocess path
 /// `audit::run` uses. Pulled out so we can unit-test the routing
 /// shape without going through clap or hitting a real socket.
+/// A1-025 (2026-05-04): which audit code path actually executed.
+/// Returned alongside the result so the build summary can render
+/// `audit: ok (path=ipc-supervisor)` vs `audit: ok (path=direct-fallback)`
+/// vs `audit: ok (path=inline)` instead of the opaque
+/// "ok (ipc-or-fallback)" that hid the truth.
+#[derive(Debug, Clone, Copy)]
+pub(crate) enum AuditRouteTaken {
+    Inline,
+    IpcSupervisor,
+    DirectFallback,
+}
+
+impl AuditRouteTaken {
+    fn label(&self) -> &'static str {
+        match self {
+            AuditRouteTaken::Inline => "inline",
+            AuditRouteTaken::IpcSupervisor => "ipc-supervisor",
+            AuditRouteTaken::DirectFallback => "direct-fallback",
+        }
+    }
+}
+
 async fn run_audit_pass_ipc_then_fallback(
     project: &Path,
     children: &BuildChildRegistry,
-) -> CliResult<()> {
+) -> CliResult<AuditRouteTaken> {
     let client = make_client_for_build(None);
     let ipc_attempt = client
         .request(crate::ipc::IpcRequest::Audit {
@@ -2429,10 +2452,11 @@ async fn run_audit_pass_ipc_then_fallback(
         }
         Ok(_) => {
             // Supervisor accepted the audit; the scanners worker will
-            // populate findings.db asynchronously. Return Ok — there
-            // is no useful renderer state for the build summary
-            // beyond "ran".
-            return Ok(());
+            // populate findings.db asynchronously. Return Ok with the
+            // actual taken route so the build summary distinguishes
+            // "supervisor handled it" from "supervisor declined and we
+            // fell through".
+            return Ok(AuditRouteTaken::IpcSupervisor);
         }
         Err(e) => {
             warn!(
@@ -2448,7 +2472,8 @@ async fn run_audit_pass_ipc_then_fallback(
         scanners::Severity::Info,
         Some(children.clone()),
     )
-    .await
+    .await?;
+    Ok(AuditRouteTaken::DirectFallback)
 }
 
 // ---------------------------------------------------------------------------

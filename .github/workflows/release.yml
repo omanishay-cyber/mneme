@@ -1,5 +1,27 @@
 name: Release
 
+# Bug A9-020 reconciliation (2026-05-04):
+#
+# This workflow runs on tag push (`v*.*.*`) and produces 3-platform archives
+# named WITH the version embedded so they match the convention that
+# `multi-arch-release.yml`, `bootstrap-install.ps1`, and the winget manifest
+# all expect (`mneme-v0.3.2-windows-x64.zip` etc.). Pre-fix, the asset names
+# here were `mneme-windows-x64.zip` (no version), which 404'd from the
+# bootstrap installer until someone manually re-ran `multi-arch-release.yml`.
+#
+# Why we keep BOTH workflows:
+#   - `release.yml` runs automatically on `git push --tags` -> 3 archives
+#     up immediately for the platforms that matter most (Linux x64, macOS
+#     arm64, Windows x64). Fast feedback loop.
+#   - `multi-arch-release.yml` runs on `release: published` and
+#     `workflow_dispatch` -> 5+ archives including arm64 legs. Slower, runs
+#     after a Release is published, fills in the long tail.
+#
+# Both workflows now produce identically-named artifacts, so the bootstrap
+# is deterministic regardless of which workflow uploaded last. The only
+# remaining difference is matrix breadth, not naming. ORT version is also
+# pinned to 1.24.4 in both workflows (bug A9-003 fix).
+
 on:
   push:
     tags:
@@ -20,17 +42,20 @@ jobs:
       fail-fast: false
       matrix:
         include:
+          # NOTE (A9-020): asset_name now embeds ${{ github.ref_name }} (the
+          # tag, e.g. `v0.3.2`) so output is `mneme-v0.3.2-linux-x64.tar.gz`,
+          # matching `multi-arch-release.yml` + bootstrap + winget expectations.
           - os: ubuntu-latest
             target: x86_64-unknown-linux-gnu
-            asset_name: mneme-linux-x64
+            asset_name: mneme-${{ github.ref_name }}-linux-x64
             archive: tar.gz
           - os: macos-latest
             target: aarch64-apple-darwin
-            asset_name: mneme-macos-arm64
+            asset_name: mneme-${{ github.ref_name }}-macos-arm64
             archive: tar.gz
           - os: windows-latest
             target: x86_64-pc-windows-msvc
-            asset_name: mneme-windows-x64
+            asset_name: mneme-${{ github.ref_name }}-windows-x64
             archive: zip
           # Note: macos-13 (Intel Mac) removed from the matrix. GitHub's
           # hosted Intel Mac runners are chronically queue-starved (hours
@@ -186,7 +211,14 @@ jobs:
           # manager (apt/brew install onnxruntime).
           if [ "${{ runner.os }}" = "Windows" ]; then
             echo "Downloading onnxruntime DLL for Windows release bundle..."
-            ORT_VERSION="1.20.1"
+            # A9-003 (2026-05-04): bumped ORT 1.20.1 -> 1.24.4 to match
+            # multi-arch-release.yml. The old 1.20.1 caused silent BGE
+            # inference hang on Windows -- tag-push releases through this
+            # workflow shipped the broken ORT while the manual multi-arch
+            # workflow shipped the working one. Two release paths, two
+            # binaries, recall quality silently degrades on whichever zip
+            # the user happened to install. Single source of truth now.
+            ORT_VERSION="1.24.4"
             ORT_URL="https://github.com/microsoft/onnxruntime/releases/download/v${ORT_VERSION}/onnxruntime-win-x64-${ORT_VERSION}.zip"
             curl -fsSL -o /tmp/ort.zip "$ORT_URL" || {
               echo "warning: ORT download failed; skipping DLL bundle (BGE will fall back to hashing-trick)"
