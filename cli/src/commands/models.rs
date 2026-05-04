@@ -572,8 +572,14 @@ pub fn install_from_path_to_root(src_dir: &Path, root: &Path) -> CliResult<usize
     //
     // To re-enable for legacy GitHub-only bundles (no HF, parts ship
     // split): set `MNEME_ENABLE_PART_MERGE=1` in the environment.
+    //
+    // Test builds (cfg!(test)) always enable the merge code path so
+    // unit tests can exercise the merge/orphan/gap branches without
+    // mutating process env (which would require unsafe code under
+    // lib.rs's `#![forbid(unsafe_code)]`). Production releases never
+    // hit cfg!(test) so the env-var gate continues to govern there.
     // ------------------------------------------------------------------
-    let part_merge_enabled = std::env::var("MNEME_ENABLE_PART_MERGE").is_ok();
+    let part_merge_enabled = cfg!(test) || std::env::var("MNEME_ENABLE_PART_MERGE").is_ok();
 
     let mut part_groups: BTreeMap<String, BTreeMap<u32, PathBuf>> = BTreeMap::new();
     if part_merge_enabled {
@@ -1202,6 +1208,9 @@ mod tests {
         // file at <root>/<stem>, registers a manifest entry with the
         // full size, and DOES NOT register the parts as standalone
         // entries.
+        //
+        // Part-merge is auto-enabled in test builds via `cfg!(test)`
+        // in install_from_path_to_root (see comment above the gate).
         let src = tempfile::tempdir().unwrap();
         let dst = tempfile::tempdir().unwrap();
 

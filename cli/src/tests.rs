@@ -210,33 +210,8 @@ fn windowless_command_applied_at_m13_sites() {
     );
 }
 
-/// M14 — `claude_code_likely_running` probe in install.rs spawns
-/// `tasklist` (Windows, line 650) and `pgrep` (Unix, line 664).
-/// Both must use the `windowless_command(..)` helper so the Windows
-/// site applies CREATE_NO_WINDOW. The Unix site is naturally
-/// console-free; using the same helper there keeps the call sites
-/// uniform and prevents future drift if `mneme install` is invoked
-/// from a windowless context (CI, headless installer).
-#[test]
-fn windowless_command_applied_at_m14_sites() {
-    let install_src = include_str!("commands/install.rs");
-
-    // Anchor on the unique args ARRAY (with `.args([..])`) of each probe so
-    // unrelated mentions in doc comments do not match.
-    let anchors: &[&str] = &[
-        ".args([\"/FI\", \"IMAGENAME eq Claude.exe\"", // install.rs:650 — tasklist
-        ".args([\"-f\", \"claude\"])",                 // install.rs:664 — pgrep
-    ];
-    for anchor in anchors {
-        let pos = install_src
-            .find(anchor)
-            .unwrap_or_else(|| panic!("install.rs anchor not found: {anchor}"));
-        let lo = pos.saturating_sub(600);
-        let hi = (pos + 200).min(install_src.len());
-        let window = &install_src[lo..hi];
-        assert!(
-            window.contains("windowless_command"),
-            "install.rs site for `{anchor}` must call windowless_command(..) within window"
-        );
-    }
-}
+// M14 sites (install.rs `tasklist` + `pgrep` shell-outs) were deleted by
+// A1-012 (2026-05-04) which consolidated `claude_code_likely_running`
+// to delegate to `doctor::is_claude_code_running` (sysinfo-based, no
+// shell). The M14 anchors no longer exist in install.rs by design, so
+// the regression-guard test for them is obsolete and removed.

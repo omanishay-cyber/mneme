@@ -26,10 +26,25 @@ export function TimelineScrubber(): JSX.Element {
 
   useEffect(() => {
     const ac = new AbortController();
-    fetch(withProject(API_BASE + "/api/graph?view=git-history"), { signal: ac.signal })
-      .then((r) => r.json())
-      .then((json: { commits?: CommitMark[] }) => {
-        if (json.commits && json.commits.length > 0) setCommits(json.commits);
+    // Bug #227 (CHS 2026-05-04): /api/graph?view=git-history was a stub
+    // that returned 501. The real commits endpoint is /api/graph/commits
+    // and returns Vec<CommitRowOut> { sha, author, date (ISO), message,
+    // files_changed, insertions, deletions } as a bare array. Map the
+    // server shape to the local CommitMark { hash, ts, message } shape
+    // and reverse so oldest-first feeds the time-machine slider.
+    fetch(withProject(API_BASE + "/api/graph/commits"), { signal: ac.signal })
+      .then((r) => (r.ok ? r.json() : []))
+      .then((rows: Array<{ sha: string; date: string; message: string }>) => {
+        if (!Array.isArray(rows) || rows.length === 0) return;
+        const mapped: CommitMark[] = rows
+          .map((c) => ({
+            hash: c.sha,
+            ts: Date.parse(c.date),
+            message: c.message,
+          }))
+          .filter((c) => Number.isFinite(c.ts))
+          .sort((a, b) => a.ts - b.ts);
+        if (mapped.length > 0) setCommits(mapped);
       })
       .catch(() => {
         /* keep placeholder */
