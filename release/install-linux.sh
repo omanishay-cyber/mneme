@@ -550,37 +550,74 @@ else
     # Asset list mirrors bootstrap-install.ps1 step 5. Names must match
     # what `mneme models install --from-path` expects on disk.
     #
-    # tab-separated rows: name<TAB>required<TAB>primary_url<TAB>fallback_url
-    # A7-022 (2026-05-04): every row now has 4 tab-separated fields. The
-    # phi-3 row previously had 3 fields (no GitHub fallback because the
-    # 2.28 GB single file exceeds GitHub's 2 GB asset cap), which under
-    # `set -u` would leave m_fallback unbound on that row. Trailing tab
-    # + empty 4th column makes every row uniformly shaped; the
-    # download_dual_source helper accepts an empty fallback URL and
-    # treats it as "primary-only" (no GitHub fallback for phi-3).
+    # tab-separated rows: name<TAB>required<TAB>primary_url<TAB>fallback_url<TAB>expected_size
+    # The 5th column is exact byte count (from HF mirror) used by the
+    # skip-if-present check below: if the file already exists in the
+    # FINAL model root at the expected size, the entire download +
+    # staging cycle is skipped. Saves up to ~3.5 GB of redundant
+    # network on re-installs (Bug #228 PROPER, 2026-05-04).
+    # HF-only (2026-05-04): GitHub Releases fallback dropped on every
+    # platform. HF Hub is the canonical mirror (Cloudflare CDN, no asset
+    # cap, ~99.9% uptime). If HF is unreachable the recovery is `mneme
+    # models install --from-path <dir>` after the user fetches files
+    # from any other mirror, NOT a silent degraded path that may
+    # itself fail mid-stream.
     MODEL_LIST=$(cat <<MODELS_EOF
-bge-small-en-v1.5.onnx	1	${HF_BASE}/bge-small-en-v1.5.onnx	${RELEASE_BASE}/bge-small-en-v1.5.onnx
-tokenizer.json	1	${HF_BASE}/tokenizer.json	${RELEASE_BASE}/tokenizer.json
-qwen-embed-0.5b.gguf	0	${HF_BASE}/qwen-embed-0.5b.gguf	${RELEASE_BASE}/qwen-embed-0.5b.gguf
-qwen-coder-0.5b.gguf	0	${HF_BASE}/qwen-coder-0.5b.gguf	${RELEASE_BASE}/qwen-coder-0.5b.gguf
-phi-3-mini-4k.gguf	0	${HF_BASE}/phi-3-mini-4k.gguf
+bge-small-en-v1.5.onnx	1	${HF_BASE}/bge-small-en-v1.5.onnx		133093490
+tokenizer.json	1	${HF_BASE}/tokenizer.json		742067
+qwen-embed-0.5b.gguf	0	${HF_BASE}/qwen-embed-0.5b.gguf		639150592
+qwen-coder-0.5b.gguf	0	${HF_BASE}/qwen-coder-0.5b.gguf		491400064
+phi-3-mini-4k.gguf	0	${HF_BASE}/phi-3-mini-4k.gguf		2393231072
 MODELS_EOF
 )
 
+    # Final destination dir for installed models — checked by the
+    # skip-if-present guard. The bootstrap downloads to MODELS_DIR
+    # (a TEMP staging path) and `mneme models install --from-path`
+    # later copies into FINAL_MODELS_DIR. The Bug #232 manifest-merge
+    # fix means existing entries here survive even when the staging
+    # dir contains only a subset of the assets.
+    FINAL_MODELS_DIR="${MNEME_HOME}/models"
+
+    # Portable file-size helper. `stat -c%s` works on Linux GNU coreutils;
+    # macOS BSD stat needs `stat -f%z`. We try GNU first, then BSD.
+    file_size() {
+        local _f="$1"
+        local _sz
+        _sz=$(stat -c%s "${_f}" 2>/dev/null) || _sz=$(stat -f%z "${_f}" 2>/dev/null) || _sz=""
+        printf '%s' "${_sz}"
+    }
+
     model_downloads=0
+    model_skips=0
     model_failures=0
     OLDIFS="${IFS}"
     IFS=$'\n'
     for row in ${MODEL_LIST}; do
-        IFS=$'\t' read -r m_name m_required m_primary m_fallback <<<"${row}"
+        IFS=$'\t' read -r m_name m_required m_primary m_fallback m_size <<<"${row}"
         # A7-022 (2026-05-04): defensive default. With every row now
-        # 4-field (per the trailing-tab fix above) m_fallback is always
+        # 5-field (per the trailing-tab fix above) m_fallback is always
         # set to either a URL or empty, but `read` on bash 3.2 (some
         # macOS hosts) can leave a trailing-tab field unset. Force-
         # default so `set -u` doesn't trip later when m_fallback is
         # passed to download_dual_source.
         m_fallback="${m_fallback:-}"
+        m_size="${m_size:-0}"
         IFS=$'\n'
+
+        # Bug #228 PROPER (2026-05-04): skip if final dest already has
+        # the file at the right size. Don't even stage the download.
+        final_path="${FINAL_MODELS_DIR}/${m_name}"
+        if [ -f "${final_path}" ]; then
+            existing_size=$(file_size "${final_path}")
+            if [ -n "${existing_size}" ] && [ "${existing_size}" = "${m_size}" ]; then
+                mb=$(( m_size / 1048576 ))
+                ok "skip ${m_name} (${mb} MB already at ${final_path}, size matches)"
+                model_skips=$(( model_skips + 1 ))
+                continue
+            fi
+        fi
+
         dest="${MODELS_DIR}/${m_name}"
         if ( download_dual_source "${m_name}" "${m_primary}" "${m_fallback}" "${dest}" ); then
             model_downloads=$(( model_downloads + 1 ))
@@ -595,7 +632,7 @@ MODELS_EOF
     done
     IFS="${OLDIFS}"
 
-    ok "downloaded ${model_downloads} model asset(s) (${model_failures} failed)"
+    ok "downloaded ${model_downloads} model asset(s) (${model_failures} failed, ${model_skips} skipped -- already on disk)"
 
     if [ "${model_downloads}" -gt 0 ]; then
         say "registering models via mneme models install --from-path"
