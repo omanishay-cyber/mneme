@@ -5,6 +5,21 @@ All notable changes to mneme will be recorded here.
 Format loosely based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 Versioning follows [SemVer](https://semver.org/spec/v2.0.0.html).
 
+## [v0.3.2 hotfix] - 2026-05-04 - Mneme OS branding + install hardening
+
+### Added (2026-05-04)
+
+- **Pip distribution renamed `mneme-mcp` → `mnemeos`.** The bare name `mneme` on PyPI was claimed in 2014 by an unrelated Flask-based note-taking package by Risto Stevcev (https://github.com/Risto-Stevcev/flask-mneme), so we now publish under `mnemeos` (short for "Mneme OS", the project's brand). The console scripts include `mnemeos` (canonical), `mneme` (legacy alias), and `mneme-bootstrap` (legacy alias) — all three call the same entry point.
+- **CLI binary alias `mnemeos`.** All three install scripts (`scripts/install.ps1`, `release/install-mac.sh`, `release/install-linux.sh`) now drop a `mnemeos` alias alongside `mneme` in the bin directory. On Windows it's a hard link (with a copy fallback for filesystems that don't support hard links); on macOS / Linux it's a symlink. Users can invoke either name.
+- **Winget `Anish.Mnemeos` manifest.** New parallel winget manifest at `winget/Anish/Mnemeos/0.3.2/` that points at the same release zips as the existing `Anish.Mneme` manifest. PortableCommandAlias registers BOTH `mnemeos` and `mneme` so users running `winget install Anish.Mnemeos` get both names. The existing `Anish.Mneme` manifest stays for backward compat.
+- **`install.ps1` PATH precedence + impostor mneme.exe detection.** Step 5 now PREPENDS `~/.mneme/bin` to the user PATH (instead of appending) so the real mneme binary always wins resolution, and proactively scans PATH for any non-mneme `mneme.exe` stub (size < 1 MB AND not in our BinDir — typically a Python entry-point launcher from an unrelated package). Warns the user with cleanup instructions. Fixes a class of cascade failure on machines that happen to have a foreign PyPI `mneme` package installed.
+
+### Documentation (2026-05-04)
+
+- **CHANGELOG truth fix.** Earlier `[v0.3.2 hotfix]` entries claimed the CLI's phi-3 part-merge code in `cli/src/commands/models.rs::install_from_path_to_root` was removed. The standalone `merge-phi3-parts.ps1` helper IS gone, but the CLI retains its own merge fallback for users running `mneme models install --from-path <dir>` against a directory of split parts. CHANGELOG now reflects that.
+
+---
+
 ## [v0.3.2 hotfix] - 2026-05-02 - AWS production install hardening
 
 22+ bugs caught during AWS install testing and Claude Code MCP testing on 2026-05-02. All fixes ship under the existing **v0.3.2** tag (re-uploaded zip + bootstrap on the v0.3.2 release page). No version bump.

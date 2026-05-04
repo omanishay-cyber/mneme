@@ -35,6 +35,19 @@ curl -fsSL https://github.com/omanishay-cyber/mneme/releases/download/v0.3.2/ins
 curl -fsSL https://github.com/omanishay-cyber/mneme/releases/download/v0.3.2/install-linux.sh | bash
 ```
 
+### Python wrapper (any OS, pip-friendly)
+
+```bash
+pip install mnemeos
+mnemeos                    # canonical command
+# or
+mneme                      # legacy alias, same binary
+```
+
+The Python wrapper detects your platform (`sys.platform`) and architecture, downloads the matching bootstrap script (Windows / macOS / Linux), verifies its SHA-256, and runs it. Same install path as the OS-native commands above - just gets you there from `pip` if that's where your toolchain lives.
+
+The PyPI distribution name is `mnemeos` (the bare `mneme` was claimed on PyPI in 2014 by an unrelated Flask-based note-taking app). The CLI command can be invoked as `mnemeos` (canonical) or `mneme` (legacy alias) - both refer to the same binary.
+
 ### Requirements
 
 | Requirement | Detail |

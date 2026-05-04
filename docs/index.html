@@ -1578,7 +1578,7 @@
       .codewords-grid { grid-template-columns: 1fr; }
     }
 
-  
+
     /* MAINTAINER OVERRIDE: paragraphs inside sections fill the full section width.
        Beats every per-class max-width AND inline style="max-width: ..." overrides. */
     section p,
@@ -1756,6 +1756,12 @@
           </svg>
           Linux
         </button>
+        <button class="install-tab" type="button" role="tab" aria-selected="false" data-os="pip">
+          <svg width="14" height="14" viewBox="0 0 16 16" aria-hidden="true">
+            <path fill="currentColor" d="M7.952 0c-1.116 0-2.18.198-3.118.554C2.96 1.225 2.6 2.6 2.6 4.97v3.087h5.36v.683H1.18C-1.144 8.74-1.144 14.5 1.18 14.5h2.092v-3.65c0-1.46 1.24-2.7 2.7-2.7h5.355c1.16 0 2.097-.952 2.097-2.092V2.97c0-1.115-.94-1.95-2.05-2.135C10.628.13 9.07 0 7.952 0zM5.36 1.515a.95.95 0 1 1 0 1.9.95.95 0 0 1 0-1.9zm5.27 6.542H8.025v.683h2.605c2.323 0 2.323 5.76 0 5.76H8.535v3.087c0 1.115.94 1.95 2.05 2.135 1.747.288 3.305.13 4.422-.218 1.873-.671 2.234-2.046 2.234-4.416V11.85h-5.36v-.683h7.78c2.324 0 2.324-5.76 0-5.76h-2.092v3.65c0 1.46-1.24 2.7-2.7 2.7zm-2.595 5.527a.95.95 0 1 1 0 1.9.95.95 0 0 1 0-1.9z"/>
+          </svg>
+          Pip
+        </button>
       </div>
 
       <div class="install-panels">
@@ -1783,6 +1789,16 @@
           <pre class="install-cmd"><code><span class="t-prompt">$</span> curl -fsSL https://github.com/omanishay-cyber/mneme/releases/download/v0.3.2/install-linux.sh | bash</code></pre>
           <button class="install-copy" type="button" aria-label="Copy install command"
                   data-copy="curl -fsSL https://github.com/omanishay-cyber/mneme/releases/download/v0.3.2/install-linux.sh | bash">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
+              <rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
+            </svg>
+            <span>Copy</span>
+          </button>
+        </div>
+        <div class="install-cmd-wrap" role="tabpanel" data-os="pip" hidden>
+          <pre class="install-cmd"><code><span class="t-prompt">$</span> pip install mnemeos &amp;&amp; mnemeos</code></pre>
+          <button class="install-copy" type="button" aria-label="Copy install command"
+                  data-copy="pip install mnemeos && mnemeos">
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">
               <rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/>
             </svg>

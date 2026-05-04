@@ -42,7 +42,14 @@ curl -fsSL https://github.com/omanishay-cyber/mneme/releases/download/v0.3.2/ins
 curl -fsSL https://github.com/omanishay-cyber/mneme/releases/download/v0.3.2/install-linux.sh | bash
 ```
 
-> One command per OS - the script auto-detects your architecture and downloads the right binary archive. Restart Claude after install. Verify with `mneme doctor` and `claude mcp list`.
+```bash
+# Python (any OS) * pip-friendly wrapper * detects platform + arch automatically
+pip install mnemeos && mnemeos
+```
+
+> One command per OS - the script auto-detects your architecture and downloads the right binary archive. The `pip install mnemeos` path is a Python wrapper that fetches the same bootstrap script for your platform. Restart Claude after install. Verify with `mneme doctor` and `claude mcp list`.
+>
+> **Branding note:** the project is **Mneme OS**. The pip distribution is `mnemeos` (the bare name `mneme` was claimed on PyPI in 2014 by an unrelated package). The CLI binary is `mneme` with `mnemeos` as a parallel alias - both names work everywhere.
 >
 > **Requirements:** 64-bit OS (x64 or ARM64) * CPU with AVX2 / BMI2 / FMA (Intel Haswell 2013+ or AMD Excavator 2015+ - almost every PC sold since 2013 qualifies) * 5 GB free disk * no admin needed. 32-bit Windows is not supported (Bun runtime requirement).
 
