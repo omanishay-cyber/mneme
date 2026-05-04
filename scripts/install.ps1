@@ -1304,22 +1304,66 @@ if ($DefenderFailed) {
 }
 
 # ============================================================================
-# Step 5 - Add bin dir to user PATH
+# Step 5 - Add bin dir to user PATH (PREPEND so real mneme always wins)
 # ============================================================================
+#
+# 2026-05-04 hardening (B-PATH): PREPEND `~/.mneme/bin` (not append) so
+# the real mneme binary always resolves first. Also detect any non-mneme
+# `mneme.exe` stub on PATH (e.g. an unrelated PyPI `mneme` package by
+# Risto Stevcev installs a ~100 KB Python entry-point launcher to
+# `<Python>/Scripts/mneme.exe` that intercepts every `mneme` invocation).
+# Without this defense, hooks fired by Claude Code call the wrong binary,
+# every action returns an error, and the install appears broken on
+# machines that happen to have a foreign `mneme` PyPI package installed.
 
 Write-Step "step 5/8 - updating user PATH"
+
+# Detect impostor `mneme.exe` already on PATH that is NOT our binary.
+# Heuristic: real mneme.exe is ~50 MB Rust binary; Python entry-point
+# launchers are 100-200 KB stubs. Any `mneme.exe` smaller than 1 MB AND
+# not in our `$BinDir` is almost certainly a foreign package's entry point.
+$impostors = @()
+foreach ($p in ($env:PATH -split ';')) {
+    if ([string]::IsNullOrWhiteSpace($p)) { continue }
+    $candidate = Join-Path $p 'mneme.exe'
+    if ((Test-Path $candidate -PathType Leaf) -and ($candidate -ne (Join-Path $BinDir 'mneme.exe'))) {
+        try {
+            $sz = (Get-Item $candidate -ErrorAction Stop).Length
+            if ($sz -lt 1MB) { $impostors += @{ Path = $candidate; Size = $sz } }
+        } catch { }
+    }
+}
+if ($impostors.Count -gt 0) {
+    Write-Warn "detected non-mneme mneme.exe stub(s) on PATH (would intercept hook calls):"
+    foreach ($i in $impostors) {
+        $kb = [math]::Round($i.Size / 1KB, 1)
+        Write-Host ("    {0} ({1} KB)" -f $i.Path, $kb) -ForegroundColor Yellow
+    }
+    Write-Host "    likely from an unrelated PyPI 'mneme' package (e.g. flask-mneme)." -ForegroundColor Yellow
+    Write-Host "    PATH is being prepended below so real mneme wins resolution." -ForegroundColor Yellow
+    Write-Host "    Optional cleanup if you do not need the foreign package:" -ForegroundColor Yellow
+    Write-Host "      pip uninstall -y mneme" -ForegroundColor Yellow
+    Write-Host "      Remove-Item <path-above> -Force   # if file persists after pip uninstall" -ForegroundColor Yellow
+}
 
 $UserPath = [Environment]::GetEnvironmentVariable('PATH', 'User')
 if ($null -eq $UserPath) { $UserPath = '' }
 
-if (-not ($UserPath.Split(';') -contains $BinDir)) {
-    $NewPath = if ([string]::IsNullOrEmpty($UserPath)) { $BinDir } else { "$UserPath;$BinDir" }
+# PREPEND (not append) so $BinDir wins over any other PATH entry that
+# also has a mneme.exe (Python Scripts dirs, conda envs, etc.).
+# Idempotent: if $BinDir already appears anywhere in PATH, we strip the
+# old position and re-insert at the front.
+$existingSegments = $UserPath.Split(';') | Where-Object { -not [string]::IsNullOrWhiteSpace($_) -and $_ -ne $BinDir }
+$NewPath = (@($BinDir) + $existingSegments) -join ';'
+if ($NewPath -ne $UserPath) {
     [Environment]::SetEnvironmentVariable('PATH', $NewPath, 'User')
-    $env:PATH = "$env:PATH;$BinDir"
-    Write-OK ("added {0} to user PATH" -f $BinDir)
+    Write-OK ("prepended {0} to user PATH (real mneme wins resolution)" -f $BinDir)
 } else {
-    Write-OK "bin already in PATH"
+    Write-OK "bin already at front of PATH"
 }
+# Also rewrite session PATH so the rest of this install run sees the new order.
+$sessionSegments = $env:PATH.Split(';') | Where-Object { -not [string]::IsNullOrWhiteSpace($_) -and $_ -ne $BinDir }
+$env:PATH = (@($BinDir) + $sessionSegments) -join ';'
 
 # ============================================================================
 # Step 5b - Clear Bun's install cache to prevent stale-bytecode failures
