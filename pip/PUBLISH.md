@@ -1,12 +1,21 @@
-# Publishing mneme-mcp to PyPI
+# Publishing mnemeos to PyPI
 
 One-page reference for the maintainer. Run from the repo root.
 
 ## Distribution name
 
-`mneme-mcp`. The bare name `mneme` was already taken on PyPI by an
-unrelated notes app, so we ship under `mneme-mcp`. The console script is
-still `mneme` -- end users do not see the qualifier.
+**`mnemeos`** — short for "Mneme OS", the project's brand.
+
+The bare name `mneme` was claimed on PyPI in 2014 by an unrelated
+Flask-based note-taking package by Risto Stevcev (
+<https://github.com/Risto-Stevcev/flask-mneme>), so we ship under
+`mnemeos` instead. The console scripts include both `mnemeos` (canonical)
+and `mneme` / `mneme-bootstrap` (legacy aliases) — end users invoking
+either name work.
+
+Earlier internal builds were named `mneme-mcp`. That distribution name is
+deprecated and not published. Anyone who runs `pip install mneme-mcp`
+gets nothing because we never uploaded under that name.
 
 ## One-time PyPI setup
 
@@ -26,17 +35,17 @@ python -m pip install --upgrade build twine
 python -m build
 ```
 
-That writes `dist/mneme_mcp-0.3.2-py3-none-any.whl` and
-`dist/mneme_mcp-0.3.2.tar.gz`.
+That writes `dist/mnemeos-0.3.2-py3-none-any.whl` and
+`dist/mnemeos-0.3.2.tar.gz`.
 
 ## Smoke test the wheel
 
 In a throwaway venv:
 
 ```bash
-python -m venv /tmp/check-mneme
-/tmp/check-mneme/bin/python -m pip install dist/mneme_mcp-0.3.2-py3-none-any.whl
-/tmp/check-mneme/bin/mneme --check
+python -m venv /tmp/check-mnemeos
+/tmp/check-mnemeos/bin/python -m pip install dist/mnemeos-0.3.2-py3-none-any.whl
+/tmp/check-mnemeos/bin/mnemeos --check
 ```
 
 If `--check` prints the expected platform / URL / SHA-256, the wheel is
@@ -51,16 +60,17 @@ python -m twine upload dist/*
 ```
 
 Twine prints the project URL on success. Verify the listing at
-<https://pypi.org/project/mneme-mcp/>.
+<https://pypi.org/project/mnemeos/>.
 
 ## After upload
 
 1. Pin a CHANGELOG entry under the upstream project's `CHANGELOG.md`
    noting the new wrapper version.
-2. If a new mneme release ships, regenerate the SHA-256 pins in
+2. If a new Mneme OS release ships, regenerate the SHA-256 pins in
    `src/mneme_mcp/bootstrap.py`, bump the package version, and rebuild.
-3. The bare command is `mneme`; the alias `mneme-bootstrap` is also
-   wired up so power users can keep both around without conflict.
+3. Three console scripts are wired up: `mnemeos` (canonical), `mneme`
+   (legacy), `mneme-bootstrap` (legacy). All three call the same entry
+   point so users on either name work.
 
 ## Trusted Publishing (future task)
 

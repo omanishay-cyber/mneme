@@ -3,9 +3,9 @@ requires = ["setuptools>=68", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "mneme-mcp"
+name = "mnemeos"
 version = "0.3.2"
-description = "Local persistent code-graph and AI-superbrain MCP server -- Python wrapper for the official installer"
+description = "Mneme OS — local persistent code-graph + AI-superbrain MCP server. One-line Python wrapper around the official installer (auto-detects Windows/macOS/Linux + x64/arm64)."
 readme = "README.md"
 license = { text = "Apache-2.0" }
 requires-python = ">=3.10"
@@ -13,7 +13,7 @@ authors = [
     { name = "Anish Trivedi" },
     { name = "Kruti Trivedi" },
 ]
-keywords = ["mneme", "mcp", "code-graph", "memory", "ai", "developer-tools", "installer"]
+keywords = ["mnemeos", "mneme", "mneme-os", "mcp", "code-graph", "memory", "ai", "developer-tools", "installer"]
 classifiers = [
     "Development Status :: 4 - Beta",
     "Environment :: Console",
@@ -41,6 +41,7 @@ test = [
 ]
 
 [project.scripts]
+mnemeos = "mneme_mcp.cli:main"
 mneme = "mneme_mcp.cli:main"
 mneme-bootstrap = "mneme_mcp.cli:main"
 
