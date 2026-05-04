@@ -1,0 +1,44 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.6.0.schema.json
+
+PackageIdentifier: Anish.Mnemeos
+PackageVersion: 0.3.2
+PackageLocale: en-US
+Publisher: Anish Trivedi & Kruti Trivedi
+PublisherUrl: https://github.com/omanishay-cyber
+PublisherSupportUrl: https://github.com/omanishay-cyber/mneme/issues
+Author: Anish Trivedi & Kruti Trivedi
+PackageName: Mneme OS
+PackageUrl: https://omanishay-cyber.github.io/mneme/
+License: Apache-2.0
+LicenseUrl: https://github.com/omanishay-cyber/mneme/blob/master/LICENSE
+Copyright: Copyright (c) 2026 Anish Trivedi & Kruti Trivedi
+CopyrightUrl: https://github.com/omanishay-cyber/mneme/blob/master/LICENSE
+ShortDescription: Mneme OS — local persistent code-graph and AI-superbrain MCP server
+Description: |-
+  Mneme OS is a local-first persistent code-graph and AI-superbrain Model
+  Context Protocol (MCP) server. It indexes a codebase into 22 sharded
+  SQLite stores, exposes 48 MCP tools to any compatible AI client, and
+  ships a 14-view vision app for visual exploration. All processing is
+  local — no telemetry, no cloud calls.
+
+  Both `mnemeos` (canonical) and `mneme` (legacy) commands are wired up.
+Moniker: mnemeos
+Tags:
+- mneme-os
+- mneme
+- mcp
+- code-graph
+- ai
+- claude
+- rust
+- sqlite
+- persistent-memory
+- local-first
+ReleaseNotesUrl: https://github.com/omanishay-cyber/mneme/releases/tag/v0.3.2
+PurchaseUrl: https://github.com/omanishay-cyber/mneme
+InstallationNotes: |-
+  After install, run `mnemeos doctor` (or `mneme doctor`) to verify and
+  `claude mcp add mneme` to register with Claude Code (or equivalent for
+  your MCP client).
+ManifestType: defaultLocale
+ManifestVersion: 1.6.0
