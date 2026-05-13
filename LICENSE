@@ -1,0 +1,277 @@
+                       STRYX LABS LICENSE AGREEMENT
+                                 Version 1.0
+                                Effective MMXXVI
+
+This License Agreement ("Agreement") is a legal contract between you ("Licensee"
+or "you") and STRYX LABS ("Licensor", "Stryx Labs", or "Stryx"), the owner of
+the Software described below. By downloading, installing, accessing, or using
+the Software, you agree to be bound by the terms of this Agreement. If you do
+not agree, do not install, copy, access, or use the Software.
+
+---------------------------------------------------------------------------
+1. DEFINITIONS
+---------------------------------------------------------------------------
+
+"Software" means any software product distributed by Stryx Labs under this
+Agreement, including but not limited to Mneme, together with all binaries,
+executables, libraries, command-line tools, configuration files, documentation,
+icons, and accompanying materials.
+
+"Official Channels" means the websites stryxlabs.com, mneme.stryxlabs.com,
+and any other domain or subdomain explicitly designated by Stryx Labs as an
+official distribution endpoint, and the official binary release artifacts
+hosted on those domains.
+
+"Trademarks" means the names and logos of "Stryx", "Stryx Labs", "Mneme",
+the Stryx owl mark, the Mneme three-node graph mark, and any other marks
+identifying products, services, or origin of Stryx Labs.
+
+"You" or "your" refers to any individual or legal entity that downloads,
+installs, accesses, or uses the Software.
+
+---------------------------------------------------------------------------
+2. GRANT OF LICENSE
+---------------------------------------------------------------------------
+
+Subject to your continued compliance with this Agreement, Stryx Labs grants
+you a worldwide, non-exclusive, non-transferable, non-sublicensable,
+royalty-free, revocable license to:
+
+  (a) download the Software from Official Channels;
+  (b) install the Software on any computing device that you own or control,
+      in any quantity, without per-seat fee or activation requirement;
+  (c) use the Software for any lawful purpose, including personal use,
+      educational use, academic research, internal business operations,
+      commercial use, and production deployment;
+  (d) retain and use the output produced by the Software (such as graphs,
+      reports, exports, and processed data) without restriction;
+  (e) reference the Software by name in non-misleading contexts, such as
+      product reviews, technical articles, and integration documentation.
+
+No license fee, subscription, activation key, or registration is required
+for the rights granted above. The Software is provided to you at no cost.
+
+---------------------------------------------------------------------------
+3. RESTRICTIONS
+---------------------------------------------------------------------------
+
+You may NOT, and you may not permit any third party to:
+
+  (a) redistribute, republish, mirror, sublicense, rent, lease, lend, sell,
+      resell, or otherwise transfer copies of the Software or any portion
+      of it to any third party, by any means, including without limitation
+      via package repositories, mirror sites, cloud storage, peer-to-peer
+      networks, container registries, or installation scripts hosted on
+      infrastructure other than Official Channels;
+
+  (b) reverse engineer, decompile, disassemble, deobfuscate, or otherwise
+      attempt to derive the source code, underlying ideas, file formats,
+      algorithms, or non-public interfaces of the Software, except and
+      only to the extent that such activity is expressly permitted by
+      applicable law notwithstanding this limitation;
+
+  (c) modify, adapt, translate, fork, or create derivative works of the
+      Software binaries, configuration schemas, or other distributed
+      artifacts;
+
+  (d) use the Software, or any output, technique, or insight derived from
+      the Software, to develop, train, market, sell, or operate a product
+      or service that competes with the Software or any other product
+      distributed by Stryx Labs;
+
+  (e) remove, alter, obscure, or replace any copyright notice, trademark,
+      proprietary marking, identifier, watermark, version stamp, or
+      attribution embedded in or accompanying the Software;
+
+  (f) use the Trademarks except as expressly permitted by section 2(e), and
+      in particular not in a way that would suggest endorsement, sponsorship,
+      affiliation, or partnership with Stryx Labs without prior written
+      permission;
+
+  (g) use the Software in violation of applicable law, in connection with
+      the development of weapons of mass destruction, in life-critical
+      systems where failure could result in death or serious bodily harm,
+      or in any manner that infringes the rights of any third party.
+
+---------------------------------------------------------------------------
+4. OWNERSHIP AND INTELLECTUAL PROPERTY
+---------------------------------------------------------------------------
+
+The Software is licensed, not sold. All right, title, and interest in and
+to the Software, including all intellectual property rights, are and shall
+remain the exclusive property of Stryx Labs and its licensors. This
+Agreement does not grant you any ownership interest in the Software.
+
+The source code of the Software is proprietary and confidential to Stryx
+Labs and is not publicly distributed. The Software is distributed solely
+in compiled binary form through Official Channels.
+
+The Trademarks are the exclusive property of Stryx Labs. All rights not
+expressly granted in this Agreement are reserved by Stryx Labs.
+
+---------------------------------------------------------------------------
+5. UPDATES AND NEW VERSIONS
+---------------------------------------------------------------------------
+
+Stryx Labs may, at its sole discretion, release updates, patches, bug
+fixes, new features, and new versions of the Software. Such releases may
+be governed by the same Agreement or by an updated agreement supplied
+with the release.
+
+You are not obligated to install any update. You may continue to use any
+version of the Software you have previously installed under the terms of
+the Agreement effective at the time of that installation, subject to
+section 6.
+
+Stryx Labs may, at its sole discretion, discontinue, withdraw, recall, or
+unpublish any version of the Software, in which case you must cease use
+of the affected version within a reasonable period if so requested.
+
+---------------------------------------------------------------------------
+6. TERMINATION
+---------------------------------------------------------------------------
+
+This Agreement remains in effect until terminated.
+
+This Agreement and all rights granted to you under it will terminate
+automatically and without notice if you breach any term of this Agreement.
+
+Stryx Labs may terminate this Agreement at any time, with or without
+cause, by providing reasonable notice through Official Channels.
+
+Upon termination, you must immediately:
+  (a) cease all use of the Software;
+  (b) destroy all copies of the Software in your possession or control;
+  (c) certify in writing such destruction if requested by Stryx Labs.
+
+The provisions of sections 3, 4, 7, 8, 9, 10, and 11 survive termination.
+
+---------------------------------------------------------------------------
+7. PRIVACY
+---------------------------------------------------------------------------
+
+The Software is designed to run entirely on your local computing device.
+Stryx Labs does not collect telemetry, usage data, error reports, code
+content, or any other personal or proprietary data from the Software's
+ordinary operation. Network connections, if any, are initiated only at
+your explicit request (for example, to check for updates).
+
+Information you voluntarily provide to Stryx Labs (such as by emailing
+hello@stryxlabs.com) is subject to the Stryx Labs Privacy Policy
+available at stryxlabs.com.
+
+---------------------------------------------------------------------------
+8. DISCLAIMER OF WARRANTIES
+---------------------------------------------------------------------------
+
+THE SOFTWARE IS PROVIDED "AS IS" AND "AS AVAILABLE", WITHOUT WARRANTY OF
+ANY KIND, EXPRESS, IMPLIED, OR STATUTORY, INCLUDING WITHOUT LIMITATION
+WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, TITLE,
+NON-INFRINGEMENT, ACCURACY, OR QUIET ENJOYMENT.
+
+WITHOUT LIMITING THE FOREGOING, STRYX LABS DOES NOT WARRANT THAT THE
+SOFTWARE WILL BE UNINTERRUPTED, ERROR-FREE, SECURE, COMPATIBLE WITH ANY
+SPECIFIC HARDWARE OR SOFTWARE, FREE OF VIRUSES OR HARMFUL COMPONENTS, OR
+THAT DEFECTS WILL BE CORRECTED. YOUR USE OF THE SOFTWARE IS AT YOUR SOLE
+RISK.
+
+NO ORAL OR WRITTEN INFORMATION OR ADVICE PROVIDED BY STRYX LABS OR ITS
+REPRESENTATIVES SHALL CREATE ANY WARRANTY.
+
+---------------------------------------------------------------------------
+9. LIMITATION OF LIABILITY
+---------------------------------------------------------------------------
+
+TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, IN NO EVENT SHALL
+STRYX LABS, ITS OFFICERS, FOUNDERS, CONTRACTORS, AGENTS, OR LICENSORS BE
+LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, EXEMPLARY,
+OR PUNITIVE DAMAGES, OR FOR ANY LOSS OF PROFITS, REVENUE, DATA, GOODWILL,
+BUSINESS, USE, OR ANTICIPATED SAVINGS, ARISING OUT OF OR RELATING TO
+YOUR USE OF, OR INABILITY TO USE, THE SOFTWARE, EVEN IF STRYX LABS HAS
+BEEN ADVISED OF THE POSSIBILITY OF SUCH DAMAGES.
+
+THE AGGREGATE LIABILITY OF STRYX LABS UNDER THIS AGREEMENT, REGARDLESS OF
+THE FORM OF ACTION, SHALL NOT EXCEED THE GREATER OF (A) THE AMOUNT YOU
+PAID FOR THE SOFTWARE IN THE TWELVE MONTHS PRECEDING THE CLAIM, OR
+(B) US$0.00. BECAUSE THE SOFTWARE IS PROVIDED AT NO COST, THIS LIMIT IS
+INTENDED AND ACCEPTED BY THE PARTIES.
+
+Some jurisdictions do not allow the exclusion of certain warranties or
+the limitation of incidental or consequential damages. In such
+jurisdictions, the foregoing limitations apply only to the extent
+permitted by applicable law.
+
+---------------------------------------------------------------------------
+10. INDEMNIFICATION
+---------------------------------------------------------------------------
+
+You agree to indemnify, defend, and hold harmless Stryx Labs, its
+founders, contractors, agents, and licensors from and against any and
+all claims, liabilities, damages, losses, costs, and expenses (including
+reasonable attorneys' fees) arising out of or relating to:
+  (a) your use of the Software in violation of this Agreement;
+  (b) your violation of any applicable law in connection with your use
+      of the Software;
+  (c) your infringement of any third party's rights in connection with
+      your use of the Software or its output.
+
+---------------------------------------------------------------------------
+11. GOVERNING LAW AND DISPUTE RESOLUTION
+---------------------------------------------------------------------------
+
+This Agreement shall be governed by and construed in accordance with the
+laws of the country in which Stryx Labs has its principal place of
+business, without regard to its conflict of laws principles. The United
+Nations Convention on Contracts for the International Sale of Goods does
+not apply to this Agreement.
+
+Any dispute arising out of or relating to this Agreement shall be subject
+to the exclusive jurisdiction of the courts located in that same
+jurisdiction, and the parties consent to the personal jurisdiction of and
+exclusive venue in those courts.
+
+---------------------------------------------------------------------------
+12. GENERAL
+---------------------------------------------------------------------------
+
+ENTIRE AGREEMENT. This Agreement constitutes the entire agreement
+between you and Stryx Labs regarding the Software and supersedes all
+prior or contemporaneous understandings, communications, and
+representations, whether oral or written.
+
+ASSIGNMENT. You may not assign or transfer this Agreement, by operation
+of law or otherwise, without the prior written consent of Stryx Labs.
+Stryx Labs may assign this Agreement at its discretion. Any attempted
+assignment in violation of this section is void.
+
+SEVERABILITY. If any provision of this Agreement is held to be invalid,
+illegal, or unenforceable, the remaining provisions shall continue in
+full force and effect.
+
+WAIVER. The failure of Stryx Labs to enforce any right or provision of
+this Agreement shall not constitute a waiver of such right or provision.
+
+NO AGENCY. Nothing in this Agreement creates a partnership, joint
+venture, employment, agency, or franchise relationship between you and
+Stryx Labs.
+
+NOTICES. Stryx Labs may provide notices to you by posting on Official
+Channels or by email to an address you have provided. You may provide
+notices to Stryx Labs by email to hello@stryxlabs.com.
+
+---------------------------------------------------------------------------
+13. CONTACT
+---------------------------------------------------------------------------
+
+For licensing questions, permission requests, partnership inquiries, or
+to report misuse of the Software or Trademarks, contact:
+
+    Stryx Labs
+    hello@stryxlabs.com
+    https://stryxlabs.com
+
+---------------------------------------------------------------------------
+
+Copyright (C) MMXXVI Stryx Labs. All rights reserved.
+"Stryx", "Stryx Labs", "Mneme", and associated marks are trademarks of
+Stryx Labs.
